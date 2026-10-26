@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# 生成物（データ・学習結果）はリポジトリに含めない
+/data/
+/outputs/
+
+# 学習の記録（W&B）
+wandb/
+
+# エディタ・OS
+.vscode/
+.idea/
+.DS_Store
