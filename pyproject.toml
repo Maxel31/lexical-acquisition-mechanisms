@@ -2,6 +2,7 @@
 name = "lexical-acquisition-mechanisms"
 version = "0.1.0"
 description = "言語モデルにおける語彙獲得と語義追加の機構解析（OLMo 2 の継続事前学習による実験）"
+readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "numpy>=2.5",
