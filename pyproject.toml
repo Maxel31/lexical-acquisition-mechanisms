@@ -12,6 +12,9 @@ dependencies = [
     "transformers>=5.20",
 ]
 
+[project.scripts]
+lexical-acquisition-mechanisms = "lexical_acquisition_mechanisms.command_line:main"
+
 [dependency-groups]
 dev = [
     "pytest>=9.1",
