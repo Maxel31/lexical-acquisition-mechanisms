@@ -2,289 +2,213 @@
 
 [日本語](README.md)
 
-Code for experiments that manipulate the vocabulary of OLMo 2 (1B / 7B / 13B) through continued pretraining, to study how language models acquire and process new words and new senses. The main experiment runs on 7B; 1B and 13B are used to compare model sizes.
+Code for three experiments that manipulate the vocabulary of OLMo 2 (1B / 7B / 13B) through continued pretraining. 7B is the main model; 1B and 13B are used to compare model sizes. Training uses 256-token excerpts of text that contain a word (passages), cut from the Pile (a public English text dataset); a word in them is replaced, and the passages are inserted into the training data. One continued-pretraining job is called a run.
 
-There are three experiments.
-
-- **Unknown-word acquisition**: in passages that contain a known noun (e.g. pasta), replace the noun with a string the model has never seen (an unknown word, e.g. resonunt), insert the passages into the training data, and train. Measure, each with its own indicator, the order in which the unknown words acquire these three properties:
+- **Unknown-word acquisition**: train on passages in which a noun (e.g. pasta) is replaced with a string the model has never seen (an unknown word, e.g. resonunt). Measure, each with its own indicator, the order in which the unknown words acquire these three:
   - Form familiarity: the unknown word's second and later tokens become easier to predict
-  - Meaning: the unknown word's hidden states move closer to those of the noun it replaced
-  - Integration as a word: the unknown word's hidden states come to be judged as those of a real word (judged by a classifier, a probe, that tells from hidden states whether a word is real)
-- **Sense addition**: in passages that contain a known word (e.g. grape), replace it with another known word (the target word, e.g. car) and train, so that the target word gains a sense. The added senses are of three kinds: a noun of the same category as the target word (a category is a meaning class such as food or animals), a noun of another category, and an adjective. Depending on the run (one continued-pretraining job), the target word gains 1, 2 or 4 senses. Identify the attention heads that select a sense from context, and the attribute each of them judges (the noun's category or the part of speech).
-- **Dependence of unknown words on category-judging heads**: no further training. In the unknown-word acquisition models, disable the heads, identified in sense addition, that judge a noun's category (replace the component of the head's output along the category directions with its mean), and compare how much the judgment of the unknown word's category (the category of the noun it replaced) drops with the drop for the noun itself. This tests whether, at the same level of acquired meaning, unknown words that are more integrated as words rely more on the same heads as known words to judge their category.
+  - Meaning: the unknown word's hidden states move closer to those of the original noun
+  - Integration as a word: the unknown word's hidden states come to be judged as those of a real word
+- **Sense addition**: train on passages in which a known word (e.g. grape) is replaced with another known word (the target word, e.g. car), so that the target word gains a sense. The added senses are of three kinds: a noun of the target word's category (a meaning class such as food or animals), a noun of another category, and an adjective; depending on the run, the target word gains 1, 2 or 4 senses. Identify the attention heads that select a sense from context, and the attribute each of them judges (the noun's category or the part of speech).
+- **Dependence of unknown words on category-judging heads**: no training. In the unknown-word acquisition models, disable the heads, identified in sense addition, that judge a noun's category (replace the component of their output along the category directions with its mean), and compare how much the judgment of the unknown word's category drops with the drop for the original noun.
 
-The evaluation uses tasks that ask the model to choose an answer from options. There are two kinds: sense identification (choose the word with the same meaning as the word in the sentence) and attribute judgment (choose the word's category or part of speech).
+Besides the unknown words' indicators, the evaluation uses tasks that ask the model to choose an answer from options (sense identification and attribute judgment). A few examples are shown before each question.
 
 ## Requirements
 
-- Python 3.12, [uv](https://docs.astral.sh/uv/), NVIDIA GPUs (driver supporting CUDA 13.0), internet access
-- LLM (large language model): Qwen3-Next-80B (a model separate from OLMo 2), served with vLLM (server software that runs LLMs), generates word candidates and judges passages (256-token excerpts of text that contain a word). Below, "the LLM" means this model
-- GPUs (96 GB): 2 to train 7B (1 for 1B, 4 for 13B), 2 for the LLM server, 1 for the other jobs that run OLMo 2
-- Disk
-  - Models: about 160 GB (the three OLMo 2 models and the LLM)
-  - Data: about 50 GB
-  - Trained weights: about 3.6 TB (by default each run saves four checkpoints, at 25 / 50 / 75 / 100% of training; the checkpoints can be changed under `training` in `settings.yaml`, and final weights only take about 0.9 TB)
-  - State for resuming training (such as the optimizer state): up to about 165 GB (one 13B run; removed when the run ends)
+- Python 3.12, [uv](https://docs.astral.sh/uv/), internet access
+- NVIDIA GPUs (96 GB): for training, 1 for 1B, 2 for 7B and 4 for 13B; 2 for the LLM server
+- Disk: about 4 TB (of which the trained weights take about 3.6 TB)
 
 ## Setup
 
 ```bash
 uv sync
 uv run python -m nltk.downloader wordnet
+uv run wandb login   # only to send training logs to W&B (a web service that keeps experiment logs)
 ```
 
-- To send training logs to W&B (Weights & Biases, a web service that records experiments), run `uv run wandb login` beforehand. Otherwise, run `export WANDB_MODE=disabled`.
-- Before the commands marked `# LLM`, start the LLM server in a separate terminal and leave it running. It takes a few minutes to start, so wait until `curl http://localhost:8000/v1/models` responds. Put the server's URL (for example `http://localhost:8000/v1`) in `llm.server_url` in `settings.yaml`.
+Commands marked `# LLM` use an LLM (Qwen3-Next-80B) to generate word candidates or judge passages. While you run them, keep the LLM server running in another terminal (its URL is `llm.server_url` in `settings.yaml`).
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1 uvx --from vllm==0.32.0 vllm serve Qwen/Qwen3-Next-80B-A3B-Instruct-FP8 \
   --tensor-parallel-size 2 --port 8000
 ```
 
-## Conventions
+## Usage
 
-- Commands
-  - Run them in bash from the top directory of the repository. They have the form `uv run lexical-acquisition-mechanisms <stage> <action>`; add `--help` at the end to see what a command does.
-  - All settings are in `settings.yaml`.
-  - Commands skip work whose inputs and settings have not changed since they last ran (add `--recompute` to redo it). If a command stops, fix what its message says and rerun from the command it names.
-  - Steps 2–5 start by putting the model and other values in shell variables. In a new terminal, rerun `export WANDB_MODE=disabled` (if you do not send logs to W&B) and the variable lines at the start of the step before continuing.
-- GPUs and the LLM server
-  - Commands marked `# GPU` run OLMo 2 on GPUs; commands marked `# LLM` use the LLM server. Choose GPUs with `CUDA_VISIBLE_DEVICES`.
-  - No command uses both. To use the GPUs the LLM server is on, stop the server first.
-  - "The pretrained models" means the published OLMo 2 weights (before any continued pretraining).
-- CSV files for the manual checks
-  - Before a command with `--review-csv`, fill in by hand the `approved` column of the CSV it takes (1 if it fits, 0 if not; the criteria are given in each step). The command stops if a row is empty.
-  - Commands that write these CSV files keep the `approved` values already filled in and add new rows empty. Only the empty rows need filling.
-- Continued pretraining
-  - `training write-run-settings` writes one settings file per run to `outputs/runs/<experiment>/<model>/`, and `training run` trains one of them.
-  - To use several GPUs, it is launched with torchrun (PyTorch's command that starts one process per GPU), which runs this repository's Python package, `lexical_acquisition_mechanisms`. `--nproc-per-node` is the number of GPUs to use.
-  - A run takes a long time, so run it inside tmux (software that keeps commands running after the terminal closes) or similar. A run that stopped continues from where it stopped when the same command is run again.
-  - `training run` warns when the perplexity (how hard the next token is to predict) on the validation data (the ~10M tokens right after the base data, not used for training) changes by more than 1% from before training (training continues). Investigate and report the cause for any run that warns.
-- Datasets are written to `data/`; trained weights, result tables and figures to `outputs/`.
+- Run commands from the top directory of the repository, in the form `uv run lexical-acquisition-mechanisms <stage> <action>` (`--help` prints a description). All settings are in `settings.yaml`.
+- Commands marked `# GPU` use GPUs. Choose the GPUs with `CUDA_VISIBLE_DEVICES`. To use the GPUs of the LLM server, stop the server first.
+- An action whose inputs and settings have not changed since it last ran is skipped (to redo it, add `--recompute`). If a command stops, fix what it reports, and rerun from the command it names.
+- Training runs on several GPUs, so it is started with torchrun (the PyTorch command that starts one process per GPU). It takes a long time, so run it inside tmux (software that keeps jobs running after the terminal closes) or similar. A run that stopped continues from where it stopped when you run the same command again.
+- Datasets are written to `data/`; trained weights, results and figures to `outputs/`.
 
-## Procedure
+## Steps
 
-### 1. Prepare the datasets
+### 1. Build the datasets
 
-#### 1-1. Base data
+#### 1-1. Base data and words
 
 ```bash
-# From the settings of the first stage of OLMo 2 pretraining (stage 1, most of the pretraining),
-# reproduce the order of the OLMo 2 pretraining data, and download the first ~300M tokens
-# (base data) and the ~10M tokens right after them (validation data)
+# Download the base data (the first ~300M tokens, in training order, of OLMo 2's pretraining data)
+# and the ~10M tokens right after it (the validation data)
 uv run lexical-acquisition-mechanisms base-data download
-```
 
-#### 1-2. Words used in the experiments
-
-```bash
-# Noun and target-word candidates: the LLM lists countable concrete nouns for each of six
-# categories (provisionally: food; animals; vehicles; clothing; furniture and household items;
-# buildings). Keep the nouns that WordNet (a lexical database of English) puts in that category
-# only. Give each its token count, its frequency (number of occurrences in the OLMo 2 pretraining
-# data and in the Pile, a public dataset of English text), and the share of its occurrences in
-# the Pile that use the sense of that category (judged by the LLM)
+# Make word candidates: the LLM lists nouns and adjectives, and judges how they are used in the Pile
+# (the share of uses in the sense or part of speech); unknown words are made from strings that never
+# appear in OLMo 2's pretraining data or the Pile
 uv run lexical-acquisition-mechanisms words generate-noun-candidates                # LLM
-
-# Adjective candidates: the LLM lists adjectives and rates how strongly each is associated with
-# each category. Give each its token count, its frequency, and the share of its occurrences in
-# the Pile that use it as an adjective (judged by the LLM)
 uv run lexical-acquisition-mechanisms words generate-adjective-candidates           # LLM
-
-# Unknown-word candidates: collect strings made by changing 1 or 2 letters of a real word that
-# belongs to none of the six categories (spelling close to a real word), and pronounceable
-# nonwords (strings that are not English words) from the ARC Nonword Database (spelling far from
-# real words). Keep those that are 2 or 3 tokens long and never appear in the OLMo 2 pretraining
-# data or the Pile
 uv run lexical-acquisition-mechanisms words generate-unknown-word-candidates
 
-# Choose the words used in the experiments from the candidates (with spare candidates for
-# replacements)
-#   72 nouns: one-token words often used in the sense of their category, 12 per category
-#     (with similar frequencies across categories, and only words expected to yield enough passages)
-#   18 target words: from the noun candidates other than the 72 nouns, one each of 1, 2 and 3
-#     tokens per category
-#   72 adjectives: one-token words mostly used as adjectives and only weakly associated with
-#     every category
-#   72 unknown words: 24 each of 1, 2 and 3 tokens. The 2- and 3-token ones are drawn at random,
-#     12 close and 12 far in spelling, from candidates whose first token overlaps no other word.
-#     The 1-token ones get unused token IDs
-#   natural words: real words the experiments do not manipulate (nouns and adjectives used as task
-#     examples, to train probes and as references for the indicators)
+# From the candidates, select 72 nouns, 18 target words, 72 adjectives, 72 unknown words,
+# and natural words (real words the experiments do not manipulate, used as task examples
+# and to train probes)
 uv run lexical-acquisition-mechanisms words select
 
-# For every pair of a target word and a noun (18 × 72 pairs, plus the spare candidates),
-# the LLM rates how close their meanings are on a 7-point scale
+# For each pair of a target word and a noun, the LLM rates how close their meanings are
 uv run lexical-acquisition-mechanisms words rate-similarity-with-llm               # LLM
 
-# Choose the neutral contexts (sentence openings that say nothing about a word's meaning, e.g.
-# "Do you know about the"). On the three pretrained models, compare the probabilities of each
-# category's natural nouns right after each candidate, drop the candidates that make one category
-# easier to predict, and keep 20
+# Select 20 neutral contexts (sentence openings that do not hint at a meaning,
+# e.g. "Do you know about the")
 uv run lexical-acquisition-mechanisms evaluation-data select-neutral-contexts       # GPU
 
-# For the same pairs, compute on the three pretrained models the cosine similarity of the hidden
-# states of the words placed after the 20 neutral contexts and with no context. Check that
-# same-category pairs rank high and different-category pairs rank low, and write
-# data/words/review.csv (one word per row) for the manual check
+# For each pair of a target word and a noun, measure their hidden-state similarity in the three
+# published OLMo 2 models, and write the review file data/words/review.csv
 uv run lexical-acquisition-mechanisms words measure-hidden-state-similarity        # GPU
 ```
 
-**By hand**: fill in the `approved` column of `data/words/review.csv` (1 if the word fits the role, category and sense written in its row, 0 if not).
+**Manual step**: in the `approved` column of `data/words/review.csv`, enter 1 if the word fits the category and sense in its row, otherwise 0.
 
 ```bash
-# Read approved. If any word is 0, write it to data/words/excluded.csv and stop. Otherwise,
-# write the word list that the later commands use (word, role, category, sense, tokens)
+# Write the list of words that the later steps use, from the words with approved = 1
 uv run lexical-acquisition-mechanisms words finalize --review-csv data/words/review.csv
 ```
 
-- `words select` stops if a category does not have enough words that meet the conditions. Then change the categories under `words` in `settings.yaml` and rerun from `words generate-noun-candidates`.
-- `evaluation-data select-neutral-contexts` stops if fewer than 20 contexts remain. Then add sentence openings of the same form to the candidates under `evaluation` in `settings.yaml`, and rerun this command.
-- If `words finalize` stops, rerun the commands in order from `words select` (`words select` replaces the dropped words with spare candidates and keeps the other words).
+**Manual step** (if it stopped because some words have 0): rerun from `words select` (other words are chosen in place of the rejected ones).
 
-#### 1-3. Passages
+#### 1-2. Passages
 
 ```bash
-# Read the Pile from the start and cut out 256-token passages that contain a chosen word
-# (passage candidates), up to three times the number needed for each word (e.g. for a noun,
-# 10,000 for training and 500 for evaluation). Only one form of each word is used (with a leading
-# space, lowercase, singular), and passages that contain another word the experiments manipulate
-# are not used
+# Cut passage candidates that contain the selected words from the Pile
 uv run lexical-acquisition-mechanisms passages collect
 
-# Remove near-duplicate candidates, and split them into training and evaluation by source document
+# Remove near-identical candidates, and split the rest into training and evaluation
+# by source document
 uv run lexical-acquisition-mechanisms passages remove-duplicates-and-split
 
-# For each occurrence of the word in a candidate, the LLM judges whether it is used in its
-# intended sense (for a noun, the sense of the category it was chosen for): not part of an idiom
-# or a proper name, and, for an adjective, used as an adjective
+# The LLM judges, for each occurrence in the candidates, whether the word is used
+# in the intended sense
 uv run lexical-acquisition-mechanisms passages judge-word-sense                     # LLM
 
-# For each noun, adjective and target word, sample 20 candidates that passed and write them to
-# data/passages/review.csv (one passage per row) for the manual check
+# Sample 20 passed candidates for each noun, adjective and target word,
+# and write the review file data/passages/review.csv
 uv run lexical-acquisition-mechanisms passages sample-for-review
 ```
 
-**By hand**: fill in the `approved` column of `data/passages/review.csv` (1 if the word is used in the sense written in its row, 0 if not).
+**Manual step**: in the `approved` column of `data/passages/review.csv`, enter 1 if the word is used in the sense in its row, otherwise 0.
 
 ```bash
-# For each word, compute how precise the LLM's judgments are (the share marked 1 by hand). If the
-# precision and the number of passages are enough, write the candidates that passed as the
-# training and evaluation passages, as many as needed
+# Compute the precision of the LLM's judgments per word (the share of passed candidates that
+# a person also marked 1), and write the passed candidates as the training and evaluation passages
 uv run lexical-acquisition-mechanisms passages finalize --review-csv data/passages/review.csv
 ```
 
-- `passages finalize` stops if the precision is too low for some word. Then fix the instructions to the LLM (`llm_prompts/`) and rerun from `passages judge-word-sense`.
-- `passages finalize` stops if some word has too few passages, after writing it to `data/words/excluded.csv`. Then rerun the commands in order from `words select`.
+**Manual step** (if it stopped because the precision is too low for some words): revise the LLM's instructions (`llm_prompts/`), and rerun from `passages judge-word-sense`.
 
-#### 1-4. Assignments and the unknown-word acquisition training data
+#### 1-3. Assignments and training data
 
 ```bash
-# Unknown-word acquisition: make 9 groups of 8 unknown words and 8 nouns, and for the 8 runs decide
-# which noun each unknown word replaces and how many times it is inserted: 0, 1, 10, 100, 1,000,
-# 3,000, 5,000 or 10,000 times. Across the 8 runs, each unknown word gets each count once and each
-# of the 8 nouns in its group once
+# For each run, decide whose passages to insert, which word replaces the original word,
+# and (in unknown-word acquisition) how many
 uv run lexical-acquisition-mechanisms assignments build --experiment unknown-word-acquisition
-
-# Sense addition: for each of the 9 runs (3 kinds of added sense × 1, 2 or 4 senses), decide
-# which nouns' or adjectives' senses each target word gains
 uv run lexical-acquisition-mechanisms assignments build --experiment sense-addition
 
-# Following the assignments, replace the noun in its passages with the unknown word, insert them
-# into the base data, and build the training data (token sequences) of the 9 runs (the 8 runs and
-# a control run in which nothing is inserted). Also write the check results (such as the number
-# of inserted passages) and some of the passages, decoded
+# Build the training data of the 9 unknown-word acquisition runs (8 runs and a control that
+# inserts nothing): replace the noun in noun passages with an unknown word, and insert the
+# passages into the base data
 uv run lexical-acquisition-mechanisms training-data build --experiment unknown-word-acquisition
 ```
 
-- After `training-data build`, look at the check results and the decoded passages in `data/training/<experiment>/<run>/` (also in step 4).
+**Manual step**: in `data/training/unknown-word-acquisition/checks.csv`, look at the check results of each run (the number of inserted passages per word, leftover words that should have been replaced, the total number of tokens). Also read `decoded_passages.txt` (randomly sampled inserted passages, with the tokens turned back into text).
 
-#### 1-5. Evaluation data
+#### 1-4. Evaluation data
 
 ```bash
-# From the passages of the natural words, extract one sentence containing the word (used as task
-# examples, to train probes and for checks)
+# From the natural words' passages, extract the sentences used as task examples and to train probes
+# (classifiers that tell a property of a word from its hidden states)
 uv run lexical-acquisition-mechanisms evaluation-data extract-natural-word-sentences
 
-# Build the words for the unknown-word indicators: real words and nonwords (strings made by
-# swapping the second and later tokens between real words) to train the probes, and, as the
-# reference for the meaning indicator, the nouns split artificially into 2 or 3 tokens
-# (e.g. pas|ta, where | separates tokens)
+# Make the real words and nonwords (strings that are not words) used to train probes, and the known
+# words used as the baseline when normalizing the unknown words' indicators (known words become 1)
 uv run lexical-acquisition-mechanisms evaluation-data build-probe-and-normalization-words
 
-# Generate candidate minimal pairs (two sentences that differ only in one cue word, so that the
-# target word takes a different sense, e.g. "She peeled the car." / "She parked the car.") for
-# each pair of the original sense and one added sense, from templates and the LLM
+# Make minimal pairs (two sentences that differ in one cue word, giving the target word
+# different senses)
 uv run lexical-acquisition-mechanisms evaluation-data generate-minimal-pairs         # LLM
 
-# Build the task questions (sense identification and attribute judgment, with examples shown
-# before each question). The LLM proposes paraphrase words for the target words' original senses
-# (e.g. car → automobile)
+# Make the task questions
 uv run lexical-acquisition-mechanisms evaluation-data build-task-questions           # LLM
 
-# On the three pretrained models, check the following. In each sentence of a minimal pair, is the
-# word that already has the sense the cue points to more likely in the blank? Can the tasks be
-# solved for natural words? Is each paraphrase word chosen for its original word? Sample some of
-# the minimal pairs that pass and write them to data/evaluation/minimal_pairs_review.csv for the
-# manual check
+# In the three published OLMo 2 models, check that the cues of the minimal pairs fix the sense,
+# and compute the task accuracy on natural words. Sample some of the pairs that passed,
+# and write them to the review file data/evaluation/minimal_pairs_review.csv
 uv run lexical-acquisition-mechanisms evaluation-data check-with-pretrained-models   # GPU
 ```
 
-**By hand**:
+**Manual steps**:
 
-1. Decide the number of examples shown before each question (provisionally 3) from the accuracy on natural words reported by `evaluation-data check-with-pretrained-models`, and write it under `evaluation` in `settings.yaml`. If it changes, rerun from `evaluation-data build-task-questions`.
-2. Fill in the `approved` column of `data/evaluation/minimal_pairs_review.csv` (one minimal pair per row; 1 if, in each sentence, the target word's meaning is fixed to the sense written in the row, 0 if not).
+1. From the task accuracy on natural words that the previous command reports, decide the number of examples shown before each question (provisional: 3), and write it to `evaluation.number_of_task_examples` in `settings.yaml` (if you change it, rerun from `evaluation-data build-task-questions`). A task whose accuracy does not exceed chance is not used for that model.
+2. In the `approved` column of `data/evaluation/minimal_pairs_review.csv`, enter 1 if in each sentence the target word's sense is fixed to the sense in its row, otherwise 0.
 
 ```bash
-# Drop the minimal pairs with approved 0, and write the minimal pairs and task questions used in
-# the evaluation
+# Remove the minimal pairs with approved = 0, and write the minimal pairs and task questions
+# used for evaluation
 uv run lexical-acquisition-mechanisms evaluation-data finalize \
   --review-csv data/evaluation/minimal_pairs_review.csv
 ```
 
-- For a model that cannot solve a task for natural words, the commands that use that task only record that and finish.
-
 ### 2. Pilot (7B)
 
-Trial training (two runs) to settle the training settings. `run-1` is the first unknown-word acquisition run; `control` is the control run, in which nothing is inserted (it trains on the base data only).
+To decide the training settings, train only two runs. In steps 2–5, first run the following each time you open a terminal.
 
 ```bash
 MODEL=OLMo-2-1124-7B
-export CUDA_VISIBLE_DEVICES=0,1   # GPUs to use (ones the LLM server is not using)
-NUMBER_OF_GPUS=2                  # number of GPUs to train on (the number chosen above)
+export CUDA_VISIBLE_DEVICES=0,1   # GPUs to use (if the LLM server uses them, stop it first)
+NUMBER_OF_GPUS=2                  # the number of GPUs chosen above
+export WANDB_MODE=disabled        # only if you do not send training logs to W&B
+```
 
-# Write one training settings file per run (model, training data, learning rate and so on)
+```bash
+# Write a training settings file for each run
 uv run lexical-acquisition-mechanisms training write-run-settings \
   --experiment unknown-word-acquisition --model "$MODEL"
 
-# Continue pretraining for the two runs
+# Train run-1 (the first unknown-word acquisition run) and control (the control run
+# that inserts nothing)
 uv run torchrun --nproc-per-node "$NUMBER_OF_GPUS" -m lexical_acquisition_mechanisms \
   training run --run-settings "outputs/runs/unknown-word-acquisition/$MODEL/run-1.yaml"     # GPU
 uv run torchrun --nproc-per-node "$NUMBER_OF_GPUS" -m lexical_acquisition_mechanisms \
   training run --run-settings "outputs/runs/unknown-word-acquisition/$MODEL/control.yaml"   # GPU
 
-# On the pretrained model, train probes that tell from hidden states whether a word is real, one
-# per layer and token count, and report their accuracy on words not used to train them
+# In the published model, train a probe that tells from hidden states whether a word is real,
+# and report its accuracy
 uv run lexical-acquisition-mechanisms unknown-word-acquisition train-real-word-probes \
   --model "$MODEL"   # GPU
 ```
 
-- Check the following.
-  - In the training log `outputs/checkpoints/unknown-word-acquisition/OLMo-2-1124-7B/<run>/metrics.jsonl`: the perplexity changes by at most 1%, the loss on the inserted passages goes down, and the loss neither jumps suddenly nor becomes not-a-number (NaN)
-  - The probes also work on words they were not trained on
-- From the results, settle the learning rate, the batch size, the warmup and the initial embeddings of the one-token unknown words, and write them under `training` in `settings.yaml`. Settle the learning rate as a rule that also applies to 1B and 13B (provisionally each model's last learning rate in stage 1 of pretraining).
-- If a value changes, redo the two runs from `training write-run-settings`.
+**Manual steps**:
+
+1. In the training logs (`outputs/checkpoints/unknown-word-acquisition/$MODEL/<run>/metrics.jsonl`), check the following.
+   - The perplexity (how hard the next token is to predict) on the validation data changes by 1% or less from before training
+   - The loss on the inserted passages goes down
+   - The loss does not jump suddenly or become NaN (not a number)
+2. Check that the probe also works on words it was not trained on.
+3. Decide the learning rate, batch size, warmup and the initial embeddings of one-token unknown words (unknown words given new token IDs), and write them under `training` in `settings.yaml` (`learning_rate_by_model`, `batch_size_in_tokens`, `warmup_fraction`, `new_token_embedding_initialization`). Decide the learning rate as a method that gives the values for 1B and 13B in the same way (provisional: the final learning rate of each model's pretraining stage 1). If you change a value, redo step 2.
 
 ### 3. Unknown-word acquisition (7B)
 
-Train the 9 runs (the 8 runs and the control run) and measure the three indicators.
-
 ```bash
-MODEL=OLMo-2-1124-7B
-export CUDA_VISIBLE_DEVICES=0,1   # GPUs to use (ones the LLM server is not using)
-NUMBER_OF_GPUS=2                  # number of GPUs to train on (the number chosen above)
-
-# Continue pretraining for the 9 runs (finished runs are skipped)
+# Train the 9 runs
 uv run lexical-acquisition-mechanisms training write-run-settings \
   --experiment unknown-word-acquisition --model "$MODEL"
 for run_settings in outputs/runs/unknown-word-acquisition/"$MODEL"/*.yaml; do
@@ -293,68 +217,48 @@ for run_settings in outputs/runs/unknown-word-acquisition/"$MODEL"/*.yaml; do
 done
 ```
 
-After all runs have finished training, run the following.
+**Manual step**: after all runs have finished training, check in each run's training log (`metrics.jsonl`) that the perplexity changes by 1% or less from before training. For a run that exceeds it, find the cause and report it.
 
 ```bash
-# Train the probes that tell whether a word is real (skipped if trained in the pilot)
+# Train the probe that tells whether a word is real (skipped if trained in the pilot)
 uv run lexical-acquisition-mechanisms unknown-word-acquisition train-real-word-probes \
   --model "$MODEL"   # GPU
 
-# On each run's trained model, place the unknown words after the 20 neutral contexts and with no
-# context, and measure the three indicators at each layer: form familiarity (how predictable the
-# second and later tokens are), meaning (cosine similarity with the hidden states of the noun it
-# replaced) and integration as a word (the probability that the probes judge it a real word).
-# Also record the answers to the tasks
+# In each run's model, measure the unknown words' three indicators (form familiarity, meaning,
+# integration as a word) in each layer
 uv run lexical-acquisition-mechanisms unknown-word-acquisition measure-indicators \
   --model "$MODEL"   # GPU
 
-# Normalize the three indicators so that unknown words inserted 0 times are at 0 and known words
-# at 1, fit curves against the number of insertions, and test the order in which the three are
-# acquired
+# Normalize the indicators so that unknown words inserted 0 times are 0 and known words are 1,
+# and test the order in which the three indicators are acquired
 uv run lexical-acquisition-mechanisms unknown-word-acquisition analyze-acquisition-order \
   --model "$MODEL"
 
-# Make figures of how the indicators change, and tables comparing them by token count, spelling
-# closeness and model size
+# Make figures and tables in outputs/figures/unknown-word-acquisition/
 uv run lexical-acquisition-mechanisms unknown-word-acquisition make-report
 ```
 
-- Decide K, the number of passages inserted per added sense in sense addition: in the meaning curves in `outputs/figures/unknown-word-acquisition/`, pick the count beyond which more insertions barely raise the curve, and write it under `sense_addition` in `settings.yaml` with the reason.
+**Manual step**: from the figure of the meaning indicator in `outputs/figures/unknown-word-acquisition/`, take as K (the number of passages inserted per added sense in sense addition) the number beyond which more passages barely raise it, and write K to `sense_addition.passages_per_added_sense` in `settings.yaml`.
 
 ### 4. Sense addition (7B)
 
-Train the 11 runs (3 kinds of added sense × 1, 2 or 4 senses, plus a control run for nouns and one for adjectives) and identify the heads that select a sense.
-
 ```bash
-MODEL=OLMo-2-1124-7B
-export CUDA_VISIBLE_DEVICES=0,1   # GPUs to use (ones the LLM server is not using)
-NUMBER_OF_GPUS=2                  # number of GPUs to train on (the number chosen above)
-
-# Add adjective passages to match K (skipped if there are already enough)
+# Add adjective passages to match K (skipped if there are enough)
 uv run lexical-acquisition-mechanisms passages collect
 uv run lexical-acquisition-mechanisms passages remove-duplicates-and-split
 uv run lexical-acquisition-mechanisms passages judge-word-sense                     # LLM
-uv run lexical-acquisition-mechanisms passages sample-for-review
-```
-
-**By hand**: fill in the `approved` column of the rows added to `data/passages/review.csv` (same criteria as in 1-3).
-
-```bash
-# As in 1-3, check each word's judgment precision and number of passages, and write the added
-# passages
 uv run lexical-acquisition-mechanisms passages finalize --review-csv data/passages/review.csv
+
+# Build the training data of the 11 sense-addition runs (3 kinds of added sense × 1, 2 or 4 senses,
+# and a noun control and an adjective control). The control runs insert the noun or adjective
+# passages without replacing any word
+uv run lexical-acquisition-mechanisms training-data build --experiment sense-addition
 ```
 
-- If words are dropped here, rerun the commands in order from `words select`, then return to the start of step 4 (`words select` replaces only the dropped words with spare candidates). If this rebuilds the unknown-word acquisition training data (`training-data build --experiment unknown-word-acquisition` is not skipped), redo step 3 for 7B as well.
+**Manual step**: look at `checks.csv` and `decoded_passages.txt` in `data/training/sense-addition/`, as in 1-3.
 
 ```bash
-# Build the training data: insert into the base data K passages of each of the 72 nouns for the
-# noun runs and the noun control run, and K passages of each of the 72 adjectives for the
-# adjective runs and the adjective control run. Replace the word with the target word only in the
-# passages of the assigned words (nothing is replaced in the control runs)
-uv run lexical-acquisition-mechanisms training-data build --experiment sense-addition
-
-# Continue pretraining for the 11 runs
+# Train the 11 runs
 uv run lexical-acquisition-mechanisms training write-run-settings \
   --experiment sense-addition --model "$MODEL"
 for run_settings in outputs/runs/sense-addition/"$MODEL"/*.yaml; do
@@ -363,100 +267,87 @@ for run_settings in outputs/runs/sense-addition/"$MODEL"/*.yaml; do
 done
 ```
 
-After all runs have finished training, run the following.
+**Manual step**: after all runs have finished training, check the perplexity of each run as in step 3.
 
 ```bash
-# Measure the sense identification accuracy on each sentence of the minimal pairs, and compare it
-# with the control run in which the same passages were inserted without replacement (senses that
-# are not told apart are left out of the later analyses)
+# In the minimal-pair sentences, measure whether the model tells the target word's senses apart
 uv run lexical-acquisition-mechanisms sense-addition measure-sense-accuracy \
   --model "$MODEL"   # GPU
 
-# While processing one sentence of a minimal pair, replace the output of each attention head and
-# MLP (the feed-forward block of each layer) at the target word with its output on the other
-# sentence, measure how far the sense identification answer switches, and subtract the value on
-# the control run (as a supplement, also measure it at every position after the target word)
+# Swap the output of each head and MLP (the fully connected block of each layer) with its output
+# on the other sentence of the minimal pair, and measure the effect on sense selection
 uv run lexical-acquisition-mechanisms sense-addition measure-head-and-mlp-effects \
   --model "$MODEL"   # GPU
 
-# Select the heads and MLPs with significant effects, using confidence intervals and a correction
-# for multiple comparisons, and classify them by the kinds of added sense for which they matter
-# (all three, only nouns of another category and adjectives, and so on)
+# Compute confidence intervals of the effects, select the heads and MLPs that meet the selection
+# criteria, and classify them by the kinds of added sense for which they have an effect
 uv run lexical-acquisition-mechanisms sense-addition select-significant-heads-and-mlps \
   --model "$MODEL"
+```
 
-# For each selected head, train probes on the pretrained model that tell the noun's category and
-# the part of speech from the head's output on natural-word sentences. Check that they work on
-# natural words not used to train them and on the minimal pairs in the sense-added model
+**Manual step**: if the confidence intervals that the previous command reports are too wide, increase `evaluation.minimal_pairs_per_sense_pair` (the number of minimal pairs per pair of senses; provisional: 20) in `settings.yaml`, and rerun from `evaluation-data generate-minimal-pairs` to `evaluation-data finalize` in 1-4 and from `sense-addition measure-sense-accuracy` in this step (training is not redone).
+
+```bash
+# In the published model, train probes that tell the noun's category and the part of speech
+# from the selected heads' outputs
 uv run lexical-acquisition-mechanisms sense-addition train-attribute-probes \
   --model "$MODEL"   # GPU
 
-# While processing an attribute judgment question, replace only the component of the head's
-# output along the attribute directions given by the probe weights with its value on the other
-# sentence, and compare how often the answer changes with random heads and random directions.
-# Save the heads that the probes can read, whose replacement changes the answer, and that matter
-# only for the kinds of added sense that differ in that attribute, as the heads that judge the
-# attribute, together with the attribute directions
+# Swap the component of a head's output along the attribute directions, identify the heads
+# that judge an attribute, and save them
 uv run lexical-acquisition-mechanisms sense-addition test-attribute-directions \
   --model "$MODEL"   # GPU
 
-# Make the layer × head maps of the effects, and tables and figures comparing them by the number
-# of added senses, token count and model size
+# Make figures and tables in outputs/figures/sense-addition/
 uv run lexical-acquisition-mechanisms sense-addition make-report
 ```
 
-- Decide the number of minimal pairs (provisionally 20 per pair of the original sense and an added sense) from the width of the confidence intervals reported by `sense-addition select-significant-heads-and-mlps`: if they are too wide, increase it and write it under `evaluation` in `settings.yaml`. If it increases, rerun `evaluation-data generate-minimal-pairs` through `evaluation-data finalize`, then `sense-addition measure-sense-accuracy` onwards.
-
 ### 5. Dependence of unknown words on category-judging heads (7B)
 
-No further training: this step uses the models trained in step 3 and the heads saved in step 4.
-
 ```bash
-MODEL=OLMo-2-1124-7B
-export CUDA_VISIBLE_DEVICES=0   # GPU to use (one the LLM server is not using)
-
-# On each run's model trained in unknown-word acquisition, solve attribute judgment (category)
-# questions on the neutral-context sentences. Disable all the heads that judge a noun's category
-# (saved in step 4) at once, and measure how much the probability of the correct category drops
-# for the unknown word and for the noun it replaced (dependence = drop for the unknown word /
-# drop for the noun). Do the same with random heads and random directions for comparison
+# In each run's model trained in step 3, disable the category-judging heads saved in step 4,
+# and measure how much the category judgment drops for the unknown word and for the original noun
+# (dependence = the drop for the unknown word ÷ the drop for the original noun)
 uv run lexical-acquisition-mechanisms dependence-on-category-judging-heads measure-dependence \
   --model "$MODEL"   # GPU
 
-# Fit a regression that explains the dependence by the normalized meaning and integration values,
-# the token count and the spelling closeness (a mixed-effects model that accounts for differences
-# between unknown words, nouns and runs). Also compare states defined by thresholds on the
-# meaning and integration values
+# Fit a regression that explains the dependence by the meaning and integration indicators
+# and other variables, and also compare states defined by thresholds on the indicators
 uv run lexical-acquisition-mechanisms dependence-on-category-judging-heads fit-regression \
   --model "$MODEL"
 
-# Compare whether the same heads matter when a noun's meaning is given to an unknown word and when
-# it is added to a known word. On sense identification questions, replace the output of each head
-# at the unknown word with its output for an unknown word inserted 0 times, measure the drop in
-# the probability of the correct answer, and compare with the head maps of step 4 by rank
-# correlation and the overlap of the top heads
+# Compare the effect of each head (the head map) when a noun's meaning is given to an unknown word
+# and when it is added to a known word
 uv run lexical-acquisition-mechanisms dependence-on-category-judging-heads compare-head-maps \
   --model "$MODEL"   # GPU
 
-# Make figures and tables of how meaning and integration relate to the dependence
+# Make figures and tables in outputs/figures/dependence-on-category-judging-heads/
 uv run lexical-acquisition-mechanisms dependence-on-category-judging-heads make-report
 ```
 
-- For a model in which step 4 found no heads that judge the category, `dependence-on-category-judging-heads measure-dependence` and `dependence-on-category-judging-heads fit-regression` only record that and finish.
-
 ### 6. 1B and 13B
 
-- Work out the 1B and 13B learning rates with the rule settled in the pilot, and write them under `training` in `settings.yaml`.
-- Repeat steps 3–5, changing the variables at the start of each step as follows (step 5 has only `MODEL` and `CUDA_VISIBLE_DEVICES`).
-  - 1B: `MODEL=OLMo-2-0425-1B`, 1 GPU (one GPU in `CUDA_VISIBLE_DEVICES`, `NUMBER_OF_GPUS=1`)
-  - 13B: `MODEL=OLMo-2-1124-13B`, 4 GPUs (four GPUs in `CUDA_VISIBLE_DEVICES`, `NUMBER_OF_GPUS=4`)
-- Skip the pilot and the decisions on K and on the number of minimal pairs; use the values settled on 7B. Adding passages in step 4 is skipped, so the LLM server is not needed.
+**Manual step**: with the method decided in step 2, compute the learning rates of 1B and 13B, and write them to `training.learning_rate_by_model` in `settings.yaml`.
+
+Then replace the first three lines of step 2 with one of the following and repeat steps 3–5. Do not run the pilot; use the K and the number of minimal pairs decided on 7B. The extra collection of adjective passages in step 4 is skipped, so the LLM server is not needed.
+
+```bash
+MODEL=OLMo-2-0425-1B
+export CUDA_VISIBLE_DEVICES=0
+NUMBER_OF_GPUS=1
+```
+
+```bash
+MODEL=OLMo-2-1124-13B
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+NUMBER_OF_GPUS=4
+```
 
 ### 7. Collect the results
 
 ```bash
-# Combine all results into one table, outputs/results/all_results.parquet (a table in the
-# Parquet format), and draw the figures in outputs/figures/
+# Collect all results into one table, outputs/results/all_results.parquet,
+# and make figures in outputs/figures/
 uv run lexical-acquisition-mechanisms results collect
 ```
 
@@ -466,4 +357,4 @@ uv run lexical-acquisition-mechanisms results collect
 uv run pytest
 ```
 
-The tests run every command end to end without a GPU, using a small randomly initialized model and stand-ins that return fixed responses in place of the LLM and the external services (such as the search for word occurrences and the nonword database).
+The tests check that every command runs to the end without GPUs or the LLM server.
