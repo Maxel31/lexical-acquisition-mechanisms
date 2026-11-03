@@ -69,6 +69,9 @@ def build_parser(actions: Sequence[Action]) -> argparse.ArgumentParser:
             action_parser = action_parsers.add_parser(
                 action.name, help=action.description, description=action.description
             )
+            action_parser.add_argument(
+                "--recompute", action="store_true", help="入力と設定が前回と同じでも、やり直す"
+            )
             if action.add_arguments is not None:
                 action.add_arguments(action_parser)
             action_parser.set_defaults(selected_action=action)
