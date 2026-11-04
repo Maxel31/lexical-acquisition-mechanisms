@@ -10,8 +10,9 @@ import math
 import numpy as np
 import torch
 import torch.distributed as distributed
-import torch.nn.functional as functional
 from transformers import PreTrainedModel
+
+from lexical_acquisition_mechanisms.next_token_losses import next_token_losses
 
 
 def validation_perplexity(
@@ -37,12 +38,9 @@ def validation_perplexity(
                 np.stack([sequences[max(index, 0)] for index in chosen]).astype(np.int64)
             ).to(device)
             counted = torch.tensor([index >= 0 for index in chosen], device=device)
-            logits = model(input_ids=input_ids, use_cache=False).logits.float()
-            losses = functional.cross_entropy(
-                logits[:, :-1].reshape(-1, logits.shape[-1]),
-                input_ids[:, 1:].reshape(-1),
-                reduction="none",
-            ).reshape(len(chosen), -1)
+            logits = model(input_ids=input_ids, use_cache=False).logits
+            # 系列の最後の位置には、予測するトークンがない
+            losses = next_token_losses(logits, input_ids)[0][:, :-1]
             sums += torch.stack(
                 [(losses * counted[:, None]).sum(), counted.sum() * losses.shape[1]]
             )

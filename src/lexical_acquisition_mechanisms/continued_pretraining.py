@@ -13,7 +13,8 @@ torchrun から、GPU ごとに1つのプロセスで動かす（GPU がなけ�
   更新をしないように）。step の系列を GPU に順に配り、全ての GPU で計算の回数がそろうように、
   足りない分は損失に数えない空の系列で埋める。
 - 損失: 次のトークンの交差エントロピー + z-loss（出力の対数の分配関数の2乗 × 重み）。step の全ての
-  トークンで平均する。
+  トークンで平均する。logits の float32 の写しを持たないように、位置のまとまりごとに計算する
+  （next_token_losses）。
 - 最適化器: AdamW（埋め込みには重みの減衰を掛けない）。学習率は、最初の warmup_fraction の step で
   0 から上げ、あとは一定（事前学習の最後の値のまま）。勾配のノルムを gradient_clipping に抑える。
 - 記録: step ごとに、損失（全体と、差し込んだ用例のトークンだけ）・学習率・勾配のノルムを、
@@ -41,13 +42,13 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.distributed as distributed
-import torch.nn.functional as functional
 import wandb
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
 
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
+from lexical_acquisition_mechanisms.next_token_losses import next_token_losses
 from lexical_acquisition_mechanisms.run_settings import RunSettings, load_run_settings
 from lexical_acquisition_mechanisms.settings import Settings
 from lexical_acquisition_mechanisms.training_checkpoints import (
@@ -301,13 +302,13 @@ def _train_step(
     distributed.all_reduce(step_tokens)
     sums = torch.zeros(4, device=process.device)
     for batch in micro_batches:
-        logits = model(input_ids=batch.input_ids, use_cache=False).logits.float()
-        predicted = logits[:, :-1].reshape(-1, logits.shape[-1])
-        targets = batch.input_ids[:, 1:].reshape(-1)
-        counted = batch.counted[:, 1:].reshape(-1)
-        inserted = batch.inserted[:, 1:].reshape(-1) & counted
-        cross_entropy = functional.cross_entropy(predicted, targets, reduction="none")
-        z_loss = run.z_loss_weight * torch.logsumexp(predicted, dim=-1) ** 2
+        logits = model(input_ids=batch.input_ids, use_cache=False).logits
+        cross_entropy, log_partition = next_token_losses(logits, batch.input_ids)
+        # 位置 t の値はトークン t + 1 の予測なので、数えるかどうかも1つ先のトークンで決める
+        # （各系列の最初のトークンは数えないので、系列の最後の位置は数えない）
+        counted = torch.roll(batch.counted, -1, dims=1)
+        inserted = torch.roll(batch.inserted, -1, dims=1) & counted
+        z_loss = run.z_loss_weight * log_partition**2
         loss = ((cross_entropy + z_loss) * counted).sum()
         # FSDP2 は勾配を GPU の数で平均するので、その分を掛けて、step の全てのトークンでの平均にする
         (loss * process.world_size / step_tokens).backward()
