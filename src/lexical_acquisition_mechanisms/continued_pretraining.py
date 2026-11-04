@@ -14,6 +14,8 @@ torchrun から、GPU ごとに1つのプロセスで動かす（GPU がなけ�
   0 から上げ、あとは一定（事前学習の最後の値のまま）。勾配のノルムを gradient_clipping に抑える。
 - 記録: step ごとに、損失（全体と、差し込んだ用例のトークンだけ）・学習率・勾配のノルムを、
   出力のディレクトリの metrics.jsonl に書く。
+- 検証データでのパープレキシティを、学習前と、重みを保存するたびに記録する
+  （validation_perplexity）。
 - 重みと、続きから学習するための状態の保存は training_checkpoints。
 """
 
@@ -47,6 +49,10 @@ from lexical_acquisition_mechanisms.training_checkpoints import (
     save_state,
     save_weights,
 )
+from lexical_acquisition_mechanisms.validation_perplexity import validation_perplexity
+
+# 検証データでのパープレキシティの、学習前からの変化の目安（設計書: 1%以内）
+PERPLEXITY_CHANGE_LIMIT = 0.01
 
 
 @dataclass(frozen=True)
@@ -143,6 +149,8 @@ def train(run: RunSettings) -> None:
         run.output_directory.mkdir(parents=True, exist_ok=True)
         checkpoints = checkpoint_names(number_of_steps, run.checkpoint_fractions)
         first_step = resume(model, optimizer, run, process.rank)
+        if first_step == 0:
+            _record_validation(model, run, process, 0)
         for step in range(first_step, number_of_steps):
             started = time.time()
             learning_rate = run.learning_rate * min(1.0, (step + 1) / warmup_steps)
@@ -168,6 +176,7 @@ def train(run: RunSettings) -> None:
                 )
             finished = step + 1
             if finished in checkpoints:
+                _record_validation(model, run, process, finished)
                 save_weights(model, run, process.rank, checkpoints[finished])
             if finished < number_of_steps and (
                 finished % STATE_INTERVAL_STEPS == 0 or finished in checkpoints
@@ -176,6 +185,38 @@ def train(run: RunSettings) -> None:
         mark_completed(run, process.rank, number_of_steps)
     finally:
         distributed.destroy_process_group()
+
+
+def _record_validation(
+    model: PreTrainedModel, run: RunSettings, process: Process, step: int
+) -> None:
+    """検証データでのパープレキシティと、学習前（step 0 の記録）からの変化を記録する。"""
+    perplexity = validation_perplexity(
+        model,
+        run.validation_sequences,
+        run.sequences_per_device,
+        process.rank,
+        process.world_size,
+        process.device,
+    )
+    if process.rank != 0:
+        return
+    before = perplexity
+    path = run.output_directory / METRICS_FILE_NAME
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            record = json.loads(line)
+            if record.get("step") == 0:
+                before = record["validation_perplexity"]
+    change = perplexity / before - 1
+    _write_metrics(
+        run, {"step": step, "validation_perplexity": perplexity, "validation_change": change}
+    )
+    if abs(change) > PERPLEXITY_CHANGE_LIMIT:
+        print(
+            f"検証データでのパープレキシティが、学習前から {change:+.2%} 変わりました"
+            f"（{step} step）。原因を調べて報告してください。"
+        )
 
 
 def _train_step(
