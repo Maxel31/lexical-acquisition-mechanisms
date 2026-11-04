@@ -17,18 +17,22 @@ torchrun から、GPU ごとに1つのプロセスで動かす（GPU がなけ�
   0 から上げ、あとは一定（事前学習の最後の値のまま）。勾配のノルムを gradient_clipping に抑える。
 - 記録: step ごとに、損失（全体と、差し込んだ用例のトークンだけ）・学習率・勾配のノルムを、
   出力のディレクトリの metrics.jsonl に書き、W&B にも送る（環境変数 WANDB_MODE=disabled なら
-  送らない。実行し直したときは、同じ W&B の run に続けて記録する）。
+  送らない）。最初から学習するときは、metrics.jsonl を書き直し、新しい W&B の run を始める。
+  続きから学習するときは、同じ W&B の run に続けて記録する。
+- --recompute を付けると、出力のディレクトリを消して最初から学習する。付けずに、学習の指紋
+  （run の設定と学習データ）が前回と違う run を実行し直すと、止まる（training_checkpoints）。
 - 検証データでのパープレキシティを、学習前と、重みを保存するたびに記録する
   （validation_perplexity）。
 - 重みと、続きから学習するための状態の保存は training_checkpoints。
 """
 
 import argparse
-import hashlib
 import json
 import math
 import os
+import shutil
 import time
+import uuid
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,21 +46,24 @@ from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
 
+from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.run_settings import RunSettings, load_run_settings
 from lexical_acquisition_mechanisms.settings import Settings
 from lexical_acquisition_mechanisms.training_checkpoints import (
-    COMPLETED_FILE_NAME,
     METRICS_FILE_NAME,
     STATE_INTERVAL_STEPS,
     checkpoint_names,
-    is_completed,
+    completed_fingerprint,
     mark_completed,
     resume,
     save_state,
     save_weights,
+    training_fingerprint,
 )
 from lexical_acquisition_mechanisms.validation_perplexity import validation_perplexity
 
+# W&B の run の番号を書くファイル（続きから学習するときに、同じ run に続けるため）
+WEIGHTS_AND_BIASES_ID_FILE_NAME = "weights_and_biases_id.txt"
 # 検証データでのパープレキシティの、学習前からの変化の目安（設計書: 1%以内）
 PERPLEXITY_CHANGE_LIMIT = 0.01
 
@@ -139,27 +146,42 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def run_training(settings: Settings, arguments: argparse.Namespace) -> None:
-    train(load_run_settings(arguments.run_settings))
+    command = f"training run --run-settings {arguments.run_settings}"
+    train(load_run_settings(arguments.run_settings), arguments.recompute, command)
 
 
-def train(run: RunSettings) -> None:
-    if is_completed(run):
-        print(
-            f"{run.output_directory} の学習は終わっています（{COMPLETED_FILE_NAME} があります）。"
-        )
+def train(run: RunSettings, recompute: bool = False, command: str = "training run") -> None:
+    """run を学習する（command は、止まったときに示す、このコマンド）。"""
+    fingerprint = training_fingerprint(run)
+    recorded = None if recompute else completed_fingerprint(run)
+    if recorded is not None:
+        if recorded != fingerprint:
+            raise CommandStopped(
+                f"{run.output_directory} は学習を終えていますが、今の run の設定か学習データと"
+                "違います。学習し直すには --recompute を付けてください。",
+                rerun_from=f"{command} --recompute",
+            )
+        print(f"{run.output_directory} の学習は終わっています（設定と学習データも同じ）。")
         return
     process = _start_process()
     try:
+        if recompute:
+            if process.rank == 0:
+                shutil.rmtree(run.output_directory, ignore_errors=True)
+            distributed.barrier()
         run.output_directory.mkdir(parents=True, exist_ok=True)
-        _start_weights_and_biases(run, process.rank)
         model = _load_model(run, process)
         optimizer = _optimizer(model, run)
         batches = SequenceBatches(run, process)
         number_of_steps = batches.number_of_steps
         warmup_steps = max(1, math.ceil(run.warmup_fraction * number_of_steps))
         checkpoints = checkpoint_names(number_of_steps, run.checkpoint_fractions)
-        first_step = resume(model, optimizer, run, process.rank)
+        first_step = resume(model, optimizer, run, process.rank, fingerprint, command)
+        _start_weights_and_biases(run, process.rank, continuing=first_step > 0)
         if first_step == 0:
+            if process.rank == 0:
+                # 前に途中で止まった（状態を書く前の）記録を残さない
+                (run.output_directory / METRICS_FILE_NAME).unlink(missing_ok=True)
             _record_validation(model, run, process, 0)
         for step in range(first_step, number_of_steps):
             started = time.time()
@@ -193,23 +215,36 @@ def train(run: RunSettings) -> None:
             if finished < number_of_steps and (
                 finished % STATE_INTERVAL_STEPS == 0 or finished in checkpoints
             ):
-                save_state(model, optimizer, run, process.rank, finished)
-        mark_completed(run, process.rank, number_of_steps)
+                save_state(model, optimizer, run, process.rank, finished, fingerprint)
+        mark_completed(run, process.rank, number_of_steps, fingerprint)
+    except BaseException:
+        if wandb.run is not None:
+            wandb.finish(exit_code=1)
+        raise
     finally:
         if wandb.run is not None:
             wandb.finish()
         distributed.destroy_process_group()
 
 
-def _start_weights_and_biases(run: RunSettings, rank: int) -> None:
-    """1つ目のプロセスで、W&B の run を始める（実行し直したときは、同じ run に続ける）。"""
+def _start_weights_and_biases(run: RunSettings, rank: int, continuing: bool) -> None:
+    """1つ目のプロセスで、W&B の run を始める。
+
+    最初から学習するときは新しい番号の run を始め（番号は出力のディレクトリに書く）、続きから
+    学習するときは、その番号の run に続ける。
+    """
     if rank != 0:
         return
-    name = f"{run.experiment}/{run.model}/{run.run}"
+    id_path = run.output_directory / WEIGHTS_AND_BIASES_ID_FILE_NAME
+    if continuing and id_path.exists():
+        run_id = id_path.read_text(encoding="utf-8").strip()
+    else:
+        run_id = uuid.uuid4().hex[:16]
+        id_path.write_text(run_id, encoding="utf-8")
     wandb.init(
         project=run.weights_and_biases_project,
-        name=name,
-        id=hashlib.sha256(name.encode("utf-8")).hexdigest()[:16],
+        name=f"{run.experiment}/{run.model}/{run.run}",
+        id=run_id,
         resume="allow",
         config=run.model_dump(mode="json"),
         dir=run.output_directory,

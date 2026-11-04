@@ -14,7 +14,8 @@ import torch
 import yaml
 from transformers import AutoModelForCausalLM
 
-from lexical_acquisition_mechanisms import continued_pretraining
+from lexical_acquisition_mechanisms import continued_pretraining, training_checkpoints
+from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.continued_pretraining import (
     Process,
     SequenceBatches,
@@ -23,6 +24,7 @@ from lexical_acquisition_mechanisms.continued_pretraining import (
 )
 from lexical_acquisition_mechanisms.run_settings import RunSettings, build_run_settings
 from lexical_acquisition_mechanisms.settings import ModelSource, load_settings
+from lexical_acquisition_mechanisms.training_checkpoints import final_directories
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SEQUENCE_LENGTH = 8
@@ -238,3 +240,64 @@ def test_new_tokens_start_from_the_mean_of_existing_embeddings(
     difference = (embedding[100278] - embedding[:vocabulary_size].mean(dim=0)).detach()
     assert 0 < float(difference.abs().max()) < 1
     assert not torch.allclose(embedding[100278], embedding[100279])
+
+
+def test_changed_runs_stop_until_they_are_recomputed(
+    tmp_path: Path, tiny_model_source, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MASTER_PORT", str(free_port()))
+    run = run_settings(tmp_path, tiny_model_source)
+    train(run)
+    changed = run.model_copy(update={"learning_rate": run.learning_rate * 2})
+
+    # 学習を終えた run でも、設定が違えば古い重みを使わずに止まる
+    with pytest.raises(CommandStopped, match="--recompute"):
+        train(changed)
+    monkeypatch.setenv("MASTER_PORT", str(free_port()))
+    train(changed, recompute=True)
+
+    completed = json.loads((run.output_directory / "completed.json").read_text(encoding="utf-8"))
+    assert completed["fingerprint"]["settings"]["learning_rate"] == changed.learning_rate
+    assert [record["step"] for record in metrics_of(run) if "loss" in record] == [1, 2, 3]
+
+
+def test_saved_states_of_other_training_data_are_not_continued(
+    tmp_path: Path, tiny_model_source, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(continued_pretraining, "STATE_INTERVAL_STEPS", 1)
+    monkeypatch.setenv("MASTER_PORT", str(free_port()))
+    run = run_settings(tmp_path, tiny_model_source)
+    original_step = continued_pretraining._train_step
+
+    def stop_at_the_third_step(model, batches, step, run, process):
+        if step == 2:
+            raise RuntimeError("学習を止めた")
+        return original_step(model, batches, step, run, process)
+
+    monkeypatch.setattr(continued_pretraining, "_train_step", stop_at_the_third_step)
+    with pytest.raises(RuntimeError, match="学習を止めた"):
+        train(run)
+    monkeypatch.setattr(continued_pretraining, "_train_step", original_step)
+    # 学習データを作り直すと、途中までの状態は使わない
+    tokens = np.load(run.training_tokens)
+    np.save(run.training_tokens, tokens[::-1].copy())
+    monkeypatch.setenv("MASTER_PORT", str(free_port()))
+
+    with pytest.raises(CommandStopped, match="途中までの学習"):
+        train(run)
+
+
+def test_final_directories_need_completed_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(training_checkpoints, "CHECKPOINTS_DIRECTORY", tmp_path)
+    for run in ("run-1", "run-2"):
+        # 最後の重みの config.json だけでは、学習を終えたとみなさない
+        (tmp_path / "experiment" / "tiny" / run / "final").mkdir(parents=True)
+        (tmp_path / "experiment" / "tiny" / run / "final" / "config.json").write_text("{}")
+    (tmp_path / "experiment" / "tiny" / "run-1" / "completed.json").write_text("{}")
+
+    with pytest.raises(CommandStopped, match="run-2"):
+        final_directories("experiment", "tiny", ["run-1", "run-2"], "command")
+    finished = final_directories("experiment", "tiny", ["run-1"], "command")
+    assert finished == {"run-1": tmp_path / "experiment" / "tiny" / "run-1" / "final"}

@@ -32,7 +32,6 @@ import torch
 from lexical_acquisition_mechanisms import (
     attribute_direction_patching,
     attribute_probes,
-    run_settings,
     significant_heads_and_mlps,
     task_questions,
     unknown_word_assignments,
@@ -46,7 +45,6 @@ from lexical_acquisition_mechanisms.attribute_probes import (
     baseline_heads,
     read_attribute_probes,
 )
-from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.component_patching import (
     SubspacePatch,
     subspace_patched_log_probabilities,
@@ -60,7 +58,7 @@ from lexical_acquisition_mechanisms.task_prompts import (
     choice_token_ids,
     encode_prompt_with_word_spans,
 )
-from lexical_acquisition_mechanisms.training_checkpoints import FINAL_DIRECTORY
+from lexical_acquisition_mechanisms.training_checkpoints import final_directories
 from lexical_acquisition_mechanisms.unknown_word_assignments import UnknownWordAssignment
 from lexical_acquisition_mechanisms.unknown_word_indicators import checkpoint_states
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
@@ -83,17 +81,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 def unknown_word_checkpoints(model: str, command: str) -> dict[str, Path]:
     """未知語の獲得の8つの run の、最後の重み（学習を終えていない run があれば止まる）。"""
-    directory = run_settings.CHECKPOINTS_DIRECTORY / unknown_word_assignments.EXPERIMENT / model
-    checkpoints = {
-        run: directory / run / FINAL_DIRECTORY for run in unknown_word_assignments.run_names()
-    }
-    missing = [str(path) for path in checkpoints.values() if not (path / "config.json").exists()]
-    if missing:
-        raise CommandStopped(
-            f"学習を終えていない run があります（{missing}）。先に学習してください。",
-            rerun_from=command,
-        )
-    return checkpoints
+    runs = unknown_word_assignments.run_names()
+    return final_directories(unknown_word_assignments.EXPERIMENT, model, runs, command)
 
 
 def measure_dependence(settings: Settings, arguments: argparse.Namespace) -> None:
