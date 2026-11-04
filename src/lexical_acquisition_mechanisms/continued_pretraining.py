@@ -16,13 +16,15 @@ torchrun から、GPU ごとに1つのプロセスで動かす（GPU がなけ�
 - 最適化器: AdamW（埋め込みには重みの減衰を掛けない）。学習率は、最初の warmup_fraction の step で
   0 から上げ、あとは一定（事前学習の最後の値のまま）。勾配のノルムを gradient_clipping に抑える。
 - 記録: step ごとに、損失（全体と、差し込んだ用例のトークンだけ）・学習率・勾配のノルムを、
-  出力のディレクトリの metrics.jsonl に書く。
+  出力のディレクトリの metrics.jsonl に書き、W&B にも送る（環境変数 WANDB_MODE=disabled なら
+  送らない。実行し直したときは、同じ W&B の run に続けて記録する）。
 - 検証データでのパープレキシティを、学習前と、重みを保存するたびに記録する
   （validation_perplexity）。
 - 重みと、続きから学習するための状態の保存は training_checkpoints。
 """
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -35,6 +37,7 @@ import numpy as np
 import torch
 import torch.distributed as distributed
 import torch.nn.functional as functional
+import wandb
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
@@ -144,12 +147,13 @@ def train(run: RunSettings) -> None:
         return
     process = _start_process()
     try:
+        run.output_directory.mkdir(parents=True, exist_ok=True)
+        _start_weights_and_biases(run, process.rank)
         model = _load_model(run, process)
         optimizer = _optimizer(model, run)
         batches = SequenceBatches(run, process)
         number_of_steps = batches.number_of_steps
         warmup_steps = max(1, math.ceil(run.warmup_fraction * number_of_steps))
-        run.output_directory.mkdir(parents=True, exist_ok=True)
         checkpoints = checkpoint_names(number_of_steps, run.checkpoint_fractions)
         first_step = resume(model, optimizer, run, process.rank)
         if first_step == 0:
@@ -187,7 +191,24 @@ def train(run: RunSettings) -> None:
                 save_state(model, optimizer, run, process.rank, finished)
         mark_completed(run, process.rank, number_of_steps)
     finally:
+        if wandb.run is not None:
+            wandb.finish()
         distributed.destroy_process_group()
+
+
+def _start_weights_and_biases(run: RunSettings, rank: int) -> None:
+    """1つ目のプロセスで、W&B の run を始める（実行し直したときは、同じ run に続ける）。"""
+    if rank != 0:
+        return
+    name = f"{run.experiment}/{run.model}/{run.run}"
+    wandb.init(
+        project=run.weights_and_biases_project,
+        name=name,
+        id=hashlib.sha256(name.encode("utf-8")).hexdigest()[:16],
+        resume="allow",
+        config=run.model_dump(mode="json"),
+        dir=run.output_directory,
+    )
 
 
 def _record_validation(
@@ -341,3 +362,5 @@ def _full(value: torch.Tensor) -> torch.Tensor:
 def _write_metrics(run: RunSettings, record: dict[str, float | int]) -> None:
     with (run.output_directory / METRICS_FILE_NAME).open("a", encoding="utf-8") as file:
         file.write(json.dumps(record) + "\n")
+    if wandb.run is not None:
+        wandb.log(record, step=int(record["step"]))
