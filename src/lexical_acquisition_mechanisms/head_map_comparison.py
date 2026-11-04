@@ -27,6 +27,7 @@ import torch
 
 from lexical_acquisition_mechanisms import (
     head_and_mlp_effects,
+    pretrained_model_checks,
     task_questions,
     unknown_word_assignments,
     word_finalization,
@@ -84,6 +85,7 @@ def compare_head_maps(settings: Settings, arguments: argparse.Namespace) -> None
     model = arguments.model
     command = f"{EXPERIMENT} compare-head-maps --model {model}"
     checkpoints = unknown_word_checkpoints(model, command)
+    pretrained_model_checks.require_usable_tasks(model, ["sense"], command)
     pairs_path, effects_path, _, _ = head_and_mlp_effects.effect_paths(model)
     measured_by = f"sense-addition measure-head-and-mlp-effects --model {model}"
     inputs = {
@@ -96,7 +98,10 @@ def compare_head_maps(settings: Settings, arguments: argparse.Namespace) -> None
     exposure = max(settings.unknown_word_acquisition.exposure_levels)
     step = Step(
         command,
-        inputs=inputs,
+        inputs={
+            **inputs,
+            pretrained_model_checks.TASK_ACCURACY_PATH: pretrained_model_checks.COMMAND,
+        },
         outputs=list(output_paths(model)),
         settings={
             "checkpoints": checkpoint_states(list(checkpoints.values())),

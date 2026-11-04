@@ -95,6 +95,26 @@ def test_attribute_directions_are_patched_with_two_baselines(
     )
 
     rows = parquet.read_table(tmp_path / "patching.parquet").to_pylist()
+    # 使えない課題2（カテゴリ）は測らない
+    only_sense = write_attribute_patching(
+        {"other-category-4": directory},
+        lambda source: LanguageModel.load(source, device="cpu"),
+        tuple(
+            tmp_path / name
+            for name in (
+                "classes.csv",
+                "probes.npz",
+                "questions.parquet",
+                "accuracy.csv",
+                "words.csv",
+            )
+        ),
+        tmp_path / "only_sense.parquet",
+        0,
+        {"sense", "part-of-speech"},
+    )
+    assert {row["task"] for row in only_sense} == {"sense"}
+    assert len(only_sense) * 2 == len(rows)
     # 2組 × 2方向 × 2課題 × 2属性 × 3つの入れ替え。問題があるのは別カテゴリの run だけ
     assert len(rows) == 2 * 2 * 2 * 2 * 3
     assert {row["run"] for row in rows} == {"other-category-4"}

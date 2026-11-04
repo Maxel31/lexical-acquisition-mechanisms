@@ -23,6 +23,7 @@ import torch
 
 from lexical_acquisition_mechanisms import (
     evaluation_finalization,
+    pretrained_model_checks,
     sense_addition_assignments,
     word_finalization,
 )
@@ -83,11 +84,13 @@ def measure_sense_accuracy(settings: Settings, arguments: argparse.Namespace) ->
     model = arguments.model
     command = f"sense-addition measure-sense-accuracy --model {model}"
     checkpoints = final_checkpoints(model, command)
+    pretrained_model_checks.require_usable_tasks(model, ["sense"], command)
     step = Step(
         command,
         inputs={
             word_finalization.OUTPUT_PATH: word_finalization.COMMAND,
             evaluation_finalization.QUESTIONS_PATH: evaluation_finalization.COMMAND,
+            pretrained_model_checks.TASK_ACCURACY_PATH: pretrained_model_checks.COMMAND,
         },
         outputs=list(result_paths(model)),
         settings={"checkpoints": checkpoint_states(list(checkpoints.values()))},

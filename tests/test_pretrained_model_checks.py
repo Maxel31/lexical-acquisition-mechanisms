@@ -8,6 +8,7 @@ import pyarrow as arrow
 import pyarrow.parquet as parquet
 import pytest
 
+from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.minimal_pairs import MinimalPairCandidate
 from lexical_acquisition_mechanisms.pretrained_model_checks import (
@@ -16,6 +17,8 @@ from lexical_acquisition_mechanisms.pretrained_model_checks import (
     MinimalPairReviewRow,
     ParaphraseCheck,
     check_evaluation_data,
+    require_usable_tasks,
+    usable_tasks,
 )
 from lexical_acquisition_mechanisms.settings import ModelSource, load_settings
 from lexical_acquisition_mechanisms.task_accuracy import TaskAccuracy, binomial_p_value
@@ -157,3 +160,18 @@ def test_binomial_p_value() -> None:
     assert binomial_p_value(0, 10, 0.5) == pytest.approx(1.0)
     assert binomial_p_value(10, 10, 0.5) == pytest.approx(0.5**10)
     assert binomial_p_value(9, 10, 0.5) == pytest.approx(11 / 1024)
+
+
+def test_commands_stop_on_tasks_that_the_model_cannot_solve(tmp_path: Path) -> None:
+    rows = [
+        TaskAccuracy("tiny", "sense", 40, 30, 0.75, 0.25, 0.001, True),
+        TaskAccuracy("tiny", "category", 40, 8, 0.2, 1 / 6, 0.4, False),
+        TaskAccuracy("other", "category", 40, 30, 0.75, 1 / 6, 0.001, True),
+    ]
+    write_rows(tmp_path / "task_accuracy.csv", TaskAccuracy, rows)
+    path = tmp_path / "task_accuracy.csv"
+
+    assert usable_tasks("tiny", path) == {"sense"}
+    require_usable_tasks("tiny", ["sense"], "command", path)
+    with pytest.raises(CommandStopped, match="category"):
+        require_usable_tasks("tiny", ["sense", "category"], "command", path)

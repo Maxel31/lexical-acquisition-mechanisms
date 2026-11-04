@@ -33,6 +33,7 @@ import torch
 
 from lexical_acquisition_mechanisms import (
     evaluation_finalization,
+    pretrained_model_checks,
     sense_accuracy,
     word_finalization,
 )
@@ -93,6 +94,7 @@ def measure_head_and_mlp_effects(settings: Settings, arguments: argparse.Namespa
     model = arguments.model
     command = f"sense-addition measure-head-and-mlp-effects --model {model}"
     checkpoints = sense_accuracy.final_checkpoints(model, command)
+    pretrained_model_checks.require_usable_tasks(model, ["sense"], command)
     accuracy_path = sense_accuracy.result_paths(model)[1]
     input_paths = (
         word_finalization.OUTPUT_PATH,
@@ -105,6 +107,7 @@ def measure_head_and_mlp_effects(settings: Settings, arguments: argparse.Namespa
             word_finalization.OUTPUT_PATH: word_finalization.COMMAND,
             evaluation_finalization.QUESTIONS_PATH: evaluation_finalization.COMMAND,
             accuracy_path: f"sense-addition measure-sense-accuracy --model {model}",
+            pretrained_model_checks.TASK_ACCURACY_PATH: pretrained_model_checks.COMMAND,
         },
         outputs=list(effect_paths(model)),
         settings={
