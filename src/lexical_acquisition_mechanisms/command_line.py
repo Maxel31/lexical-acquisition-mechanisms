@@ -23,6 +23,7 @@ from lexical_acquisition_mechanisms import (
     passage_review,
     passage_split,
     similarity_ratings,
+    training_data,
     unknown_word_candidates,
     word_finalization,
     word_selection,
@@ -164,6 +165,13 @@ def all_actions() -> list[Action]:
             "（未知語の獲得では件数も）を決める",
             assignments.build_assignments,
             assignments.add_arguments,
+        ),
+        Action(
+            "training-data",
+            "build",
+            "run ごとの学習データを作る: 割り当てのとおりに用例の語を置き換え、基データに差し込む",
+            training_data.build_training_data,
+            training_data.add_arguments,
         ),
     ]
 
