@@ -1,5 +1,6 @@
 """用例の窓の切り出しのテスト。"""
 
+from lexical_acquisition_mechanisms.passage_replacement import WINDOW_MARGIN
 from lexical_acquisition_mechanisms.passage_windows import (
     PassageWindow,
     WindowSettings,
@@ -32,4 +33,4 @@ def test_windows_are_the_same_with_several_processes(tiny_model_source: ModelSou
 
     assert alone == together
     assert all(isinstance(window, PassageWindow) for window in alone)
-    assert all(len(window.token_ids) == 8 for window in alone)
+    assert all(len(window.token_ids) == 8 + WINDOW_MARGIN for window in alone)

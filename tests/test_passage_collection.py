@@ -16,6 +16,7 @@ from lexical_acquisition_mechanisms.passage_collection import (
     CollectionSummary,
     build_passage_candidates,
 )
+from lexical_acquisition_mechanisms.passage_replacement import WINDOW_MARGIN
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings, load_settings
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
@@ -146,7 +147,8 @@ def test_windows_contain_only_the_standard_form(tmp_path: Path, settings: Settin
     pasta_id = tokenizer.word_token_ids("pasta")[0]
     candidates = parquet.read_table(tmp_path / "passages" / "candidates.parquet").to_pylist()
     for candidate in candidates:
-        assert len(candidate["token_ids"]) == 25
+        # 用例の長さ（25）より、置き換えで短くなる分だけ長く切り出す
+        assert len(candidate["token_ids"]) == 25 + WINDOW_MARGIN
         if candidate["word"] == "pasta":
             assert candidate["occurrence_positions"]
             assert all(

@@ -8,7 +8,9 @@
 - 置き換えはトークン列の中で行う。語の前後はトークンの区切り（先頭スペース付きの語は、それだけで
   1つの区切りになる）なので、文字列で置き換えてトークン化し直したのと同じトークン列になる。
 - 置き換えた後、用例の長さに切り直す。置き換えた語を全て含み、始まりと次のトークンが語の途中に
-  ならない窓のうち、置き換えた語が最も真ん中に来るものにする。
+  ならない窓のうち、置き換えた語が最も真ん中に来るものにする。用例は、用例の長さより
+  WINDOW_MARGIN トークン長く切り出してある（passages collect）ので、短い語に置き換えても切り直せる。
+  置き換えずに差し込む用例も、cut で同じように切り直す。
 - 置き換えが0件、置き換えた後に元の語が残る、または切り直せないときは、ReplacementError にする。
 """
 
@@ -20,6 +22,8 @@ import numpy as np
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
 
 VOWELS = "aeiou"
+# 用例を、用例の長さより長く切り出しておくトークン数（管理対象の語のトークン数 1〜3 の差の最大）
+WINDOW_MARGIN = 2
 
 
 class ReplacementError(Exception):
@@ -102,6 +106,17 @@ class PassageReplacer:
         return ReplacedPassage(
             window, [position - window_start for position in new_positions], records
         )
+
+    def cut(
+        self, token_ids: Sequence[int], positions: Sequence[int], word_length: int
+    ) -> ReplacedPassage:
+        """置き換えずに、出現の位置（長さ word_length の語）を含むように用例の長さに切り直す。"""
+        if not positions:
+            raise ReplacementError("出現がありません。")
+        token_ids = list(token_ids)
+        start = self._window_start(token_ids, sorted(positions), word_length)
+        window = token_ids[start : start + self._length]
+        return ReplacedPassage(window, [position - start for position in sorted(positions)], [])
 
     def _article_for(self, token_id: int, target_text: str) -> int:
         """置き換えた後の語の最初の文字に合わせた冠詞のトークン（大文字と先頭スペースは元のまま）。"""

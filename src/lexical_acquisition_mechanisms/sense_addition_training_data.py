@@ -202,6 +202,8 @@ def _pool(
             token_ids = passages[donor]["token_ids"][index].tolist()
             positions = passages[donor]["positions"][index]
             try:
+                # 割り当てのない run では置き換えずに差し込むので、そのまま切り直せることも確かめる
+                replacer.cut(token_ids, positions, words[donor].token_count)
                 for replacement in replacements:
                     replacer.replace(token_ids, positions, replacement)
             except ReplacementError:
@@ -238,11 +240,14 @@ def _inserted(
     """プールの用例を、ターゲット語があれば置き換えた、差し込む用例。"""
     row = {key: passage[key] for key in ("donor", "shard", "row", "start")}
     if not target:
+        cut = replacer.cut(
+            passage["token_ids"], passage["positions"], words[passage["donor"]].token_count
+        )
         return {
             **row,
             "target": "",
-            "token_ids": list(passage["token_ids"]),
-            "positions": list(passage["positions"]),
+            "token_ids": cut.token_ids,
+            "positions": cut.positions,
             "records": [],
         }
     replaced = replacer.replace(

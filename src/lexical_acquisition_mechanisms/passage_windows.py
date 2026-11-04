@@ -1,10 +1,11 @@
-"""出現の前後の文字列から、語を含む256トークンの用例の候補を切り出して確かめる。
+"""出現の前後の文字列から、語を含む用例の候補を切り出して確かめる。
 
 passages collect の後半。
 
 1. 前後の文字列の端の、途中で切れた語を除き、出現の前・出現（先頭スペース付きの形）・後に分けて
    トークン化する（分けても、まとめてトークン化したのと同じトークン列になる）。
-2. 出現を含む位置に、用例の長さの窓を、無作為に置く。窓の始まりと終わりは、語の途中にしない
+2. 出現を含む位置に、用例の長さ + WINDOW_MARGIN トークンの窓を、無作為に置く（語を短い語に
+   置き換えても、用例の長さに切り直せるように）。窓の始まりと終わりは、語の途中にしない
    （前のトークンが英字で終わり、後のトークンが英字で始まる所で切らない）。窓に入らなければ
    （文書が短い）、使わない。
 3. 次の窓は使わない。
@@ -20,6 +21,7 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
+from lexical_acquisition_mechanisms.passage_replacement import WINDOW_MARGIN
 from lexical_acquisition_mechanisms.pile_word_usages import WORD_PATTERN, occurrence_key
 from lexical_acquisition_mechanisms.settings import ModelSource
 from lexical_acquisition_mechanisms.word_tokenizer import WordBoundaries, WordTokenizer
@@ -103,7 +105,7 @@ def cut_window(
     right = len(context) if reaches_end else _last_space(context)
     parts = [context[left : offset - 1], " " + word, context[offset + len(word) : right]]
     token_ids, spans = tokenizer.encode_with_spans(parts)
-    length = settings.tokens_per_passage
+    length = settings.tokens_per_passage + WINDOW_MARGIN
     lowest = max(0, spans[1].stop - length)
     highest = min(spans[1].start, len(token_ids) - length)
     starts = [

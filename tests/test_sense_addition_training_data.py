@@ -10,6 +10,7 @@ import pytest
 from lexical_acquisition_mechanisms import sense_addition_assignments
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.passage_collection import CANDIDATE_SCHEMA
+from lexical_acquisition_mechanisms.passage_replacement import WINDOW_MARGIN
 from lexical_acquisition_mechanisms.sense_addition_assignments import SenseAdditionAssignment
 from lexical_acquisition_mechanisms.sense_addition_training_data import (
     SenseAdditionDataCheck,
@@ -56,7 +57,9 @@ def test_donors_are_replaced_only_in_their_runs(
     for word, role in roles.items():
         if role == "target":
             continue
-        token_ids = tokenizer.encode([TEMPLATE.format(word=word)])
+        # 用例は、用例の長さより WINDOW_MARGIN トークン長く切り出してある（後ろの " Yes ok"）
+        token_ids = tokenizer.encode([TEMPLATE.format(word=word) + " Yes ok"])
+        assert len(token_ids) == length + WINDOW_MARGIN
         word_id = tokenizer.word_token_ids(word)[0]
         for number in range(3):
             rows.append(
@@ -104,7 +107,8 @@ def test_donors_are_replaced_only_in_their_runs(
         tokens = np.load(output / run / "tokens.npy")
         starts = np.load(output / run / "passage_starts.npy")
         texts[run] = [tokenizer.decode(tokens[start : start + length].tolist()) for start in starts]
-    # 各プールは 2語 × 2件。割り当てのある donor だけを置き換える
+    # 各プールは 2語 × 2件。割り当てのある donor だけを置き換える。置き換えない用例（対照の run と、
+    # 割り当てのない donor）も、用例の長さに切り直して差し込む
     assert sorted(texts["other-category-1"]) == sorted(
         [TEMPLATE.format(word="car")] * 2 + [TEMPLATE.format(word="bread")] * 2
     )

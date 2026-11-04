@@ -3,6 +3,7 @@
 import pytest
 
 from lexical_acquisition_mechanisms.passage_replacement import (
+    WINDOW_MARGIN,
     PassageReplacer,
     Replacement,
     ReplacementError,
@@ -84,3 +85,32 @@ def test_missing_occurrences_are_errors(tokenizer: WordTokenizer) -> None:
         replacer.replace(token_ids, [], replacement)
     with pytest.raises(ReplacementError, match="位置 0 に元の語がありません"):
         replacer.replace(token_ids, [0], replacement)
+
+
+def test_shorter_words_fit_because_windows_are_cut_longer(tokenizer: WordTokenizer) -> None:
+    # 3トークンの語を1トークンの語に置き換えても、用例の長さに切り直せる
+    long_word = next(
+        word
+        for word in ("blicketory", "zorbatnik", "flumpering")
+        if len(tokenizer.word_token_ids(word)) == 3
+    )
+    token_ids = tokenizer.encode([f"Yes. The {long_word} was right here today. It was fine."])
+    length = len(token_ids) - WINDOW_MARGIN
+    replacer = PassageReplacer(tokenizer, tokens_per_passage=length)
+    positions = [len(tokenizer.encode(["Yes. The"]))]
+
+    replaced = replacer.replace(token_ids, positions, word_replacement(tokenizer, long_word, "car"))
+
+    assert len(replaced.token_ids) == length
+    assert tokenizer.decode(replaced.token_ids).count(" car") == 1
+
+
+def test_passages_are_cut_without_replacement(tokenizer: WordTokenizer) -> None:
+    token_ids = tokenizer.encode(["Yes. The apple was right here today. It was fine."])
+    replacer = PassageReplacer(tokenizer, tokens_per_passage=len(token_ids) - WINDOW_MARGIN)
+    positions = positions_of(tokenizer, token_ids, "apple")
+
+    cut = replacer.cut(token_ids, positions, 1)
+
+    assert len(cut.token_ids) == len(token_ids) - WINDOW_MARGIN and cut.records == []
+    assert [cut.token_ids[position] for position in cut.positions] == [token_ids[positions[0]]]
