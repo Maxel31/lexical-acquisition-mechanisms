@@ -263,16 +263,8 @@ def _write_sources(
         writer.writerow(
             ["part", "training_order", "sequence_number", "file", "sequence_in_file", "removed"]
         )
-        for position, sequence_number in enumerate(sequence_numbers):
-            file_index, sequence_in_file = _locate(starts, int(sequence_number))
+        for position, number in enumerate(sequence_numbers.tolist()):
+            file_index, sequence_in_file = _locate(starts, number)
             part = "base" if position < end_of_base else "validation"
-            writer.writerow(
-                [
-                    part,
-                    position,
-                    int(sequence_number),
-                    data.paths[file_index],
-                    sequence_in_file,
-                    int(removed[position]),
-                ]
-            )
+            row = [part, position, number, data.paths[file_index], sequence_in_file]
+            writer.writerow([*row, int(removed[position])])
