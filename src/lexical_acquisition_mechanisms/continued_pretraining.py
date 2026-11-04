@@ -112,6 +112,9 @@ class SequenceBatches:
             offset = sequence * length
             input_ids[row] = self._tokens[offset : offset + length]
             counted[row, 1:] = True
+            # 用例を差し込まない run（未知語の獲得の対照）では、差し込んだトークンはない
+            if len(self._starts) == 0:
+                continue
             positions = np.arange(offset, offset + length)
             latest = np.searchsorted(self._starts, positions, side="right") - 1
             within = latest >= 0
@@ -174,8 +177,10 @@ def train(run: RunSettings) -> None:
                         "step": step + 1,
                         "steps": batches.number_of_steps,
                         "loss": totals["loss"] / totals["tokens"],
-                        "inserted_loss": totals["inserted_loss"]
-                        / max(totals["inserted_tokens"], 1),
+                        # 差し込んだトークンがない step（対照の run など）は null
+                        "inserted_loss": totals["inserted_loss"] / totals["inserted_tokens"]
+                        if totals["inserted_tokens"]
+                        else None,
                         "learning_rate": learning_rate,
                         "gradient_norm": float(_full(norm)),
                         "seconds": time.time() - started,
