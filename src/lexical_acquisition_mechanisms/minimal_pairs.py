@@ -10,12 +10,13 @@
 - 違う語が、ちょうど1つで、空欄より前にあるものでない
 - 空欄にターゲット語を入れたとき、2文のトークン数が違う（head の出力を位置ごとに入れ替えるため）
 - 同じ組の、ほかの候補と同じ
-語義の組ごとに evaluation.minimal_pair_candidates_per_sense_pair 個まで残し、
-data/evaluation/minimal_pair_candidates.csv に書く（学習前のモデルで確かめるのは、
-evaluation-data check-with-pretrained-models）。
+語義の組ごとに、最小対の数（evaluation.minimal_pairs_per_sense_pair）×
+evaluation.minimal_pair_candidate_factor 個まで残し、data/evaluation/minimal_pair_candidates.csv に
+書く（学習前のモデルで確かめるのは、evaluation-data check-with-pretrained-models）。
 """
 
 import argparse
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -95,7 +96,7 @@ def generate_minimal_pairs(settings: Settings, arguments: argparse.Namespace) ->
         outputs=[OUTPUT_PATH],
         settings={
             **prompt_record_settings(settings.llm, [prompt]),
-            "candidates": settings.evaluation.minimal_pair_candidates_per_sense_pair,
+            "candidates": candidates_per_sense_pair(settings),
             "tokenizer": next(iter(settings.models.values())).model_dump(),
         },
     )
@@ -111,6 +112,14 @@ def generate_minimal_pairs(settings: Settings, arguments: argparse.Namespace) ->
             OUTPUT_PATH,
         ),
         arguments.recompute,
+    )
+
+
+def candidates_per_sense_pair(settings: Settings) -> int:
+    """語義の組ごとに、LLM に作らせる候補の数（最小対の数 × 倍率）。"""
+    evaluation = settings.evaluation
+    return math.ceil(
+        evaluation.minimal_pairs_per_sense_pair * evaluation.minimal_pair_candidate_factor
     )
 
 
@@ -130,7 +139,7 @@ def build_minimal_pair_candidates(
         for row in read_rows(assignments_path, SenseAdditionAssignment)
         if row.run.endswith(f"-{largest}")
     ]
-    number = settings.evaluation.minimal_pair_candidates_per_sense_pair
+    number = candidates_per_sense_pair(settings)
     requests = [
         LlmRequest(
             prompt,
