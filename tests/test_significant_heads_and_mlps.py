@@ -11,6 +11,7 @@ from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.sense_accuracy import SenseAccuracy
 from lexical_acquisition_mechanisms.significant_heads_and_mlps import (
     ComponentEffect,
+    TokenCountEffect,
     write_results,
 )
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
@@ -56,7 +57,11 @@ def test_control_effects_are_subtracted_and_tested(tmp_path: Path) -> None:
         heads=np.array([0, -1, 0]),
     )
 
-    targets = [SelectedWord(target, "target", category="food") for target in ("car", "lamp", "cup")]
+    # car は1トークン、lamp と cup は2トークン
+    targets = [
+        SelectedWord(target, "target", category="food", token_count=count)
+        for target, count in (("car", 1), ("lamp", 2), ("cup", 2))
+    ]
     write_rows(tmp_path / "words.csv", SelectedWord, targets)
     # bowl は、元の語義が手順1で使えない
     accuracy = [
@@ -73,7 +78,12 @@ def test_control_effects_are_subtracted_and_tested(tmp_path: Path) -> None:
             tmp_path / "accuracy.csv",
             tmp_path / "words.csv",
         ),
-        (tmp_path / "effects.csv", tmp_path / "selection.csv", tmp_path / "classes.csv"),
+        (
+            tmp_path / "effects.csv",
+            tmp_path / "selection.csv",
+            tmp_path / "classes.csv",
+            tmp_path / "by_token_count.csv",
+        ),
         ["food"],
         0,
     )
@@ -91,5 +101,17 @@ def test_control_effects_are_subtracted_and_tested(tmp_path: Path) -> None:
     assert first.lower < first.effect < first.upper
     assert first.significant and not second.significant
     assert (third.effect, third.p_value, third.significant) == (0.0, 1.0, False)
+    # トークン数ごとの地図（ターゲット語の位置だけ。3トークンのターゲット語はない）
+    by_count = read_rows(tmp_path / "by_token_count.csv", TokenCountEffect)
+    assert {row.scope for row in by_count} == {"target_position"}
+    first_of_count = {row.token_count: row for row in by_count if (row.layer, row.head) == (0, 0)}
+    assert sorted(first_of_count) == [1, 2]
+    assert [
+        (first_of_count[count].minimal_pairs, first_of_count[count].targets) for count in (1, 2)
+    ] == [
+        (2, 1),
+        (4, 2),
+    ]
+    assert first_of_count[2].effect == pytest.approx(0.8, abs=0.02)
     # N が最大（4）の条件がないので、採用の基準は当てない
     assert (tmp_path / "selection.csv").read_text().count("\n") == 1

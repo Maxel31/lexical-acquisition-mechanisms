@@ -15,6 +15,9 @@ measure-head-and-mlp-effects の組ごとの効果から、条件（足す語義
 分類する（component_adoption）。
 結果は outputs/results/sense-addition/<モデル>/ の component_effects.csv（効果の地図）・
 component_selection.csv（種類 × 構成要素ごとの採用の基準）・component_classes.csv（分類）に書く。
+アブレーション（設計書 2-5「ターゲット語のトークン数で、効く head の層が変わるか」）のために、
+ターゲット語の位置の効果の地図を、ターゲット語のトークン数ごとにも出す
+（component_effects_by_token_count.csv。補正と区間は、トークン数ごとに同じ方法で出す）。
 """
 
 import argparse
@@ -47,6 +50,7 @@ from lexical_acquisition_mechanisms.word_selection import SelectedWord
 
 SCOPES = ("target_position", "after_target_positions")
 FALSE_DISCOVERY_RATE = 0.05
+TOKEN_COUNTS = (1, 2, 3)
 
 
 @dataclass
@@ -74,6 +78,13 @@ class ComponentEffect:
 
 
 @dataclass
+class TokenCountEffect(ComponentEffect):
+    """ターゲット語のトークン数ごとの、効果の地図の行。"""
+
+    token_count: int = 0
+
+
+@dataclass
 class MinimalPairUnit:
     """1つの条件の、1つの最小対の行の番号（patching_pairs.parquet の。両方向）。"""
 
@@ -91,6 +102,10 @@ def output_paths(model: str) -> tuple[Path, Path, Path]:
         directory / "component_selection.csv",
         directory / "component_classes.csv",
     )
+
+
+def token_count_effects_path(model: str) -> Path:
+    return sense_accuracy.RESULTS_DIRECTORY / model / "component_effects_by_token_count.csv"
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -111,7 +126,7 @@ def select_significant_heads_and_mlps(settings: Settings, arguments: argparse.Na
             accuracy_path: f"sense-addition measure-sense-accuracy --model {model}",
             word_finalization.OUTPUT_PATH: word_finalization.COMMAND,
         },
-        outputs=list(output_paths(model)),
+        outputs=[*output_paths(model), token_count_effects_path(model)],
         settings={
             "seed": settings.words.seed,
             "categories": categories,
@@ -123,7 +138,7 @@ def select_significant_heads_and_mlps(settings: Settings, arguments: argparse.Na
         step,
         lambda: write_results(
             (pairs_path, effects_path, accuracy_path, word_finalization.OUTPUT_PATH),
-            output_paths(model),
+            (*output_paths(model), token_count_effects_path(model)),
             categories,
             settings.words.seed,
         ),
@@ -133,24 +148,35 @@ def select_significant_heads_and_mlps(settings: Settings, arguments: argparse.Na
 
 def write_results(
     input_paths: tuple[Path, Path, Path, Path],
-    outputs: tuple[Path, Path, Path],
+    outputs: tuple[Path, Path, Path, Path],
     categories: Sequence[str],
     seed: int,
 ) -> None:
     pairs_path, effects_path, accuracy_path, words_path = input_paths
-    effects_output, selection_output, classes_output = outputs
+    effects_output, selection_output, classes_output, token_count_output = outputs
     rows = parquet.read_table(pairs_path).to_pylist()
     usable = sense_accuracy.usable_senses(accuracy_path)
     arrays = np.load(effects_path)
     results, differences = component_effects(rows, arrays, usable, seed)
     write_rows(effects_output, ComponentEffect, results)
+    words = read_rows(words_path, SelectedWord)
+    by_token_count = []
+    for token_count in TOKEN_COUNTS:
+        targets = {
+            word.word for word in words if word.role == "target" and word.token_count == token_count
+        }
+        counted, _ = component_effects(rows, arrays, usable, seed, targets, SCOPES[:1])
+        by_token_count += [
+            TokenCountEffect(**vars(row), token_count=token_count) for row in counted
+        ]
+    write_rows(token_count_output, TokenCountEffect, by_token_count)
     # N の条件ごとの、ターゲット語の位置で、効果が正で有意か（構成要素の順）
     significant: dict[tuple[str, int], list[bool]] = {}
     for row in results:
         if row.scope == SCOPES[0]:
             key = (row.kind, row.number_of_senses)
             significant.setdefault(key, []).append(row.significant and row.effect > 0)
-    halves = target_halves(read_rows(words_path, SelectedWord), categories)
+    halves = target_halves(words, categories)
     selections = select_components(
         differences,
         {key: np.array(values) for key, values in significant.items()},
@@ -168,20 +194,26 @@ def component_effects(
     arrays,
     usable: set[tuple[str, int, str, str]],
     seed: int,
+    targets: set[str] | None = None,
+    scopes: Sequence[str] = SCOPES,
 ) -> tuple[list[ComponentEffect], dict[tuple[str, int], tuple[list[tuple], np.ndarray]]]:
     """効果の地図と、条件ごとの（最小対, 最小対 × 構成要素の効果）。usable は手順1で使える語義。
 
-    後者は、ターゲット語の位置で入れ替えた、対照を引いた効果（採用の基準に使う）。
+    後者は、ターゲット語の位置で入れ替えた、対照を引いた効果（採用の基準に使う）。targets があれば、
+    そのターゲット語の最小対だけを使う。
     """
     random_numbers = np.random.default_rng(seed)
     results = []
     differences = {}
-    for (kind, number), units in minimal_pair_units(rows, usable).items():
+    for (kind, number), all_units in minimal_pair_units(rows, usable).items():
+        units = [unit for unit in all_units if targets is None or unit.target in targets]
+        if not units:
+            continue
         weights = bootstrap_weights(
             [unit.target for unit in units], BOOTSTRAP_SAMPLES, random_numbers
         )
         total = np.mean([rows[index]["total_effect"] for unit in units for index in unit.treated])
-        for scope in SCOPES:
+        for scope in scopes:
             values = arrays[scope].astype(np.float64)
             treated = np.array([values[unit.treated].mean(axis=0) for unit in units])
             control = np.array([values[unit.control].mean(axis=0) for unit in units])
