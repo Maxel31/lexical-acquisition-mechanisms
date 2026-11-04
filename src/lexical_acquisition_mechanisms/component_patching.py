@@ -174,36 +174,39 @@ def subspace_patched_log_probabilities(
     model: LanguageModel,
     token_ids: Sequence[int],
     positions: Sequence[int],
-    patches: Sequence[SubspacePatch | None],
+    rows: Sequence[Sequence[SubspacePatch]],
     candidate_ids: Sequence[int],
 ) -> np.ndarray:
-    """1つの入力で、置き換えごとに head の出力の部分空間の成分を入れ替えたときの、最後の位置の
-    次に来る候補の対数確率（形は（置き換え, 候補））。
+    """1つの入力で、行ごとに head の出力の部分空間の成分を入れ替えたときの、最後の位置の次に来る
+    候補の対数確率（形は（行, 候補））。
 
-    出力 x を x − P x + P r にする（P は部分空間への射影、r は入れ替えのもとの値）。None の行は
-    入れ替えない。1回の順伝播で、batch_size 個の置き換えをまとめて測る。
+    行ごとに、入れ替え（SubspacePatch）の並びを渡す（空なら入れ替えない。複数なら全てを入れ替える）。
+    出力 x を x − P x + P r にする（P は部分空間への射影、r は入れ替えのもとの値）。1回の順伝播で、
+    batch_size 行をまとめて測る。
     """
     columns = _columns(model, [token_ids], positions)
     size = _head_dimension(model)
     device = model.model.device
     candidates = torch.tensor(list(candidate_ids), device=device)
-    results = np.zeros((len(patches), len(candidate_ids)), dtype=np.float32)
-    for start in range(0, len(patches), model.batch_size):
+    results = np.zeros((len(rows), len(candidate_ids)), dtype=np.float32)
+    for start in range(0, len(rows), model.batch_size):
         chosen = [
-            None
-            if patch is None
-            else (
-                patch,
-                torch.tensor(patch.basis @ patch.basis.T, dtype=torch.float32, device=device),
-                torch.tensor(patch.replacement, dtype=torch.float32, device=device),
-            )
-            for patch in patches[start : start + model.batch_size]
+            [
+                (
+                    patch,
+                    torch.tensor(patch.basis @ patch.basis.T, dtype=torch.float32, device=device),
+                    torch.tensor(patch.replacement, dtype=torch.float32, device=device),
+                )
+                for patch in row
+            ]
+            for row in rows[start : start + model.batch_size]
         ]
 
         def replace(layer: int, module, arguments, chosen=chosen) -> None:
-            for row, entry in enumerate(chosen):
-                if entry is not None and entry[0].layer == layer:
-                    patch, projection, replacement = entry
+            for row, entries in enumerate(chosen):
+                for patch, projection, replacement in entries:
+                    if patch.layer != layer:
+                        continue
                     span = slice(patch.head * size, (patch.head + 1) * size)
                     current = arguments[0][row, columns, span]
                     changed = current - current @ projection + replacement @ projection
