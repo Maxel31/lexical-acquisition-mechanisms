@@ -1,13 +1,20 @@
-"""テストで共有する部品。"""
+"""テストで共有する部品。
 
-from pathlib import Path
+テストは GPU を使わない（torch が GPU を調べる前に、GPU を見えなくする）。
+"""
 
-import pytest
-import torch
-from transformers import AutoTokenizer, Olmo2Config, Olmo2ForCausalLM
+import os
 
-from lexical_acquisition_mechanisms import wordnet_senses
-from lexical_acquisition_mechanisms.settings import ModelSource, load_settings
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
+from pathlib import Path  # noqa: E402
+
+import pytest  # noqa: E402
+import torch  # noqa: E402
+from transformers import AutoTokenizer, Olmo2Config, Olmo2ForCausalLM  # noqa: E402
+
+from lexical_acquisition_mechanisms import wordnet_senses  # noqa: E402
+from lexical_acquisition_mechanisms.settings import ModelSource, load_settings  # noqa: E402
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 

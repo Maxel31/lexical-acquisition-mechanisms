@@ -50,6 +50,8 @@ class RunSettings(SettingsSection):
     # 学習データ（training-data build が書いたもの）と、差し込んだ用例の始まりの位置、検証データ
     training_tokens: Path
     passage_starts: Path
+    # 差し込んだ用例1件の長さ（後に付けた区切りを含む）
+    passage_length: int = Field(gt=0)
     validation_sequences: Path
     # 重みと学習の記録を書くディレクトリ
     output_directory: Path
@@ -109,6 +111,7 @@ def write_run_settings(settings: Settings, arguments: argparse.Namespace) -> Non
         outputs=paths,
         settings={
             "training": settings.training.model_dump(mode="json"),
+            "tokens_per_passage": settings.passages.tokens_per_passage,
             "model": settings.models[model].model_dump(),
             "seed": settings.words.seed,
         },
@@ -145,6 +148,7 @@ def build_run_settings(
             model_source=settings.models[model],
             training_tokens=TRAINING_DATA_DIRECTORY / experiment / run / "tokens.npy",
             passage_starts=TRAINING_DATA_DIRECTORY / experiment / run / "passage_starts.npy",
+            passage_length=settings.passages.tokens_per_passage + 1,
             validation_sequences=base_data.output_paths()["validation"],
             output_directory=CHECKPOINTS_DIRECTORY / experiment / model / run,
             learning_rate=training.learning_rate_by_model[model],
