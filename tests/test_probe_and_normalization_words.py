@@ -29,7 +29,10 @@ def tokenizer(tiny_model_source: ModelSource) -> WordTokenizer:
 
 
 def test_probe_and_normalization_words(
-    tmp_path: Path, tiny_model_source: ModelSource, tokenizer: WordTokenizer
+    tmp_path: Path,
+    tiny_model_source: ModelSource,
+    tokenizer: WordTokenizer,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
     evaluation = settings.evaluation.model_copy(
@@ -41,6 +44,8 @@ def test_probe_and_normalization_words(
     words = [
         SelectedWord("pasta", "noun", token_count=1),
         SelectedWord("bread", "noun", token_count=1),
+        # 各部分が1トークンになるように、2つにも3つにも分けられない名詞
+        SelectedWord("xylophonists", "noun", token_count=3),
         SelectedWord("<new_01>", "unknown", token_count=1, token_ids="100278"),
     ]
     write_rows(tmp_path / "words.csv", SelectedWord, words)
@@ -80,6 +85,9 @@ def test_probe_and_normalization_words(
     split = [row for row in normalization if row.source_noun == "pasta"]
     assert [row.token_count for row in split] == [2, 3]
     assert all(row.text.replace("|", "") == " pasta" for row in split)
+    # 分けられない名詞の形は作らず、数を表示する
+    assert not [row for row in normalization if row.source_noun == "xylophonists"]
+    assert "分けられない名詞が 2 組" in capsys.readouterr().out
 
 
 def test_words_are_split_into_single_tokens(tokenizer: WordTokenizer) -> None:
