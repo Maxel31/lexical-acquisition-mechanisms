@@ -105,6 +105,22 @@ def test_training_writes_metrics_for_every_step(
     assert all(record["validation_perplexity"] > 1 for record in validation)
 
 
+def test_runs_without_inserted_passages_are_trained(
+    tmp_path: Path, tiny_model_source, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setenv("MASTER_PORT", str(free_port()))
+    run = run_settings(tmp_path, tiny_model_source)
+    # 未知語の獲得の対照の run は、用例を差し込まない（用例の始まりが空）
+    np.save(run.passage_starts, np.zeros(0, dtype=np.int64))
+
+    train(run)
+
+    metrics = [record for record in metrics_of(run) if "loss" in record]
+    assert [record["step"] for record in metrics] == [1, 2, 3]
+    assert all(record["inserted_loss"] is None for record in metrics)
+
+
 def test_two_processes_give_the_same_losses(
     tmp_path: Path, tiny_model_source, monkeypatch: pytest.MonkeyPatch
 ) -> None:
