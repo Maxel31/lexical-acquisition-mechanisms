@@ -18,6 +18,7 @@ from lexical_acquisition_mechanisms import (
     neutral_contexts,
     noun_candidates,
     passage_collection,
+    passage_review,
     passage_split,
     similarity_ratings,
     unknown_word_candidates,
@@ -138,6 +139,13 @@ def all_actions() -> list[Action]:
             "judge-word-sense",
             "候補の中で、語が意図した語義で使われているかを、LLM が出現ごとに判定する",
             word_sense_judgment.judge_word_sense,
+        ),
+        Action(
+            "passages",
+            "sample-for-review",
+            "名詞・形容詞・ターゲット語ごとに、合格した用例を20件抜き出し、"
+            "確認用の data/passages/review.csv を書き出す",
+            passage_review.sample_for_review,
         ),
     ]
 
