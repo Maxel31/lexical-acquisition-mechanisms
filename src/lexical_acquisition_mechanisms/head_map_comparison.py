@@ -2,10 +2,10 @@
 （dependence-on-category-judging-heads compare-head-maps --model。設計書 3-3 の探索的な比較）。
 
 - 新しい形の地図: 名詞ごとに、未知語の獲得で露出回数が最大の未知語（その run の最後の重み）で、
-  課題1の問題（中立文脈の21条件）を処理するとき、文の中の未知語の位置の各 head の出力を、同じ run
-  の、トークン数と綴りの近さが同じ露出0回の文字列（同じ問題文に入れたもの）での出力に入れ替えた
-  ときの、正解（割り当てた名詞）の対数確率の低下。勾配による近似（component_patching）で全ての head
-  を出し、条件で平均する
+  課題1の問題（中立文脈の21条件）を処理するとき、文の中の未知語の位置（語の最後のトークン）の
+  各 head の出力を、同じ run の、トークン数と綴りの近さが同じ露出0回の文字列（同じ問題文に
+  入れたもの）での出力に入れ替えたときの、正解（割り当てた名詞）の対数確率の低下。勾配による近似
+  （component_patching）で全ての head を出し、条件で平均する
 - 既存の形の地図: 語義の追加の head の地図（measure-head-and-mlp-effects）のうち、その名詞が donor
   の最小対（名詞を足す種類の、対照でない run。全ての N）での、ターゲット語の位置の、対照を引いた
   効果の平均
@@ -246,8 +246,9 @@ def _question_effects(
     if len(unknown_ids) != len(zero_ids) or unknown_spans[0] != zero_spans[0]:
         return None
     correct = choice_token_ids([question["answer"]], model.tokenizer)[0]
+    # 未知語の位置は、語の最後のトークン（設計書の「語の位置」）
     _, outputs, gradients = outputs_and_gradients(
-        model, [unknown_ids, zero_ids], list(unknown_spans[0]), [(correct, None)] * 2
+        model, [unknown_ids, zero_ids], [unknown_spans[0][-1]], [(correct, None)] * 2
     )
     return estimated_effects(outputs[0], gradients[0], outputs[1])
 
