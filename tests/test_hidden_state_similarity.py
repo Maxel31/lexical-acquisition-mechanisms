@@ -90,9 +90,11 @@ def test_similarities_checks_and_review_rows(tmp_path: Path, settings: Settings)
         outputs,
     )
 
+    # 確認用の CSV は、表計算ソフトのために BOM 付きで書く
     similarity, checks, review = (
-        list(csv.DictReader(path.open(encoding="utf-8"))) for path in outputs
+        list(csv.DictReader(path.open(encoding="utf-8-sig"))) for path in outputs
     )
+    assert outputs[2].read_bytes().startswith(b"\xef\xbb\xbf")
     assert len(similarity) == 2 * 4
     values = {(row["target"], row["noun"]): float(row["cosine_similarity"]) for row in similarity}
     assert values[("bagel", "pasta")] == pytest.approx(1.0)

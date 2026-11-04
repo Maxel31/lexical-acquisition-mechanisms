@@ -23,7 +23,7 @@ import torch
 
 from lexical_acquisition_mechanisms import minimal_pairs, task_questions, word_finalization
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
-from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
+from lexical_acquisition_mechanisms.csv_tables import read_rows, write_review_rows, write_rows
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.minimal_pairs import BLANK, MinimalPairCandidate
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
@@ -249,7 +249,8 @@ def _write_review(
         for group in seen.values()
         for pair in group[:REVIEWED_PAIRS_PER_SENSE_PAIR]
     ]
-    write_rows(path, MinimalPairReviewRow, review)
+    keys = ("target", "donor", "donor_sentence", "target_sentence")
+    write_review_rows(path, MinimalPairReviewRow, review, keys)
 
 
 def cue_effects(
