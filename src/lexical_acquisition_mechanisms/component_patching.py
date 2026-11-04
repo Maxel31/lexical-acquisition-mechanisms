@@ -11,6 +11,8 @@
 - 勾配による近似（attribution patching）: e ≈ −g·(入れ替える値 − 元の値)。g は、元の出力に対する
   m の勾配。和は、入れ替える位置と次元でとる。1回の順伝播と逆伝播で、全ての構成要素の分を出せる。
 - 実際の入れ替え: 指定した構成要素の、指定した位置の出力を置き換えて、m を測る。
+- 部分空間の入れ替え: head の出力のうち、指定した部分空間（例: 属性の方向）の成分だけを入れ替えて、
+  最後の位置の次に来る候補の対数確率を測る。
 入力は、長さがそろったもの（最小対の2文の問題や、同じ問題の繰り返し）だけを扱う（詰め物が要らない）。
 位置は、LanguageModel と同じく、先頭に置く区切りを数えずに、渡した列の中で数える。
 """
@@ -34,6 +36,18 @@ class Component:
     layer: int
     # head の番号（MLP なら MLP）
     head: int
+
+
+@dataclass(frozen=True)
+class SubspacePatch:
+    """1つの head の出力のうち、部分空間の成分だけを入れ替える。"""
+
+    layer: int
+    head: int
+    # 部分空間の正規直交基底（形は（head の次元, 部分空間の次元））
+    basis: np.ndarray
+    # 入れ替えのもとの、その head の出力（形は（位置, head の次元））
+    replacement: np.ndarray
 
 
 @dataclass
@@ -131,9 +145,7 @@ def patched_metrics(
     （行ごとに、別の構成要素を入れ替える）。
     """
     columns = _columns(model, [token_ids], positions)
-    config = model.model.config
-    # OLMo 2 の注意と同じ求め方
-    head_dimension = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
+    head_dimension = _head_dimension(model)
     results = np.zeros(len(patches), dtype=np.float32)
     for start in range(0, len(patches), model.batch_size):
         chosen = patches[start : start + model.batch_size]
@@ -156,6 +168,60 @@ def patched_metrics(
             metrics = _metrics(model, batch, [choice] * len(chosen))
         results[start : start + len(chosen)] = metrics.cpu().numpy()
     return results
+
+
+def subspace_patched_log_probabilities(
+    model: LanguageModel,
+    token_ids: Sequence[int],
+    positions: Sequence[int],
+    patches: Sequence[SubspacePatch | None],
+    candidate_ids: Sequence[int],
+) -> np.ndarray:
+    """1つの入力で、置き換えごとに head の出力の部分空間の成分を入れ替えたときの、最後の位置の
+    次に来る候補の対数確率（形は（置き換え, 候補））。
+
+    出力 x を x − P x + P r にする（P は部分空間への射影、r は入れ替えのもとの値）。None の行は
+    入れ替えない。1回の順伝播で、batch_size 個の置き換えをまとめて測る。
+    """
+    columns = _columns(model, [token_ids], positions)
+    size = _head_dimension(model)
+    device = model.model.device
+    candidates = torch.tensor(list(candidate_ids), device=device)
+    results = np.zeros((len(patches), len(candidate_ids)), dtype=np.float32)
+    for start in range(0, len(patches), model.batch_size):
+        chosen = [
+            None
+            if patch is None
+            else (
+                patch,
+                torch.tensor(patch.basis @ patch.basis.T, dtype=torch.float32, device=device),
+                torch.tensor(patch.replacement, dtype=torch.float32, device=device),
+            )
+            for patch in patches[start : start + model.batch_size]
+        ]
+
+        def replace(layer: int, module, arguments, chosen=chosen) -> None:
+            for row, entry in enumerate(chosen):
+                if entry is not None and entry[0].layer == layer:
+                    patch, projection, replacement = entry
+                    span = slice(patch.head * size, (patch.head + 1) * size)
+                    current = arguments[0][row, columns, span]
+                    changed = current - current @ projection + replacement @ projection
+                    arguments[0][row, columns, span] = changed.to(current.dtype)
+
+        batch = _token_tensor(model, [token_ids] * len(chosen))
+        with torch.inference_mode(), _hooks(model, replace, lambda *arguments: None):
+            hidden = model.model.model(input_ids=batch, use_cache=False).last_hidden_state
+            logits = model.model.lm_head(hidden[:, -1]).float()
+            values = torch.log_softmax(logits, dim=-1)[:, candidates]
+        results[start : start + len(chosen)] = values.cpu().numpy()
+    return results
+
+
+def _head_dimension(model: LanguageModel) -> int:
+    """head の出力の次元（OLMo 2 の注意と同じ求め方）。"""
+    config = model.model.config
+    return getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
 
 
 @contextmanager
