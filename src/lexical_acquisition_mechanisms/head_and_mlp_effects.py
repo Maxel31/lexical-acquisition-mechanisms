@@ -7,8 +7,8 @@ s_Y: 元の語義を示す文）ごとに、両方向の効果を、全ての構
 - 方向: donor-to-target は、s_X を処理するとき s_Y での出力に入れ替える。target-to-donor はその逆
 - m: 処理する文の語義の選択肢と、もう一方の文の語義の選択肢の、ロジットの差
 - 効果: e_c = m − m_c。全てを入れ替えたときの効果（正規化の分母）は、m(s_X) − m(s_Y)（両方向で同じ）
-- 入れ替える位置: 文の中のターゲット語のトークン（本分析）と、そこから問題文の最後までの全ての位置
-  （補足）
+- 入れ替える位置: 文の中のターゲット語の最後のトークン（本分析。設計書の「語の位置」）と、
+  ターゲット語より後の、問題文の最後までの全ての位置（補足）
 対照の run は、対応する種類（名詞の対照は同カテゴリと別カテゴリ、形容詞の対照は形容詞）の、
 全ての数の問題で測る（手がかりの語そのものの影響を、後で引くため）。
 出力は outputs/results/sense-addition/<モデル>/ の
@@ -276,11 +276,14 @@ def _target_position_inputs(
     words: dict[str, SelectedWord],
     row: dict[str, object],
 ) -> tuple[list[int], list[int], list[int], tuple[int, int]]:
-    """測った組を、ターゲット語の位置で入れ替えるための入力（patching_checks に渡す）。"""
+    """測った組を、ターゲット語の位置（最後のトークン）で入れ替えるための入力。
+
+    patching_checks に渡す。
+    """
     inputs = pair_inputs(model, questions, words, row["target"], row["question"], row["partner"])
     assert inputs is not None, "測った組なので、位置はそろっている"
     source_ids, destination_ids, span, choice = inputs
-    return source_ids, destination_ids, list(span), choice
+    return source_ids, destination_ids, [span[-1]], choice
 
 
 def _measure_pair(
@@ -299,21 +302,22 @@ def _measure_pair(
     if inputs is None:
         return None
     donor_ids, target_ids, span, choice = inputs
-    positions = list(range(span.start, len(donor_ids)))
+    # 取り出す位置の先頭が、ターゲット語の最後のトークン。その後が、ターゲット語より後の全ての位置
+    positions = [span[-1], *range(span.stop, len(donor_ids))]
     metrics, outputs, gradients = outputs_and_gradients(
         model, [donor_ids, target_ids], positions, [choice, choice[::-1]]
     )
-    word = range(len(span))
+    scopes = ([0], range(1, len(positions)))
     directions = []
     for source, destination in ((0, 1), (1, 0)):
         directions.append(
-            (
+            tuple(
                 estimated_effects(
-                    outputs[source].at(word),
-                    gradients[source].at(word),
-                    outputs[destination].at(word),
-                ),
-                estimated_effects(outputs[source], gradients[source], outputs[destination]),
+                    outputs[source].at(scope),
+                    gradients[source].at(scope),
+                    outputs[destination].at(scope),
+                )
+                for scope in scopes
             )
         )
     return metrics, directions

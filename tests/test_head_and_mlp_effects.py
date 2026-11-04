@@ -7,13 +7,19 @@ import pyarrow as arrow
 import pyarrow.parquet as parquet
 import pytest
 
+from lexical_acquisition_mechanisms import head_and_mlp_effects
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.head_and_mlp_effects import write_effects
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.patching_checks import PatchingCheck, PatchingCheckSummary
 from lexical_acquisition_mechanisms.sense_accuracy import SenseAccuracy
 from lexical_acquisition_mechanisms.settings import ModelSource
-from lexical_acquisition_mechanisms.task_prompts import TaskItem, prompt_template
+from lexical_acquisition_mechanisms.task_prompts import (
+    TaskItem,
+    encode_prompt,
+    encode_prompt_with_word_spans,
+    prompt_template,
+)
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
 
@@ -104,3 +110,44 @@ def test_effects_are_measured_for_both_directions(
     assert all(check.estimated == 0 and abs(check.actual) < 1e-5 for check in final)
     summary = read_rows(tmp_path / "summary.csv", PatchingCheckSummary)
     assert [(row.components, row.pairs) for row in summary] == [(10, 2)]
+
+
+def test_the_target_position_is_the_last_token_of_the_word(
+    tmp_path: Path, tiny_model_source: ModelSource, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tokenizer = WordTokenizer.from_model(tiny_model_source)
+    word = next(
+        candidate
+        for candidate in ("zorbaxel", "blicketory", "flumpering")
+        if len(tokenizer.word_token_ids(candidate)) == 3
+    )
+    ids = " ".join(map(str, tokenizer.word_token_ids(word)))
+    write_rows(tmp_path / "words.csv", SelectedWord, [SelectedWord(word, "target", token_ids=ids)])
+    questions = [
+        question("ate", "donor", "She ate the {word}.") | {"target": word},
+        question("ate", "target", "She drove the {word}.") | {"target": word},
+    ]
+    parquet.write_table(arrow.Table.from_pylist(questions), tmp_path / "questions.parquet")
+    write_rows(tmp_path / "accuracy.csv", SenseAccuracy, [])
+    captured = []
+    original = head_and_mlp_effects.outputs_and_gradients
+
+    def recording(model, inputs, positions, choices):
+        captured.append(list(positions))
+        return original(model, inputs, positions, choices)
+
+    monkeypatch.setattr(head_and_mlp_effects, "outputs_and_gradients", recording)
+
+    write_effects(
+        {"other-category-1": Path(tiny_model_source.repository)},
+        lambda source: LanguageModel.load(source, device="cpu"),
+        (tmp_path / "words.csv", tmp_path / "questions.parquet", tmp_path / "accuracy.csv"),
+        tuple(tmp_path / name for name in ("p.parquet", "e.npz", "c.csv", "s.csv")),
+        seed=0,
+    )
+
+    # 文の中の語の3つのトークンのうち、最後のトークンと、語より後の全ての位置
+    template = questions[0]["prompt_template"]
+    _, spans = encode_prompt_with_word_spans(template, tokenizer.word_token_ids(word), tokenizer)
+    length = len(encode_prompt(template, tokenizer.word_token_ids(word), tokenizer))
+    assert captured[0] == [spans[0][-1], *range(spans[0].stop, length)]
