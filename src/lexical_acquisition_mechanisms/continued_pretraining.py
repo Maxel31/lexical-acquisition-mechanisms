@@ -14,6 +14,7 @@ torchrun から、GPU ごとに1つのプロセスで動かす（GPU がなけ�
   0 から上げ、あとは一定（事前学習の最後の値のまま）。勾配のノルムを gradient_clipping に抑える。
 - 記録: step ごとに、損失（全体と、差し込んだ用例のトークンだけ）・学習率・勾配のノルムを、
   出力のディレクトリの metrics.jsonl に書く。
+- 重みと、続きから学習するための状態の保存は training_checkpoints。
 """
 
 import argparse
@@ -35,8 +36,17 @@ from transformers import AutoModelForCausalLM, PreTrainedModel
 
 from lexical_acquisition_mechanisms.run_settings import RunSettings, load_run_settings
 from lexical_acquisition_mechanisms.settings import Settings
-
-METRICS_FILE_NAME = "metrics.jsonl"
+from lexical_acquisition_mechanisms.training_checkpoints import (
+    COMPLETED_FILE_NAME,
+    METRICS_FILE_NAME,
+    STATE_INTERVAL_STEPS,
+    checkpoint_names,
+    is_completed,
+    mark_completed,
+    resume,
+    save_state,
+    save_weights,
+)
 
 
 @dataclass(frozen=True)
@@ -118,14 +128,22 @@ def run_training(settings: Settings, arguments: argparse.Namespace) -> None:
 
 
 def train(run: RunSettings) -> None:
+    if is_completed(run):
+        print(
+            f"{run.output_directory} の学習は終わっています（{COMPLETED_FILE_NAME} があります）。"
+        )
+        return
     process = _start_process()
     try:
         model = _load_model(run, process)
         optimizer = _optimizer(model, run)
         batches = SequenceBatches(run, process)
-        warmup_steps = max(1, math.ceil(run.warmup_fraction * batches.number_of_steps))
+        number_of_steps = batches.number_of_steps
+        warmup_steps = max(1, math.ceil(run.warmup_fraction * number_of_steps))
         run.output_directory.mkdir(parents=True, exist_ok=True)
-        for step in range(batches.number_of_steps):
+        checkpoints = checkpoint_names(number_of_steps, run.checkpoint_fractions)
+        first_step = resume(model, optimizer, run, process.rank)
+        for step in range(first_step, number_of_steps):
             started = time.time()
             learning_rate = run.learning_rate * min(1.0, (step + 1) / warmup_steps)
             for group in optimizer.param_groups:
@@ -148,6 +166,14 @@ def train(run: RunSettings) -> None:
                         "seconds": time.time() - started,
                     },
                 )
+            finished = step + 1
+            if finished in checkpoints:
+                save_weights(model, run, process.rank, checkpoints[finished])
+            if finished < number_of_steps and (
+                finished % STATE_INTERVAL_STEPS == 0 or finished in checkpoints
+            ):
+                save_state(model, optimizer, run, process.rank, finished)
+        mark_completed(run, process.rank, number_of_steps)
     finally:
         distributed.destroy_process_group()
 

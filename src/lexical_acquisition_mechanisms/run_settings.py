@@ -8,6 +8,7 @@ outputs/runs/<実験>/<モデル>/<run>.yaml に、その run の学習に要る
 
 import argparse
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import Field, ValidationError
@@ -66,6 +67,7 @@ class RunSettings(SettingsSection):
     gradient_clipping: float = Field(gt=0)
     z_loss_weight: float = Field(ge=0)
     checkpoint_fractions: list[float]
+    checkpoint_dtype: Literal["bfloat16", "float32"]
     # 埋め込みを初期化する新しいトークン番号（1トークンの未知語）と、乱数の倍率
     new_token_ids: list[int]
     new_token_noise_scale: float = Field(ge=0)
@@ -162,6 +164,7 @@ def build_run_settings(
             gradient_clipping=training.gradient_clipping,
             z_loss_weight=training.z_loss_weight,
             checkpoint_fractions=training.checkpoint_fractions,
+            checkpoint_dtype=training.checkpoint_dtype,
             new_token_ids=new_token_ids,
             new_token_noise_scale=training.new_token_embedding_initialization.noise_scale,
             seed=settings.words.seed,
