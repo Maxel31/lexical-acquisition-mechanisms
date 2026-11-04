@@ -34,6 +34,14 @@ def test_revision_can_be_omitted() -> None:
     assert Settings.model_validate(content).models["tiny"].revision is None
 
 
+def test_category_names_must_be_unique() -> None:
+    content = load_settings(REPOSITORY_ROOT / "settings.yaml").model_dump()
+    content["words"]["categories"][1]["name"] = "food"
+
+    with pytest.raises(ValueError, match="カテゴリの名前が重なっています"):
+        Settings.model_validate(content)
+
+
 def test_bounds_are_explained(tmp_path: Path) -> None:
     text = (REPOSITORY_ROOT / "settings.yaml").read_text(encoding="utf-8")
     path = write_settings(
