@@ -1,9 +1,10 @@
 """課題の問題を作る（evaluation-data build-task-questions）。
 
-1. LLM が、自然な名詞（文の中での意味）とターゲット語（元の語義）の言い換えの語を挙げる。先頭
-   スペース付きで1トークン・管理対象の語でない・語そのものでない、最初の語を使う
-   （data/evaluation/paraphrases.csv）。ターゲット語の言い換えは、語義の追加の課題1で、元の語義の
-   選択肢になる。
+1. LLM が、自然な名詞（文の中での意味）とターゲット語（元の語義）の言い換えの語（同義語）を挙げる。
+   先頭スペース付きで1トークン・管理対象の語でない・語そのものでない・カテゴリ名でも語の語義の
+   上位語（WordNet）でもない、最初の語を使う（data/evaluation/paraphrases.csv）。ターゲット語の
+   言い換えは、語義の追加の課題1で、元の語義の選択肢になる（上位語は、同じカテゴリの donor の
+   語義にも当てはまるので使わない）。
 2. 例の候補（task_examples.csv）: 自然な語ごとに最初の文を、課題1（自然な名詞。正解は言い換えの語、
    ほかの選択肢は別のカテゴリの1トークンの自然な名詞3語）、課題2のカテゴリ（自然な名詞）、課題2の
    品詞（品詞のプローブの自然な名詞と形容詞）の問題にする。
@@ -51,6 +52,7 @@ from lexical_acquisition_mechanisms.unknown_word_assignments import UnknownWordA
 from lexical_acquisition_mechanisms.unknown_word_questions import unknown_word_questions
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
+from lexical_acquisition_mechanisms.wordnet_senses import hypernym_words
 
 COMMAND = "evaluation-data build-task-questions"
 OUTPUT_DIRECTORY = Path("data/evaluation")
@@ -59,7 +61,7 @@ EXAMPLES_PATH = OUTPUT_DIRECTORY / "task_examples.csv"
 NATURAL_QUESTIONS_PATH = OUTPUT_DIRECTORY / "natural_word_questions.parquet"
 UNKNOWN_WORD_QUESTIONS_PATH = OUTPUT_DIRECTORY / "unknown_word_questions.parquet"
 PROMPT = "list-paraphrases"
-PARAPHRASES_PER_REQUEST = 5
+PARAPHRASES_PER_REQUEST = 10
 DISTRACTORS = 3
 MANAGED_ROLES = ("noun", "target", "adjective")
 SCHEMA = {
@@ -143,7 +145,8 @@ def write_task_questions(
     tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
     words = {word.word: word for word in read_rows(words_path, SelectedWord)}
     sentences = read_rows(sentences_path, NaturalWordSentence)
-    paraphrases = _paraphrases(words, sentences, prompt, client, tokenizer)
+    categories = [category.name for category in settings.words.categories]
+    paraphrases = _paraphrases(words, sentences, categories, prompt, client, tokenizer)
     write_rows(paraphrases_path, Paraphrase, paraphrases)
     missing = [row.word for row in paraphrases if row.role == "target" and not row.paraphrase]
     if missing:
@@ -153,7 +156,6 @@ def write_task_questions(
             rerun_from=COMMAND,
         )
     paraphrase_of = {row.word: row.paraphrase for row in paraphrases if row.paraphrase}
-    categories = [category.name for category in settings.words.categories]
     one_token_nouns = {
         word.word: word.category
         for word in words.values()
@@ -252,6 +254,7 @@ def _items(
 def _paraphrases(
     words: dict[str, SelectedWord],
     sentences: Sequence[NaturalWordSentence],
+    categories: Sequence[str],
     prompt: PromptTemplate,
     client: LlmClient,
     tokenizer: WordTokenizer,
@@ -281,13 +284,13 @@ def _paraphrases(
     managed = {word.word for word in words.values() if word.role in MANAGED_ROLES}
     rows = []
     for word, answer in zip(asked, client.ask_all(requests), strict=True):
+        excluded = managed | set(categories) | hypernym_words(word.synset) | {word.word}
         usable = [
             candidate.strip()
             for candidate in (answer or {"paraphrases": []})["paraphrases"]
             if candidate.strip().isalpha()
             and candidate.strip().islower()
-            and candidate.strip() != word.word
-            and candidate.strip() not in managed
+            and candidate.strip() not in excluded
             and len(tokenizer.word_token_ids(candidate.strip())) == 1
         ]
         rows.append(Paraphrase(word.word, word.role, usable[0] if usable else ""))

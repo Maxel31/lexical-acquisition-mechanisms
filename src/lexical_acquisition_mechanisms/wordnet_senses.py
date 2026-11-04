@@ -67,6 +67,15 @@ def other_parts_of_speech(word: str) -> list[str]:
     ]
 
 
+def hypernym_words(synset_name: str) -> set[str]:
+    """語義の、全ての上位語（間接の上位語と、固有名詞の上位語を含む）の見出しの語（小文字）。"""
+    wordnet = load_wordnet()
+    ancestors = wordnet.synset(synset_name).closure(
+        lambda node: node.hypernyms() + node.instance_hypernyms()
+    )
+    return {lemma.name().lower() for ancestor in ancestors for lemma in ancestor.lemmas()}
+
+
 def _lemma_names(synset) -> set[str]:
     # synsets() は複数形なども元の形に戻して引くので、語そのものが見出しの語義だけを使う
     return {lemma.name() for lemma in synset.lemmas()}
