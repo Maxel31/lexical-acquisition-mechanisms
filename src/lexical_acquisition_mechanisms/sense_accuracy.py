@@ -23,11 +23,9 @@ import torch
 
 from lexical_acquisition_mechanisms import (
     evaluation_finalization,
-    run_settings,
     sense_addition_assignments,
     word_finalization,
 )
-from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
@@ -37,7 +35,7 @@ from lexical_acquisition_mechanisms.task_accuracy import (
     answer_questions,
     binomial_p_value,
 )
-from lexical_acquisition_mechanisms.training_checkpoints import FINAL_DIRECTORY
+from lexical_acquisition_mechanisms.training_checkpoints import final_directories
 from lexical_acquisition_mechanisms.unknown_word_indicators import checkpoint_states
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 
@@ -78,17 +76,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 def final_checkpoints(model: str, command: str) -> dict[str, Path]:
     """語義の追加の各 run の、最後の重みのディレクトリ（学習を終えていない run があれば止まる）。"""
-    checkpoints = {
-        run: run_settings.CHECKPOINTS_DIRECTORY / EXPERIMENT / model / run / FINAL_DIRECTORY
-        for run in sense_addition_assignments.run_names()
-    }
-    missing = [str(path) for path in checkpoints.values() if not (path / "config.json").exists()]
-    if missing:
-        raise CommandStopped(
-            f"学習を終えていない run があります（{missing}）。先に学習してください。",
-            rerun_from=command,
-        )
-    return checkpoints
+    return final_directories(EXPERIMENT, model, sense_addition_assignments.run_names(), command)
 
 
 def measure_sense_accuracy(settings: Settings, arguments: argparse.Namespace) -> None:

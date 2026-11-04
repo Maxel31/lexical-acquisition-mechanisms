@@ -32,7 +32,6 @@ from lexical_acquisition_mechanisms import (
     unknown_word_assignments,
     word_finalization,
 )
-from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.logistic_probes import LogisticProbe
@@ -40,7 +39,7 @@ from lexical_acquisition_mechanisms.neutral_contexts import NeutralContext
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.probe_and_normalization_words import NormalizationWord
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings
-from lexical_acquisition_mechanisms.training_checkpoints import FINAL_DIRECTORY
+from lexical_acquisition_mechanisms.training_checkpoints import final_directories
 from lexical_acquisition_mechanisms.unknown_word_assignments import UnknownWordAssignment
 from lexical_acquisition_mechanisms.word_representations import word_representations
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
@@ -63,14 +62,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 def measure_indicators(settings: Settings, arguments: argparse.Namespace) -> None:
     model = arguments.model
     runs = run_settings.EXPERIMENT_RUNS[EXPERIMENT]
-    directory = run_settings.CHECKPOINTS_DIRECTORY / EXPERIMENT / model
-    checkpoints = [directory / run / FINAL_DIRECTORY for run in runs]
-    missing = [str(path) for path in checkpoints if not (path / "config.json").exists()]
-    if missing:
-        raise CommandStopped(
-            f"学習を終えていない run があります（{missing}）。先に学習してください。",
-            rerun_from=f"unknown-word-acquisition measure-indicators --model {model}",
-        )
+    command = f"unknown-word-acquisition measure-indicators --model {model}"
+    checkpoints = list(final_directories(EXPERIMENT, model, runs, command).values())
     probes_path, _ = real_word_probes.probe_paths(model)
     step = Step(
         f"unknown-word-acquisition measure-indicators --model {model}",
