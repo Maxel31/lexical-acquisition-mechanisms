@@ -11,7 +11,7 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from lexical_acquisition_mechanisms import base_data, noun_candidates
+from lexical_acquisition_mechanisms import adjective_candidates, base_data, noun_candidates
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.settings import Settings, SettingsError, load_settings
 
@@ -59,6 +59,13 @@ def all_actions() -> list[Action]:
             "generate-noun-candidates",
             "名詞の候補を LLM が挙げ、WordNet でのカテゴリと、Pile での使われ方を調べる",
             noun_candidates.generate_noun_candidates,
+        ),
+        Action(
+            "words",
+            "generate-adjective-candidates",
+            "形容詞の候補を LLM が挙げ、Pile で形容詞として使われる割合と、"
+            "カテゴリとの結びつきを調べる",
+            adjective_candidates.generate_adjective_candidates,
         ),
     ]
 

@@ -87,8 +87,9 @@ class WordsSettings(SettingsSection):
     # LLM に語を挙げさせるときの、挙げる語の種類
     # （名詞はカテゴリごと、形容詞は全体で、種類ごとに1回ずつ挙げさせる）
     listing_kinds: list[str] = Field(min_length=1)
-    # 1回に挙げさせる名詞の数
+    # 1回に挙げさせる名詞と形容詞の数
     nouns_per_listing: int = Field(gt=0)
+    adjectives_per_listing: int = Field(gt=0)
     # 頻度と使われ方を見積もるときに読む、Pile の先頭の断片の数（全部で1,650個）
     pile_sample_shards: int = Field(gt=0, le=1650)
     # 使われ方を LLM が判定する、語ごとの見本の数
