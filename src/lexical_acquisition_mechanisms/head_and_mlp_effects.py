@@ -16,6 +16,8 @@ s_Y: 元の語義を示す文）ごとに、両方向の効果を、全ての構
   手順1で2つの語義とも使えるとした組か（usable）
 - head_and_mlp_effects.npz: 組 × 構成要素の効果（target_position と after_target_positions）と、
   構成要素の層（layers）と head の番号（heads。MLP は −1）
+- patching_checks.csv・patching_check_summary.csv: 近似を、上位と無作為に選んだ構成要素の実際の
+  入れ替えで確かめた結果（patching_checks）
 """
 
 import argparse
@@ -39,9 +41,15 @@ from lexical_acquisition_mechanisms.component_patching import (
     estimated_effects,
     outputs_and_gradients,
 )
-from lexical_acquisition_mechanisms.csv_tables import read_rows
+from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
+from lexical_acquisition_mechanisms.patching_checks import (
+    PatchingCheck,
+    PatchingCheckSummary,
+    check_estimates,
+    summarize_checks,
+)
 from lexical_acquisition_mechanisms.sense_accuracy import SenseAccuracy
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings
 from lexical_acquisition_mechanisms.task_prompts import (
@@ -68,9 +76,14 @@ class MinimalPairQuestions:
     target_question: int
 
 
-def effect_paths(model: str) -> tuple[Path, Path]:
+def effect_paths(model: str) -> tuple[Path, Path, Path, Path]:
     directory = sense_accuracy.RESULTS_DIRECTORY / model
-    return directory / "patching_pairs.parquet", directory / "head_and_mlp_effects.npz"
+    return (
+        directory / "patching_pairs.parquet",
+        directory / "head_and_mlp_effects.npz",
+        directory / "patching_checks.csv",
+        directory / "patching_check_summary.csv",
+    )
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -95,7 +108,10 @@ def measure_head_and_mlp_effects(settings: Settings, arguments: argparse.Namespa
             accuracy_path: f"sense-addition measure-sense-accuracy --model {model}",
         },
         outputs=list(effect_paths(model)),
-        settings={"checkpoints": checkpoint_states(list(checkpoints.values()))},
+        settings={
+            "checkpoints": checkpoint_states(list(checkpoints.values())),
+            "seed": settings.words.seed,
+        },
     )
     run_unless_unchanged(
         step,
@@ -104,6 +120,7 @@ def measure_head_and_mlp_effects(settings: Settings, arguments: argparse.Namespa
             lambda source: LanguageModel.load(source, batch_size=BATCH_SIZE),
             input_paths,
             effect_paths(model),
+            settings.words.seed,
         ),
         arguments.recompute,
     )
@@ -131,7 +148,8 @@ def write_effects(
     checkpoints: dict[str, Path],
     load_model: Callable[[ModelSource], LanguageModel],
     input_paths: tuple[Path, Path, Path],
-    output_paths: tuple[Path, Path],
+    output_paths: tuple[Path, Path, Path, Path],
+    seed: int,
 ) -> None:
     words_path, questions_path, accuracy_path = input_paths
     words = {word.word: word for word in read_rows(words_path, SelectedWord)}
@@ -145,6 +163,7 @@ def write_effects(
     rows: list[dict[str, object]] = []
     effects: dict[str, list[np.ndarray]] = {"target_position": [], "after_target_positions": []}
     order = []
+    checks: list[PatchingCheck] = []
     # 位置がそろわない最小対（run によらないので、run をまたいで1回だけ数える）
     skipped: set[MinimalPairQuestions] = set()
     for run, checkpoint in checkpoints.items():
@@ -157,6 +176,7 @@ def write_effects(
             continue
         model = load_model(ModelSource(repository=str(checkpoint)))
         order = components(model)
+        first_row = len(rows)
         for pair in run_pairs:
             measured = _measure_pair(model, pair, questions, words)
             if measured is None:
@@ -192,6 +212,16 @@ def write_effects(
                 )
                 effects["target_position"].append(word)
                 effects["after_target_positions"].append(after)
+        if not run.endswith("control") and len(rows) > first_row:
+            checks += check_estimates(
+                model,
+                run,
+                first_row,
+                rows[first_row:],
+                np.array(effects["target_position"][first_row:]),
+                lambda row, model=model: _target_position_inputs(model, questions, words, row),
+                seed,
+            )
         del model
         gc.collect()
         torch.cuda.empty_cache()
@@ -200,7 +230,7 @@ def write_effects(
             f"2文の問題の位置がそろわない最小対を {len(skipped)} 組除きました"
             f"（例: {[(pair.target, pair.donor_sentence) for pair in list(skipped)[:3]]}）。"
         )
-    pairs_path, effects_path = output_paths
+    pairs_path, effects_path, checks_path, summary_path = output_paths
     pairs_path.parent.mkdir(parents=True, exist_ok=True)
     parquet.write_table(arrow.Table.from_pylist(rows), pairs_path)
     size = len(order)
@@ -213,6 +243,49 @@ def write_effects(
         layers=np.array([component.layer for component in order], dtype=np.int16),
         heads=np.array([component.head for component in order], dtype=np.int16),
     )
+    write_rows(checks_path, PatchingCheck, checks)
+    write_rows(summary_path, PatchingCheckSummary, summarize_checks(checks))
+
+
+def pair_inputs(
+    model: LanguageModel,
+    questions: Sequence[dict[str, object]],
+    words: dict[str, SelectedWord],
+    target: str,
+    source: int,
+    destination: int,
+) -> tuple[list[int], list[int], range, tuple[int, int]] | None:
+    """処理する問題と、入れ替えのもとの問題のトークン列と、文の中のターゲット語の位置の範囲と、
+    選択肢（処理する問題の正解, もう一方の問題の正解）。
+
+    2つの問題の、長さか、ターゲット語の位置がそろわなければ None。
+    """
+    word_ids = [int(token) for token in words[target].token_ids.split()]
+    (source_ids, source_spans), (destination_ids, destination_spans) = (
+        encode_prompt_with_word_spans(
+            questions[index]["prompt_template"], word_ids, model.tokenizer
+        )
+        for index in (source, destination)
+    )
+    # 文の中のターゲット語は、問題文で最初に現れる語
+    if len(source_ids) != len(destination_ids) or source_spans[0] != destination_spans[0]:
+        return None
+    answers = [questions[index]["answer"] for index in (source, destination)]
+    preferred, other = choice_token_ids(answers, model.tokenizer)
+    return source_ids, destination_ids, source_spans[0], (preferred, other)
+
+
+def _target_position_inputs(
+    model: LanguageModel,
+    questions: Sequence[dict[str, object]],
+    words: dict[str, SelectedWord],
+    row: dict[str, object],
+) -> tuple[list[int], list[int], list[int], tuple[int, int]]:
+    """測った組を、ターゲット語の位置で入れ替えるための入力（patching_checks に渡す）。"""
+    inputs = pair_inputs(model, questions, words, row["target"], row["question"], row["partner"])
+    assert inputs is not None, "測った組なので、位置はそろっている"
+    source_ids, destination_ids, span, choice = inputs
+    return source_ids, destination_ids, list(span), choice
 
 
 def _measure_pair(
@@ -223,28 +296,17 @@ def _measure_pair(
 ) -> tuple[np.ndarray, list[tuple[np.ndarray, np.ndarray]]] | None:
     """1つの最小対の、2文の m と、方向ごとの（ターゲット語の位置, そこから後の全位置）の効果。
 
-    2文の問題の、長さか、ターゲット語の位置がそろわなければ None。
+    2文の問題の位置がそろわなければ None。
     """
-    word_ids = [int(token) for token in words[pair.target].token_ids.split()]
-    (donor_ids, donor_spans), (target_ids, target_spans) = (
-        encode_prompt_with_word_spans(
-            questions[index]["prompt_template"], word_ids, model.tokenizer
-        )
-        for index in (pair.donor_question, pair.target_question)
+    inputs = pair_inputs(
+        model, questions, words, pair.target, pair.donor_question, pair.target_question
     )
-    if len(donor_ids) != len(target_ids) or donor_spans[0] != target_spans[0]:
+    if inputs is None:
         return None
-    # 文の中のターゲット語（問題文で最初に現れる語）から、問題文の最後まで
-    span = donor_spans[0]
+    donor_ids, target_ids, span, choice = inputs
     positions = list(range(span.start, len(donor_ids)))
-    donor_choice, original_choice = choice_token_ids(
-        [pair.donor, questions[pair.target_question]["answer"]], model.tokenizer
-    )
     metrics, outputs, gradients = outputs_and_gradients(
-        model,
-        [donor_ids, target_ids],
-        positions,
-        [(donor_choice, original_choice), (original_choice, donor_choice)],
+        model, [donor_ids, target_ids], positions, [choice, choice[::-1]]
     )
     word = range(len(span))
     directions = []
