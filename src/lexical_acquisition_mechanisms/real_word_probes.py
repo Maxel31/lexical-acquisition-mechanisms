@@ -6,6 +6,8 @@
 （1・2・3）ごと・層ごとに、実在語（正例）とそれ以外（負例: 非語・学習していない新しいトークン）を
 分けるロジスティック回帰を、学習用の語の全ての条件で学習し、確認用の語での正解率を出す。
 学習していない新しいトークンは、学習のときと同じ方法（既存の埋め込みの平均 + 乱数）で初期化する。
+乱数の種は学習のときからずらす（同じ種だと、乱数の先頭が1トークンの未知語の初期値と同じになり、
+露出0回の未知語の埋め込みが、プローブの負例そのものになるため）。
 結果は outputs/probes/<モデル>/ の real_word_probes.npz と real_word_probe_accuracy.csv に書く。
 """
 
@@ -29,6 +31,8 @@ from lexical_acquisition_mechanisms.settings import ModelSource, Settings
 from lexical_acquisition_mechanisms.word_representations import word_representations
 
 PROBES_DIRECTORY = Path("outputs/probes")
+# 学習していないトークンの初期値の乱数の種に足す数（未知語の初期値と同じ乱数にしないため）
+UNTRAINED_TOKEN_SEED_OFFSET = 1
 BATCH_SIZE = 32
 
 
@@ -70,6 +74,7 @@ def train_real_word_probes(settings: Settings, arguments: argparse.Namespace) ->
             "model": settings.models[model_name].model_dump(),
             "noise_scale": settings.training.new_token_embedding_initialization.noise_scale,
             "seed": settings.words.seed,
+            "untrained_token_seed_offset": UNTRAINED_TOKEN_SEED_OFFSET,
         },
     )
     run_unless_unchanged(
@@ -106,7 +111,7 @@ def write_real_word_probes(
             untrained,
             vocabulary_size,
             settings.training.new_token_embedding_initialization.noise_scale,
-            settings.words.seed,
+            settings.words.seed + UNTRAINED_TOKEN_SEED_OFFSET,
         )
     states = word_representations(
         model, [[int(token) for token in row.token_ids.split()] for row in words], contexts
