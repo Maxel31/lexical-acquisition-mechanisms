@@ -21,7 +21,7 @@ requires = ["uv_build>=0.8.14,<0.9"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = "lam"
+module-name = "lexical_acquisition_mechanisms"
 
 [tool.ruff]
 line-length = 100

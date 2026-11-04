@@ -5,8 +5,8 @@ def test_import() -> None:
     import torch
     import transformers
 
-    import lam
+    import lexical_acquisition_mechanisms
 
-    assert lam.__doc__
+    assert lexical_acquisition_mechanisms.__doc__
     assert torch.__version__
     assert transformers.__version__
