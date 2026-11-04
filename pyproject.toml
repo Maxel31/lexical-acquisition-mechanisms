@@ -2,12 +2,25 @@
 name = "lexical-acquisition-mechanisms"
 version = "0.1.0"
 description = "言語モデルにおける語彙獲得と語義追加の機構解析（OLMo 2 の継続事前学習による実験）"
+readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "httpx>=0.28",
+    "huggingface-hub>=1",
+    "matplotlib>=3.9",
+    "nltk>=3.10",
     "numpy>=2.5",
+    "pyarrow>=20",
+    "pydantic>=2",
+    "pyyaml>=6",
+    "statsmodels>=0.14",
     "torch>=2.14",
     "transformers>=5.20",
+    "wandb>=0.22",
 ]
+
+[project.scripts]
+lexical-acquisition-mechanisms = "lexical_acquisition_mechanisms.command_line:main"
 
 [dependency-groups]
 dev = [
@@ -20,7 +33,7 @@ requires = ["uv_build>=0.8.14,<0.9"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = "lam"
+module-name = "lexical_acquisition_mechanisms"
 
 [tool.ruff]
 line-length = 100

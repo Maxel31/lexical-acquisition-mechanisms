@@ -1,0 +1,205 @@
+# 実験の設定。各コマンドは、リポジトリの最上位のディレクトリにあるこのファイルを読む。
+
+# --model で指定する名前と、Hugging Face のリポジトリ・版（コミット）。
+# 版は、事前学習のステージ1の最後の重み（継続事前学習の学習率と学習データを、ステージ1に合わせるため）。
+# コメントは、そのコミットを指すブランチの名前
+models:
+  OLMo-2-0425-1B:
+    repository: allenai/OLMo-2-0425-1B
+    revision: 9d3e43659f00c17e6da23cf32333afd1fc39fa1a  # stage1-step1907359-tokens4001B
+  OLMo-2-1124-7B:
+    repository: allenai/OLMo-2-1124-7B
+    revision: c0371f4281bf2376207646c6b62ddc6c442c7577  # stage1-step928646-tokens3896B
+  OLMo-2-1124-13B:
+    repository: allenai/OLMo-2-1124-13B
+    revision: 08d2aca2e28ab67ad859793f76ef5c923e94ac11  # stage1-step596057-tokens5001B
+
+# 語の候補の生成や用例の判定に使う LLM（README のとおりに起動した vLLM のサーバ）
+llm:
+  server_url: http://localhost:8000/v1
+  model: Qwen/Qwen3-Next-80B-A3B-Instruct-FP8
+  maximum_concurrent_requests: 128
+
+# 基データ（OLMo 2 の事前学習データの、学習順で先頭の部分）と検証データ
+base_data:
+  # OLMo 2 7B のステージ1の学習設定（版を固定した URL）。3モデルとも、学習データの一覧と seed は同じ
+  pretraining_configuration_url: https://raw.githubusercontent.com/allenai/OLMo/090253dac6688f2532509daa7aa2eb5fae50e956/configs/official-1124/OLMo2-7B-stage1.yaml
+  # 学習順の先頭から取る系列（4,096トークン）の数。7B の事前学習の最初の72 step 分（約3億トークン）
+  number_of_base_sequences: 73728
+  # その直後から取る、検証データの系列の数（約1,000万トークン）
+  number_of_validation_sequences: 2442
+
+# 語の選定
+words:
+  # 名詞のカテゴリ。name は課題2の選択肢の語にもなる（先頭スペース付きで1トークンの語）。
+  # wordnet_roots の synset の下にある語義を、そのカテゴリの語義とする
+  categories:
+    - name: food
+      description: foods and dishes that people eat
+      wordnet_roots: [food.n.01, food.n.02]
+    - name: animal
+      description: animals
+      wordnet_roots: [animal.n.01]
+    - name: vehicle
+      description: vehicles that carry people or goods
+      wordnet_roots: [vehicle.n.01]
+    - name: clothing
+      description: clothing and footwear worn on the body
+      wordnet_roots: [clothing.n.01, footwear.n.02]
+    - name: furniture
+      description: furniture and home furnishings
+      wordnet_roots: [furnishing.n.02]
+    - name: building
+      description: buildings
+      wordnet_roots: [building.n.01]
+  # LLM に語を挙げさせるときの、挙げる語の種類（種類ごとに1回）と、1回に挙げさせる数
+  listing_kinds:
+    - very common, everyday
+    - less common but well-known
+  nouns_per_listing: 200
+  adjectives_per_listing: 400
+  # 頻度と使われ方を見積もるときに読む、Pile の先頭の断片の数（全1,650個のうち約3%）
+  pile_sample_shards: 50
+  # 使われ方を LLM が判定する、語ごとの見本の数
+  usage_examples_per_word: 50
+  seed: 0
+
+# 未知語（モデルが見たことのない文字列）の候補
+unknown_words:
+  # 一度も現れないことを確かめる infini-gram の索引（OLMo 2 13B の中間学習・事後学習までの学習データと、Pile）
+  corpus_indexes:
+    - v4_olmo-2-1124-13b-instruct_llama
+    - v4_piletrain_llama
+  # ARC 非語データベースの、同音の実在語がない非語（Rastle et al., 2002。figshare で公開）
+  arc_nonwords_url: https://ndownloader.figshare.com/files/13877978
+  # トークン数（2・3）と綴りの近さ（near・far）の組ごとに集める、一度も現れない候補の数
+  # （使うのは各12個。最初のトークンが重ならないように選ぶための余裕を持たせる）
+  candidates_per_group: 40
+
+# 候補から語を選ぶときの条件（words select）
+word_selection:
+  # Pile の見本で、意図した語義（形容詞は、形容詞として）で使われていた割合の下限
+  minimum_usage_share: 0.9
+  # その割合を当てにできるように、LLM が判定できた見本の数の下限
+  minimum_judged_usages: 20
+  # Pile で取れる用例の見積もりに、意図した使われ方の割合を掛けた数が、必要な数の何倍以上か
+  # （ほぼ同じ用例の除去と、ほかの管理対象の語を含む用例の除外で減る分を見込む）
+  passage_margin: 2.0
+  # 形容詞72語の、どのカテゴリとの結びつきの評定（1〜7）も、これ以下にする
+  maximum_category_association: 3
+
+# 用例（管理対象の語を含む、Pile から切り出した文章）
+passages:
+  # 用例の長さ（トークン数）
+  tokens_per_passage: 256
+  # 1つの文書から取る用例の数の上限
+  maximum_passages_per_document: 3
+  # 語ごとの評価用の用例の数
+  evaluation_passages_per_word: 500
+  # 切り出しの段階で残す候補の数（判定に合格する必要がある数の何倍か。判定で落ちる分を見込む）
+  collection_factor: 2.5
+  # LLM の判定の精度（合格とした用例のうち、人も 1 とした割合）の、語ごとの下限
+  minimum_judgment_precision: 0.95
+
+# 未知語の獲得
+unknown_word_acquisition:
+  # 露出回数（1 run の学習データに差し込む、1つの未知語の用例の数）の8つの水準
+  exposure_levels: [0, 1, 10, 100, 1000, 3000, 5000, 10000]
+
+# 語義の追加
+sense_addition:
+  # K: 足す語義1つあたりに、1 run の学習データに差し込む用例の数（暫定。未知語の獲得の結果で決める）
+  passages_per_added_sense: 3000
+
+# 評価データ
+evaluation:
+  # 自然な語（実験で操作しない実在語）ごとの、課題の例やプローブの学習に使う文の数
+  sentences_per_natural_word: 20
+  # 自然な語ごとの、判定に合格させる用例の数（文を取り出せない用例を見込み、文の数より多くする）
+  passages_per_natural_word: 40
+  # 実在語らしさのプローブの、トークン数（1・2・3）ごとの実在語の数（2・3トークンの非語は、
+  # この実在語のトークンを入れ替えて作る）
+  probe_words_per_token_count: 100
+  # 未知語の指標の正規化の基準にする、トークン数（2・3）ごとの既知の名詞の数
+  normalization_nouns_per_token_count: 30
+  # 課題の問題の前に見せる例の数（暫定。自然な語での正解率を見て決める）
+  number_of_task_examples: 3
+  # 語義の組（ターゲット語の元の語義と、足す語義）ごとの最小対の数（暫定）と、
+  # LLM に作らせる候補の数（学習前のモデルでの確認で落ちる分を見込む）
+  minimal_pairs_per_sense_pair: 20
+  minimal_pair_candidates_per_sense_pair: 40
+  # 中立文脈（語の意味を示さない文の書き出し。直後に語を置く）の候補。前から順に、条件に合うものを使う。
+  # 前の20種は設計書の付録Eの候補、後の10種は、足りないときに使う同じ形の文
+  neutral_context_candidates:
+    - Do you know about the
+    - I heard something about the
+    - Let me tell you about the
+    - She asked me about the
+    - We talked about the
+    - He wrote a short note about the
+    - They were thinking about the
+    - I read an article about the
+    - Have you ever heard of the
+    - Nobody mentioned the
+    - Here is some information about the
+    - I want to learn more about the
+    - There was a question about the
+    - My friend told me about the
+    - Can you explain the
+    - I forgot about the
+    - Someone asked about the
+    - This is a story about the
+    - Everyone was curious about the
+    - I have never thought about the
+    - I was reading about the
+    - We were discussing the
+    - He asked a question about the
+    - They told us about the
+    - I just learned about the
+    - She was talking about the
+    - Did you hear about the
+    - There is a lot to say about the
+    - I wanted to ask about the
+    - We need to talk about the
+  # 使う中立文脈の数（文脈なしを除く）
+  number_of_neutral_contexts: 20
+  # 中立文脈の条件: 自然な名詞の対数確率のカテゴリごとの平均（全カテゴリの平均との差）が、
+  # 全候補での平均から、どのカテゴリでもこれ（自然対数）より離れない
+  maximum_neutral_context_deviation: 0.5
+
+# 継続事前学習（全ての run で共通）
+training:
+  # モデルごとの学習率（暫定: 事前学習のステージ1の最後の学習率。ピークの学習率と、余弦で下げる
+  # 学習率の式から求めた値）
+  learning_rate_by_model:
+    OLMo-2-0425-1B: 7.4e-5
+    OLMo-2-1124-7B: 6.2e-5
+    OLMo-2-1124-13B: 3.0e-5
+  # 1 step で学習するトークン数（4,096トークンの系列 × 256。暫定）
+  batch_size_in_tokens: 1048576
+  sequence_length: 4096
+  # 学習率を0から上げる step の、全ての step に対する割合（暫定）
+  warmup_fraction: 0.01
+  # モデルごとの、1つの GPU で1回に計算する系列の数（GPU のメモリに合わせる）
+  sequences_per_device_by_model:
+    OLMo-2-0425-1B: 8
+    OLMo-2-1124-7B: 2
+    OLMo-2-1124-13B: 1
+  # 最適化器 AdamW の設定（事前学習と同じ）
+  optimizer_betas: [0.9, 0.95]
+  optimizer_epsilon: 1.0e-8
+  weight_decay: 0.1
+  # 勾配のノルムの上限（事前学習と同じ）
+  gradient_clipping: 1.0
+  # z-loss（出力の対数の分配関数が大きくなりすぎないようにする損失）の重み（事前学習と同じ）
+  z_loss_weight: 1.0e-5
+  # 途中の重みを保存する、学習の進み具合（最後の重みは必ず保存する。暫定）
+  checkpoint_fractions: [0.25, 0.5, 0.75]
+  # 保存する重みの数値の型（bfloat16 は float32 の半分の大きさ。60 run × 4回で約3.6TB）
+  checkpoint_dtype: bfloat16
+  # 1トークンの未知語の埋め込みの初期値: 既存の埋め込みの平均 + 乱数（暫定）
+  new_token_embedding_initialization:
+    # 乱数の標準偏差の、既存の埋め込みの次元ごとの標準偏差に対する倍率
+    noise_scale: 0.1
+  # 学習の記録を送る W&B のプロジェクト
+  weights_and_biases_project: lexical-acquisition-mechanisms
