@@ -68,6 +68,23 @@ def test_selected_action_runs_with_settings_and_arguments(
     assert calls == [({"tiny-model": "./tiny-model"}, Path("data/words/review.csv"))]
 
 
+def test_every_action_accepts_recompute(in_repository_like_directory: Path) -> None:
+    flags = []
+
+    def record_flag(settings: Settings, arguments: argparse.Namespace) -> None:
+        flags.append(arguments.recompute)
+
+    actions = [
+        Action("words", "select", "", record_flag),
+        Action("passages", "collect", "", record_flag),
+    ]
+
+    main(["words", "select"], actions)
+    main(["passages", "collect", "--recompute"], actions)
+
+    assert flags == [False, True]
+
+
 @pytest.mark.parametrize(
     "command_line_arguments", [[], ["words"], ["unknown-stage", "select"], ["words", "x"]]
 )
