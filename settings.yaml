@@ -1,0 +1,7 @@
+# 実験の設定。各コマンドは、リポジトリの最上位のディレクトリにあるこのファイルを読む。
+
+# --model で指定する名前と、Hugging Face のリポジトリ
+models:
+  OLMo-2-0425-1B: allenai/OLMo-2-0425-1B
+  OLMo-2-1124-7B: allenai/OLMo-2-1124-7B
+  OLMo-2-1124-13B: allenai/OLMo-2-1124-13B
