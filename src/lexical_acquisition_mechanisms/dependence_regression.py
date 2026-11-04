@@ -5,7 +5,11 @@ measure-dependence の依存度（d_既知 が小さい組を除く）に、同�
 m̂（analyze-acquisition-order。意味と統合は、順番の判定に使った層の値）を結びつけ、無効化の種類ごとに、
 次の混合効果モデルを REML で当てはめる（statsmodels。ランダム切片は交差させる）。
     依存度 ~ 意味の m̂ + 統合の m̂ + トークン数 + 綴りの近さ + (1 | 未知語) + (1 | 置換元) + (1 | run)
-トークン数（1 を基準）と綴りの近さ（far を基準）は、水準ごとの係数にする。露出0回の未知語も含める。
+トークン数と綴りの近さは、0・1 の列にする: two_tokens・three_tokens（1トークンが基準）と near
+（near なら 1。far と、綴りの近さのない1トークンの未知語は 0。2・3トークンの中での near と far
+の差）。
+値が1種類しかない列（例: 使える組に1トークンの語がない）は、式から外す。露出0回の未知語も含める。
+当てはめに使える組が MINIMUM_ROWS に満たない種類と、当てはめられなかった種類は、表示して飛ばす。
 頑健性: 意味と統合の m̂ を閾値（THRESHOLDS）で区切った状態（both・meaning-only・integration-only・
 neither）ごとの依存度の平均と、未知語と run を単位にした2段のブートストラップの 95% の区間。
 出力は outputs/results/dependence-on-category-judging-heads/<モデル>/ の regression_data.parquet
@@ -41,10 +45,10 @@ from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.settings import Settings
 
-FORMULA = (
-    "dependence ~ meaning + integration + C(token_count, Treatment(1))"
-    " + C(spelling_closeness, Treatment('far'))"
-)
+# 固定効果の列（値が1種類しかない列は、当てはめるときに外す）
+FIXED_EFFECTS = ("meaning", "integration", "two_tokens", "three_tokens", "near")
+# 固定効果6個（切片を含む）と分散3個に対して、当てはめに使う組の数の下限
+MINIMUM_ROWS = 30
 RANDOM_INTERCEPTS = {
     "unknown_word": "0 + C(unknown_word)",
     "noun": "0 + C(noun)",
@@ -164,18 +168,27 @@ def regression_data(
         }
         known = all(value is not None and np.isfinite(value) for value in values.values())
         if row["usable"] and known:
-            data.append({**row, **values})
+            data.append(
+                {
+                    **row,
+                    **values,
+                    "two_tokens": int(row["token_count"] == 2),
+                    "three_tokens": int(row["token_count"] == 3),
+                    "near": int(row["spelling_closeness"] == "near"),
+                }
+            )
     return data
 
 
 def fit_mixed_model(ablation: str, rows: Sequence[dict[str, object]]) -> list[RegressionTerm]:
     """交差したランダム切片の混合効果モデルの係数と分散。当てはめられなければ空。"""
-    if len(rows) < 10:
+    if len(rows) < MINIMUM_ROWS:
         print(f"{ablation}: 依存度を出せた組が {len(rows)} 組しかないので、回帰を当てはめません。")
         return []
     frame = pandas.DataFrame(rows)
+    terms = [name for name in FIXED_EFFECTS if frame[name].nunique() > 1]
     model = formulas.mixedlm(
-        FORMULA,
+        "dependence ~ " + " + ".join(terms),
         frame,
         groups=np.ones(len(frame)),
         re_formula="0",
@@ -183,7 +196,11 @@ def fit_mixed_model(ablation: str, rows: Sequence[dict[str, object]]) -> list[Re
     )
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        result = model.fit(reml=True)
+        try:
+            result = model.fit(reml=True)
+        except (np.linalg.LinAlgError, ValueError) as error:
+            print(f"{ablation} の回帰を当てはめられませんでした（{error}）。")
+            return []
     for warning in caught:
         print(f"{ablation} の回帰: {warning.message}")
     fixed = model.exog_names[: model.k_fe]
