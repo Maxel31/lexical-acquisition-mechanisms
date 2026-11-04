@@ -17,6 +17,7 @@ from lexical_acquisition_mechanisms import (
     base_data,
     continued_pretraining,
     hidden_state_similarity,
+    minimal_pairs,
     natural_word_sentences,
     neutral_contexts,
     noun_candidates,
@@ -204,6 +205,12 @@ def all_actions() -> list[Action]:
             "プローブの学習に使う実在語と非語（実在しない文字列）と、未知語の指標を正規化する"
             "（既知の語の値を 1 にそろえる）ときの基準にする既知の語を作る",
             probe_and_normalization_words.build_probe_and_normalization_words,
+        ),
+        Action(
+            "evaluation-data",
+            "generate-minimal-pairs",
+            "最小対（手がかりの1語だけが違い、ターゲット語の語義が変わる2文）を作る",
+            minimal_pairs.generate_minimal_pairs,
         ),
     ]
 
