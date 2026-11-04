@@ -28,6 +28,7 @@ from lexical_acquisition_mechanisms import (
     passage_split,
     pretrained_model_checks,
     probe_and_normalization_words,
+    real_word_probes,
     run_settings,
     similarity_ratings,
     task_questions,
@@ -235,6 +236,14 @@ def all_actions() -> list[Action]:
             "approved が 0 の最小対を除き、評価に使う最小対と課題の問題を書き出す",
             evaluation_finalization.finalize_evaluation_data,
             evaluation_finalization.add_arguments,
+        ),
+        Action(
+            "unknown-word-acquisition",
+            "train-real-word-probes",
+            "公開されているモデルで、内部表現から実在語かどうかを当てるプローブを学習し、"
+            "正解率を出す",
+            real_word_probes.train_real_word_probes,
+            real_word_probes.add_arguments,
         ),
     ]
 

@@ -29,7 +29,7 @@ import json
 import math
 import os
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -325,20 +325,37 @@ def initialize_new_tokens(model: PreTrainedModel, run: RunSettings) -> None:
     vocabulary_size = len(
         AutoTokenizer.from_pretrained(source.repository, revision=source.revision)
     )
-    if min(run.new_token_ids) < vocabulary_size:
+    initialize_token_embeddings(
+        model, run.new_token_ids, vocabulary_size, run.new_token_noise_scale, run.seed
+    )
+
+
+def initialize_token_embeddings(
+    model: PreTrainedModel,
+    token_ids: Sequence[int],
+    vocabulary_size: int,
+    noise_scale: float,
+    seed: int,
+) -> None:
+    """トークン番号の行（入力側・出力側）を、既存のトークン（語彙の行）の平均 + 乱数にする。
+
+    乱数の標準偏差は、既存の埋め込みの次元ごとの標準偏差 × noise_scale。乱数は seed から決まる。
+    """
+    if min(token_ids) < vocabulary_size:
         raise ValueError(
-            f"新しいトークン番号 {min(run.new_token_ids)} は、トークナイザが使っている番号です。"
+            f"新しいトークン番号 {min(token_ids)} は、トークナイザが使っている番号です。"
         )
-    generator = torch.Generator().manual_seed(run.seed)
+    generator = torch.Generator().manual_seed(seed)
+    rows = list(token_ids)
     with torch.no_grad():
         for matrix in (model.get_input_embeddings().weight, model.get_output_embeddings().weight):
             existing = matrix[:vocabulary_size]
             noise = torch.randn(
-                (len(run.new_token_ids), matrix.shape[1]), generator=generator, dtype=matrix.dtype
+                (len(rows), matrix.shape[1]), generator=generator, dtype=matrix.dtype
             )
-            scale = existing.std(dim=0) * run.new_token_noise_scale
-            matrix[run.new_token_ids] = existing.mean(dim=0) + noise * scale
-    print(f"新しいトークン {len(run.new_token_ids)} 個の埋め込みを初期化しました。")
+            scale = existing.std(dim=0) * noise_scale
+            matrix[rows] = existing.mean(dim=0) + noise.to(matrix.device) * scale
+    print(f"新しいトークン {len(rows)} 個の埋め込みを初期化しました。")
 
 
 def _optimizer(model: PreTrainedModel, run: RunSettings) -> torch.optim.Optimizer:
