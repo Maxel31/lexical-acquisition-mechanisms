@@ -112,11 +112,12 @@ def test_spans_give_the_position_of_each_part(word_tokenizer: WordTokenizer) -> 
     assert spans[3].stop == len(token_ids)
 
 
-def test_tokens_that_continue_a_word_start_with_a_letter(word_tokenizer: WordTokenizer) -> None:
-    flags = word_tokenizer.word_continuation_flags()
-    cat, fish = word_tokenizer.word_token_ids("catfish")
+def test_word_boundaries_are_between_letters(word_tokenizer: WordTokenizer) -> None:
+    boundaries = word_tokenizer.word_boundaries()
+    catfish = word_tokenizer.word_token_ids("catfish")
+    sentence = word_tokenizer.encode(["We ate.\nThe end"])
 
-    assert flags[fish]
-    assert not flags[cat]
-    assert not flags[word_tokenizer.encode(["."])[0]]
-    assert not flags[word_tokenizer.unused_token_ids(1)[0]]
+    # " cat" と "fish" の間は語の途中。文の先頭・改行の後の "The" の前は、語の途中ではない
+    assert boundaries.inside_word(catfish, 1)
+    assert not any(boundaries.inside_word(sentence, index) for index in range(len(sentence) + 1))
+    assert not boundaries.starts_with_letter[word_tokenizer.unused_token_ids(1)[0]]
