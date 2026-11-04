@@ -96,8 +96,11 @@ passages:
   maximum_passages_per_document: 3
   # 語ごとの評価用の用例の数
   evaluation_passages_per_word: 500
-  # 切り出しの段階で残す候補の数（判定に合格する必要がある数の何倍か。判定で落ちる分を見込む）
+  # 判定に回す候補の数（判定に合格する必要がある数の何倍か。判定で落ちる分を見込む）
   collection_factor: 2.5
+  # 切り出しで、Pile の断片ごとに残す出現の鍵の上限を決める余裕（Pile 全体での見積もりで、残す数の
+  # この倍の出現が入る上限にする。語の出現が見積もりより少なくて止まったときは、大きくする）
+  key_limit_margin: 3
   # LLM の判定の精度（合格とした用例のうち、人も 1 とした割合）の、語ごとの下限
   minimum_judgment_precision: 0.95
 

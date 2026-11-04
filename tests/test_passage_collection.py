@@ -17,6 +17,7 @@ from lexical_acquisition_mechanisms.passage_collection import (
     CollectionSummary,
     build_passage_candidates,
     collect_passages,
+    kept_occurrences,
 )
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings, load_settings
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
@@ -63,7 +64,8 @@ def two_local_shards(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def settings(tiny_model_source: ModelSource) -> Settings:
-    """名詞は 3 + 1 件、形容詞も同じ数、自然な語は 1 件を必要とし、その2倍を残す。
+    """名詞は 3 + 1 件、形容詞も同じ数、自然な語は 1 件を必要とし、出現をその 1.2 × 1.5 倍
+    （名詞は 8 件、自然な語は 2 件）残す。
 
     用例1つ分は 25 トークン（100 文字）、1つの文書から取るのは 3 件まで。
     """
@@ -72,7 +74,7 @@ def settings(tiny_model_source: ModelSource) -> Settings:
         update={
             "tokens_per_passage": 25,
             "evaluation_passages_per_word": 1,
-            "collection_factor": 2.0,
+            "collection_factor": 1.2,
         }
     )
     exposure = settings.unknown_word_acquisition.model_copy(
@@ -178,6 +180,11 @@ def test_word_rarer_than_estimated_stops(tmp_path: Path, settings: Settings) -> 
     # 見積もりが実際より多いと、鍵の上限が小さくなり、残す数（8件）に届かない
     with pytest.raises(CommandStopped, match="残す数に届かなかった語があります（\\['pasta'\\]）"):
         collect(tmp_path, settings, LocalShards(), pasta_passages=10_000)
+
+
+def test_more_occurrences_are_kept_than_the_candidates_for_judging(settings: Settings) -> None:
+    # 窓の除外と重複の除去で減る分を見込み、判定に回す候補の数（4 × 1.2 = 4.8 件）より多く残す
+    assert kept_occurrences(SelectedWord("pasta", "noun"), settings) == 8
 
 
 def test_record_does_not_depend_on_the_judgment_precision(
