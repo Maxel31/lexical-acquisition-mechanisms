@@ -16,6 +16,7 @@ from lexical_acquisition_mechanisms import (
     assignments,
     base_data,
     continued_pretraining,
+    evaluation_finalization,
     hidden_state_similarity,
     minimal_pairs,
     natural_word_sentences,
@@ -227,6 +228,13 @@ def all_actions() -> list[Action]:
             "確認に通った最小対から一部を、確認用の data/evaluation/minimal_pairs_review.csv に"
             "書き出す",
             pretrained_model_checks.check_with_pretrained_models,
+        ),
+        Action(
+            "evaluation-data",
+            "finalize",
+            "approved が 0 の最小対を除き、評価に使う最小対と課題の問題を書き出す",
+            evaluation_finalization.finalize_evaluation_data,
+            evaluation_finalization.add_arguments,
         ),
     ]
 
