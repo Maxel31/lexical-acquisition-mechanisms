@@ -266,3 +266,21 @@ def test_missing_candidates_stop_with_the_category(tmp_path: Path, settings: Set
     with pytest.raises(CommandStopped, match="カテゴリ animal の名詞（1トークン）") as stopped:
         select(tmp_path, settings, candidates)
     assert stopped.value.rerun_from == "words generate-noun-candidates"
+
+
+def test_adjectives_do_not_share_the_first_token_of_target_words(settings: Settings) -> None:
+    tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
+    candidates = [
+        adjective_candidate("high", 5.3, 0.95, 1),
+        adjective_candidate("tall", 5.0, 0.95, 1),
+    ]
+    # ターゲット語 " high|chair" の最初のトークンは、形容詞 " high" と同じ
+    taken = {tokenizer.word_token_ids("highchair")[0]}
+    assert taken == {tokenizer.word_token_ids("high")[0]}
+    chosen = word_selection.ChosenWords(lambda word: frozenset())
+
+    adjectives = word_selection._select_adjectives(
+        candidates, settings, chosen, [noun_candidate("bread", "food", 1, 5.3)], taken, tokenizer
+    )
+
+    assert [adjective.word for adjective in adjectives] == ["tall"]
