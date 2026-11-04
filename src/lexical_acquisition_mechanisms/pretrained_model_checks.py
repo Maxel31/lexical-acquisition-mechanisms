@@ -22,6 +22,7 @@ import pyarrow.parquet as parquet
 import torch
 
 from lexical_acquisition_mechanisms import minimal_pairs, task_questions, word_finalization
+from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.minimal_pairs import BLANK, MinimalPairCandidate
@@ -42,6 +43,29 @@ CHECKED_PAIRS_PATH = OUTPUT_DIRECTORY / "checked_minimal_pairs.csv"
 REVIEW_PATH = OUTPUT_DIRECTORY / "minimal_pairs_review.csv"
 TASK_ACCURACY_PATH = OUTPUT_DIRECTORY / "task_accuracy.csv"
 PARAPHRASE_CHECKS_PATH = OUTPUT_DIRECTORY / "target_paraphrase_checks.csv"
+
+
+def usable_tasks(model: str, path: Path = TASK_ACCURACY_PATH) -> set[str]:
+    """モデルで、自然な語での正解率が偶然の水準を有意に超える課題（task_accuracy.csv）。"""
+    return {row.task for row in read_rows(path, TaskAccuracy) if row.model == model and row.usable}
+
+
+def require_usable_tasks(
+    model: str, tasks: Sequence[str], command: str, path: Path = TASK_ACCURACY_PATH
+) -> None:
+    """モデルで使えない課題（偶然の水準を超えない課題）があれば止まる。
+
+    設計書: 偶然の水準を有意に超えないモデルサイズでは、その課題を使わない。
+    """
+    unusable = [task for task in tasks if task not in usable_tasks(model, path)]
+    if unusable:
+        raise CommandStopped(
+            f"モデル {model} では、課題 {unusable} の自然な語での正解率が偶然の水準を超えない"
+            f"（{path}）ので、この課題を使うコマンドは実行しません。",
+            rerun_from=command,
+        )
+
+
 REVIEWED_PAIRS_PER_SENSE_PAIR = 1
 BATCH_SIZE = 64
 

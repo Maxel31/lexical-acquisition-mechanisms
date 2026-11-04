@@ -32,6 +32,7 @@ import torch
 from lexical_acquisition_mechanisms import (
     attribute_direction_patching,
     attribute_probes,
+    pretrained_model_checks,
     significant_heads_and_mlps,
     task_questions,
     unknown_word_assignments,
@@ -89,6 +90,7 @@ def measure_dependence(settings: Settings, arguments: argparse.Namespace) -> Non
     model = arguments.model
     command = f"{EXPERIMENT} measure-dependence --model {model}"
     checkpoints = unknown_word_checkpoints(model, command)
+    pretrained_model_checks.require_usable_tasks(model, ["category"], command)
     _, _, judging_path, directions_path = attribute_direction_patching.output_paths(model)
     tested_by = f"sense-addition test-attribute-directions --model {model}"
     inputs = {
@@ -106,7 +108,10 @@ def measure_dependence(settings: Settings, arguments: argparse.Namespace) -> Non
     }
     step = Step(
         command,
-        inputs=inputs,
+        inputs={
+            **inputs,
+            pretrained_model_checks.TASK_ACCURACY_PATH: pretrained_model_checks.COMMAND,
+        },
         outputs=[dependence_path(model)],
         settings={
             "checkpoints": checkpoint_states(list(checkpoints.values())),

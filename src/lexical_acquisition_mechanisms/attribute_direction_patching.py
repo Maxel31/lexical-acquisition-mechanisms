@@ -33,6 +33,7 @@ import torch
 from lexical_acquisition_mechanisms import (
     attribute_probes,
     evaluation_finalization,
+    pretrained_model_checks,
     sense_accuracy,
     significant_heads_and_mlps,
     word_finalization,
@@ -97,6 +98,12 @@ def test_attribute_directions(settings: Settings, arguments: argparse.Namespace)
     command = f"sense-addition test-attribute-directions --model {model}"
     checkpoints = sense_accuracy.final_checkpoints(model, command)
     tested = {run: checkpoints[run] for run in TESTED_RUNS}
+    # 課題1は必ず使う。使えない課題2（カテゴリ・品詞）は、その測定だけを飛ばす
+    pretrained_model_checks.require_usable_tasks(model, ["sense"], command)
+    tasks = pretrained_model_checks.usable_tasks(model)
+    skipped = sorted({"category", "part-of-speech"} - tasks)
+    if skipped:
+        print(f"モデル {model} では課題 {skipped} が使えないので、その課題2は測りません。")
     classes_path = significant_heads_and_mlps.output_paths(model)[2]
     probes_path, probe_accuracy_path, transfer_path = attribute_probes.output_paths(model)
     accuracy_path = sense_accuracy.result_paths(model)[1]
@@ -112,7 +119,12 @@ def test_attribute_directions(settings: Settings, arguments: argparse.Namespace)
     patching_path, *judgment_paths = output_paths(model)
     step = Step(
         command,
-        inputs={**inputs, probe_accuracy_path: probes_command, transfer_path: probes_command},
+        inputs={
+            **inputs,
+            probe_accuracy_path: probes_command,
+            transfer_path: probes_command,
+            pretrained_model_checks.TASK_ACCURACY_PATH: pretrained_model_checks.COMMAND,
+        },
         outputs=list(output_paths(model)),
         settings={
             "checkpoints": checkpoint_states(list(tested.values())),
@@ -128,6 +140,7 @@ def test_attribute_directions(settings: Settings, arguments: argparse.Namespace)
             tuple(inputs),
             patching_path,
             settings.words.seed,
+            tasks,
         )
         write_attribute_judgments(
             rows,
@@ -145,8 +158,9 @@ def write_attribute_patching(
     input_paths: tuple[Path, Path, Path, Path, Path],
     output: Path,
     seed: int,
+    tasks: set[str] | None = None,
 ) -> list[dict[str, object]]:
-    """入れ替えの行を書き、返す。"""
+    """入れ替えの行を書き、返す（tasks は、測る課題。None なら全て）。"""
     classes_path, probes_path, questions_path, accuracy_path, words_path = input_paths
     adopted = adopted_heads(classes_path)
     rows: list[dict[str, object]] = []
@@ -160,7 +174,7 @@ def write_attribute_patching(
             baselines = baseline_heads(adopted, model.model.config.num_attention_heads, seed)
             plans = planned_patches(adopted, baselines, probes, seed)
             for pair in tested_pairs(run, questions, usable, seed):
-                rows += measure_pair(model, run, pair, plans, questions, words)
+                rows += measure_pair(model, run, pair, plans, questions, words, tasks)
             # 次の run の重みを読む前に、この重みを GPU から消す
             del model
             gc.collect()
@@ -230,15 +244,17 @@ def measure_pair(
     plans: Sequence[PlannedPatch],
     questions: Sequence[dict[str, object]],
     words: dict[str, SelectedWord],
+    tasks: set[str] | None = None,
 ) -> list[dict[str, object]]:
-    """1つの最小対の、両方向 × 2つの課題 × 入れ替えごとの行。"""
+    """1つの最小対の、両方向 × 2つの課題 × 入れ替えごとの行（tasks にない課題は測らない）。"""
     rows = []
     attribute_task = next(task for _, task in pair if task != "sense")
+    measured = [task for task in ("sense", attribute_task) if tasks is None or task in tasks]
     heads = sorted({plan.patched_head for plan in plans})
     for direction, (source_cue, destination_cue) in zip(
         DIRECTIONS, (("donor", "target"), ("target", "donor")), strict=True
     ):
-        for task in ("sense", attribute_task):
+        for task in measured:
             source, destination = pair[source_cue, task], pair[destination_cue, task]
             question = questions[source]
             inputs = pair_inputs(model, questions, words, question["target"], source, destination)
