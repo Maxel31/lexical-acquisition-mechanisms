@@ -1,19 +1,21 @@
 """語を選ぶ（words select）。
 
-語の候補（words generate-noun-candidates の CSV）から、実験で操作する語（管理対象の語）を選び、
-data/words/selected_words.csv に書く。
+語の候補（words generate-noun-candidates などの CSV）から、実験で操作する語（管理対象の語）を
+選び、data/words/selected_words.csv に書く。
 - 名詞72語: 各カテゴリ12語。先頭スペース付きで1トークン。
 - ターゲット語18語: 各カテゴリから、先頭スペース付きで1・2・3トークンの語を1語ずつ。最初の
   トークンが、名詞やほかのターゲット語と重ならない。
-どの語も、Pile の見本で意図した語義で使われていた割合が高く、Pile で取れる用例の見積もり（意図した
-使われ方の割合を掛けたもの）が必要な数より十分に多い候補から選ぶ。すでに選んだ語の同義語
-（WordNet で、その語を見出しとする語義が重なる語）は選ばない。
+- 形容詞72語: 先頭スペース付きで1トークン。どのカテゴリとも結びつきが強くない。
+どの語も、Pile の見本で意図した語義（形容詞は、形容詞として）で使われていた割合が高く、Pile で
+取れる用例の見積もり（意図した使われ方の割合を掛けたもの）が必要な数より十分に多い候補から選ぶ。
+すでに選んだ語の同義語（WordNet で、その語を見出しとする語義が重なる語）は選ばない。
 頻度は、Pile での標準の形の出現回数の対数で比べる。
 - 名詞は、カテゴリの間で頻度の分布をそろえる。全カテゴリに候補がある頻度の範囲に、12個の目標の値を
   等間隔に置き、カテゴリごとに、それぞれの値に最も近い候補を選ぶ。
 - ターゲット語は、トークン数の間で頻度をそろえる。多トークンの候補の頻度のうち、各組（カテゴリと
   トークン数）で最も近い候補との差の合計が最も小さい値を目標にし、組ごとに最も近い候補を選ぶ
   （多トークンの語は低頻度に偏るので、そちらに合わせる）。
+- 形容詞は、名詞72語と頻度の分布をそろえる。頻度の低い名詞から順に、最も近い候補を選ぶ。
 """
 
 import argparse
@@ -23,14 +25,15 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
-from lexical_acquisition_mechanisms import noun_candidates
+from lexical_acquisition_mechanisms import adjective_candidates, noun_candidates
+from lexical_acquisition_mechanisms.adjective_candidates import AdjectiveCandidate
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.noun_candidates import NounCandidate
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.settings import Settings
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
-from lexical_acquisition_mechanisms.wordnet_senses import noun_senses
+from lexical_acquisition_mechanisms.wordnet_senses import adjective_senses, noun_senses
 
 COMMAND = "words select"
 OUTPUT_PATH = Path("data/words/selected_words.csv")
@@ -38,10 +41,18 @@ NOUNS_PER_CATEGORY = 12
 TARGET_TOKEN_COUNTS = (1, 2, 3)
 
 
+@dataclass(frozen=True)
+class CandidateTables:
+    """words select が読む、候補の CSV。"""
+
+    nouns: Path = noun_candidates.OUTPUT_PATH
+    adjectives: Path = adjective_candidates.OUTPUT_PATH
+
+
 @dataclass
 class SelectedWord:
     word: str
-    # 役割（noun: 名詞72語、target: ターゲット語）
+    # 役割（noun: 名詞72語、target: ターゲット語、adjective: 形容詞72語）
     role: str
     category: str = ""
     token_count: int = 0
@@ -52,7 +63,7 @@ class SelectedWord:
     # Pile での標準の形の出現回数と、用例として切り出せる文章の数の見積もり
     estimated_pile_count: int = 0
     estimated_pile_passages: int = 0
-    # Pile の見本で、意図した語義で使われていた割合
+    # Pile の見本で、意図した語義（形容詞は、形容詞として）で使われていた割合
     usage_share: float = 0.0
 
 
@@ -78,25 +89,34 @@ def select_words(settings: Settings, arguments: argparse.Namespace) -> None:
         "word_selection": settings.word_selection.model_dump(),
         "passages": settings.passages.model_dump(),
         "unknown_word_acquisition": settings.unknown_word_acquisition.model_dump(),
+        "sense_addition": settings.sense_addition.model_dump(),
         "tokenizer": next(iter(settings.models.values())).model_dump(),
     }
-    inputs = {noun_candidates.OUTPUT_PATH: noun_candidates.COMMAND}
+    tables = CandidateTables()
+    inputs = {
+        tables.nouns: noun_candidates.COMMAND,
+        tables.adjectives: adjective_candidates.COMMAND,
+    }
     step = Step(COMMAND, inputs=inputs, outputs=[OUTPUT_PATH], settings=record_settings)
     run_unless_unchanged(
         step,
-        lambda: build_selected_words(settings, noun_candidates.OUTPUT_PATH, OUTPUT_PATH),
+        lambda: build_selected_words(settings, tables, OUTPUT_PATH),
         arguments.recompute,
     )
 
 
-def build_selected_words(settings: Settings, noun_candidates_path: Path, output_path: Path) -> None:
+def build_selected_words(settings: Settings, tables: CandidateTables, output_path: Path) -> None:
     tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
-    candidates = read_rows(noun_candidates_path, NounCandidate)
-    chosen = ChosenWords(_noun_synsets)
-    nouns = _select_nouns(candidates, settings, chosen)
-    targets = _select_target_words(candidates, settings, chosen, nouns, tokenizer)
+    nouns_and_targets = read_rows(tables.nouns, NounCandidate)
+    chosen = ChosenWords(_synsets)
+    nouns = _select_nouns(nouns_and_targets, settings, chosen)
+    targets = _select_target_words(nouns_and_targets, settings, chosen, nouns, tokenizer)
+    adjectives = _select_adjectives(
+        read_rows(tables.adjectives, AdjectiveCandidate), settings, chosen, nouns
+    )
     rows = [_row(noun, "noun", tokenizer) for noun in nouns]
     rows += [_row(target, "target", tokenizer) for target in targets]
+    rows += [_row(adjective, "adjective", tokenizer) for adjective in adjectives]
     write_rows(output_path, SelectedWord, rows)
 
 
@@ -210,18 +230,63 @@ def _select_target_words(
     return targets
 
 
-def _usable(candidate: NounCandidate, settings: Settings, needed_passages: int) -> bool:
+def _select_adjectives(
+    candidates: Sequence[AdjectiveCandidate],
+    settings: Settings,
+    chosen: ChosenWords,
+    nouns: Sequence[NounCandidate],
+) -> list[AdjectiveCandidate]:
+    """名詞72語と同じ数の形容詞。名詞と頻度の分布をそろえる。"""
+    needed = (
+        settings.sense_addition.exposures_per_donor + settings.passages.evaluation_passages_per_word
+    )
+    maximum_association = settings.word_selection.maximum_category_association
+    usable = [
+        candidate
+        for candidate in candidates
+        if _usable(candidate, settings, needed)
+        and candidate.largest_category_association <= maximum_association
+    ]
+    adjectives = []
+    for noun in sorted(nouns, key=_frequency):
+        remaining = [candidate for candidate in usable if chosen.can_take(candidate.word)]
+        if not remaining:
+            description = f"形容詞（カテゴリとの結びつきが {maximum_association} 以下）"
+            raise _shortage(
+                description,
+                len(adjectives),
+                needed,
+                settings,
+                listing="words.adjectives_per_listing",
+                rerun_from=adjective_candidates.COMMAND,
+            )
+        adjective = _nearest(remaining, _frequency(noun))
+        chosen.take(adjective.word)
+        adjectives.append(adjective)
+    return adjectives
+
+
+def _usable(
+    candidate: NounCandidate | AdjectiveCandidate, settings: Settings, needed_passages: int
+) -> bool:
     selection = settings.word_selection
+    share = _share(candidate)
     return (
         not candidate.rejected_reason
         and candidate.judged_usages >= selection.minimum_judged_usages
-        and candidate.intended_usage_share >= selection.minimum_usage_share
-        and candidate.estimated_pile_passages * candidate.intended_usage_share
-        >= selection.passage_margin * needed_passages
+        and share >= selection.minimum_usage_share
+        and candidate.estimated_pile_passages * share >= selection.passage_margin * needed_passages
     )
 
 
-def _frequency(candidate: NounCandidate) -> float:
+def _share(candidate: NounCandidate | AdjectiveCandidate) -> float:
+    """Pile の見本で、意図した語義（形容詞は、形容詞として）で使われていた割合。"""
+    if isinstance(candidate, NounCandidate):
+        return candidate.intended_usage_share
+    return candidate.adjective_usage_share
+
+
+def _frequency(candidate: NounCandidate | AdjectiveCandidate) -> float:
     return math.log10(max(candidate.estimated_pile_count, 1))
 
 
@@ -229,41 +294,51 @@ def _distance(candidate: NounCandidate, goal: float) -> float:
     return abs(_frequency(candidate) - goal)
 
 
-def _nearest(candidates: Sequence[NounCandidate], goal: float) -> NounCandidate:
+def _nearest[Candidate: (NounCandidate, AdjectiveCandidate)](
+    candidates: Sequence[Candidate], goal: float
+) -> Candidate:
     """頻度が goal に最も近い候補（同じなら、語の順で先のもの）。"""
     return min(candidates, key=lambda candidate: (_distance(candidate, goal), candidate.word))
 
 
 def _shortage(
-    description: str, found: int, needed_passages: int, settings: Settings
+    description: str,
+    found: int,
+    needed_passages: int,
+    settings: Settings,
+    listing: str = "words.nouns_per_listing",
+    rerun_from: str = noun_candidates.COMMAND,
 ) -> CommandStopped:
     selection = settings.word_selection
     return CommandStopped(
         f"{description}で、条件を満たす候補が足りません（{found} 語）。"
-        f"条件: 意図した語義で使われる割合が {selection.minimum_usage_share} 以上、"
+        f"条件: 意図した使われ方の割合が {selection.minimum_usage_share} 以上、"
         f"Pile で取れる用例の見積もりが {selection.passage_margin * needed_passages:,.0f} 件以上。"
-        "words.nouns_per_listing か words.listing_kinds を増やすか、"
-        "word_selection の条件を緩めてください。",
-        rerun_from=noun_candidates.COMMAND,
+        f"{listing} か words.listing_kinds を増やすか、word_selection の条件を緩めてください。",
+        rerun_from=rerun_from,
     )
 
 
 @cache
-def _noun_synsets(word: str) -> frozenset[str]:
-    return frozenset(sense.synset for sense in noun_senses(word, []))
+def _synsets(word: str) -> frozenset[str]:
+    """語を見出しとする、名詞と形容詞の語義。"""
+    senses = [*noun_senses(word, []), *adjective_senses(word)]
+    return frozenset(sense.synset for sense in senses)
 
 
-def _row(candidate: NounCandidate, role: str, tokenizer: WordTokenizer) -> SelectedWord:
+def _row(
+    candidate: NounCandidate | AdjectiveCandidate, role: str, tokenizer: WordTokenizer
+) -> SelectedWord:
     token_ids = tokenizer.word_token_ids(candidate.word)
     return SelectedWord(
         word=candidate.word,
         role=role,
-        category=candidate.category,
+        category=candidate.category if isinstance(candidate, NounCandidate) else "",
         token_count=len(token_ids),
         token_ids=" ".join(map(str, token_ids)),
         synset=candidate.synset,
         definition=candidate.definition,
         estimated_pile_count=candidate.estimated_pile_count,
         estimated_pile_passages=candidate.estimated_pile_passages,
-        usage_share=candidate.intended_usage_share,
+        usage_share=_share(candidate),
     )
