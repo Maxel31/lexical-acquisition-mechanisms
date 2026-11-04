@@ -11,7 +11,7 @@ from lexical_acquisition_mechanisms.command_line import Action, build_parser, ma
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.settings import Settings
 
-SETTINGS_TEXT = "models:\n  tiny-model: ./tiny-model\n"
+SETTINGS_TEXT = "models:\n  tiny-model:\n    repository: ./tiny-model\n"
 
 
 @pytest.fixture
@@ -58,14 +58,14 @@ def test_selected_action_runs_with_settings_and_arguments(
     calls = []
 
     def record_call(settings: Settings, arguments: argparse.Namespace) -> None:
-        calls.append((settings.models, arguments.review_csv))
+        calls.append((settings.models["tiny-model"].repository, arguments.review_csv))
 
     action = Action("words", "finalize", "語の一覧を書き出す", record_call, add_review_csv_argument)
 
     exit_code = main(["words", "finalize", "--review-csv", "data/words/review.csv"], [action])
 
     assert exit_code == 0
-    assert calls == [({"tiny-model": "./tiny-model"}, Path("data/words/review.csv"))]
+    assert calls == [("./tiny-model", Path("data/words/review.csv"))]
 
 
 def test_every_action_accepts_recompute(in_repository_like_directory: Path) -> None:
