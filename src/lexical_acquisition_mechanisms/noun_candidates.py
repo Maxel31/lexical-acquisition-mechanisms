@@ -8,14 +8,12 @@
 """
 
 import argparse
-import csv
-import dataclasses
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from lexical_acquisition_mechanisms import pile
+from lexical_acquisition_mechanisms.csv_tables import write_rows
 from lexical_acquisition_mechanisms.llm_client import (
     ANSWERS_PATH,
     LlmClient,
@@ -26,6 +24,7 @@ from lexical_acquisition_mechanisms.llm_client import (
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.pile_word_usages import WordUsages, sample_word_usages
 from lexical_acquisition_mechanisms.settings import Settings
+from lexical_acquisition_mechanisms.usage_shares import usage_shares
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
 from lexical_acquisition_mechanisms.wordnet_senses import noun_senses, other_parts_of_speech
 
@@ -119,7 +118,7 @@ def build_noun_candidates(
             maximum_tokens=40 * words.nouns_per_listing,
         )
         for category in words.categories
-        for kind in words.noun_listing_kinds
+        for kind in words.listing_kinds
     ]
     candidates = _listed_candidates(requests, client.ask_all(requests))
     tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
@@ -135,7 +134,7 @@ def build_noun_candidates(
         words.seed,
     )
     _judge_usages(kept, usages, usage_prompt, client, words.pile_sample_shards)
-    write_candidates(output_path, candidates)
+    write_rows(output_path, NounCandidate, candidates)
 
 
 def _listed_candidates(
@@ -181,41 +180,17 @@ def _judge_usages(
     client: LlmClient,
     pile_sample_shards: int,
 ) -> None:
-    requests = []
-    owners = []
-    for candidate in candidates:
-        word_usages = usages[candidate.word]
-        candidate.pile_sample_count = word_usages.count
-        candidate.estimated_pile_count = round(
-            word_usages.count * pile.NUMBER_OF_SHARDS / pile_sample_shards
-        )
-        for passage in word_usages.example_texts:
-            values = {
-                "word": candidate.word,
-                "definition": candidate.definition,
-                "passage": passage,
-            }
-            requests.append(LlmRequest(prompt, values, USAGE_SCHEMA))
-            owners.append(candidate)
-    intended_counts: dict[str, int] = {}
-    for candidate, answer in zip(owners, client.ask_all(requests), strict=True):
-        if answer is None:
-            continue
-        candidate.judged_usages += 1
-        intended_counts[candidate.word] = (
-            intended_counts.get(candidate.word, 0) + answer["intended"]
-        )
-    for candidate in candidates:
-        if candidate.judged_usages:
-            candidate.intended_usage_share = (
-                intended_counts[candidate.word] / candidate.judged_usages
-            )
+    definitions = {candidate.word: candidate.definition for candidate in candidates}
 
+    def make_request(word: str, passage: str) -> LlmRequest:
+        values = {"word": word, "definition": definitions[word], "passage": passage}
+        return LlmRequest(prompt, values, USAGE_SCHEMA)
 
-def write_candidates(path: Path, candidates: Sequence[NounCandidate]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fields = [field.name for field in dataclasses.fields(NounCandidate)]
-    with path.open("w", encoding="utf-8", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(dataclasses.asdict(candidate) for candidate in candidates)
+    words = [candidate.word for candidate in candidates]
+    shares = usage_shares(words, usages, pile_sample_shards, make_request, "intended", client)
+    for candidate in candidates:
+        share = shares[candidate.word]
+        candidate.pile_sample_count = share.pile_sample_count
+        candidate.estimated_pile_count = share.estimated_pile_count
+        candidate.judged_usages = share.judged_usages
+        candidate.intended_usage_share = share.share
