@@ -14,7 +14,8 @@
 - 既知の名詞: 2・3トークンの名詞の候補のうち、管理対象の語でなく、頻度の高い
   evaluation.normalization_nouns_per_token_count 語（形への慣れと語としての統合の基準 m1）。
 - 名詞72語を、人工的に2・3トークンに分けた形（例: " pas|ta"・" p|as|ta"。意味の基準 m1）。各部分が
-  1トークンになる分け方のうち、部分の長さが最もそろうもの。
+  1トークンになる分け方のうち、部分の長さが最もそろうもの。そう分けられない名詞とトークン数の組は
+  作らずに、数を表示する（その組の意味の正規化は、値なしになる）。
 """
 
 import argparse
@@ -132,9 +133,14 @@ def write_probe_and_normalization_words(
             NormalizationWord("known-noun", token_count, word, _ids(ids))
             for word, ids in known[: evaluation.normalization_nouns_per_token_count]
         ]
+    unsplittable = []
     for noun in (word for word in words if word.role == "noun"):
         for token_count in (2, 3):
-            pieces = split_into_tokens(noun.word, token_count, tokenizer)
+            try:
+                pieces = split_into_tokens(noun.word, token_count, tokenizer)
+            except ValueError:
+                unsplittable.append(f"{noun.word}（{token_count}トークン）")
+                continue
             token_ids = tokenizer.split_word_token_ids(pieces)
             normalization.append(
                 NormalizationWord(
@@ -142,6 +148,11 @@ def write_probe_and_normalization_words(
                 )
             )
     write_rows(output_paths[1], NormalizationWord, normalization)
+    if unsplittable:
+        print(
+            f"各部分が1トークンになるように分けられない名詞が {len(unsplittable)} 組あります"
+            f"（{', '.join(unsplittable)}）。その組の意味の正規化は、値なしになります。"
+        )
 
 
 def _frequent_words(
