@@ -104,8 +104,8 @@ unknown_word_acquisition:
 
 # 語義の追加
 sense_addition:
-  # 露出数 K（1 run の学習データに差し込む、1つの donor の用例の数。暫定）
-  exposures_per_donor: 3000
+  # K: 足す語義1つあたりに、1 run の学習データに差し込む用例の数（暫定。未知語の獲得の結果で決める）
+  passages_per_added_sense: 3000
 
 # 評価データ
 evaluation:

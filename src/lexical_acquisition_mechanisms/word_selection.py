@@ -5,7 +5,9 @@
 - 名詞72語: 各カテゴリ12語。先頭スペース付きで1トークン。
 - ターゲット語18語: 各カテゴリから、先頭スペース付きで1・2・3トークンの語を1語ずつ。最初の
   トークンが、名詞やほかのターゲット語と重ならない。
-- 形容詞72語: 先頭スペース付きで1トークン。どのカテゴリとも結びつきが強くない。
+- 形容詞72語: 先頭スペース付きで1トークン。どのカテゴリとも結びつきが強くない。語義の追加で
+  足す語義1つあたりに差し込む用例の数（K）を、露出回数の最大まで大きくしても用例が足りるように、
+  名詞と同じ数の用例が取れる候補から選ぶ。
 - 未知語72個: 1トークンの24個は、使われていないトークン番号（表記は <new_01> などの管理用の名前）。
   2・3トークンの各24個は、一度も現れない候補から、綴りの近さ（near・far）ごとに12個ずつ、候補の
   無作為な順に選ぶ。最初のトークンが、ほかの未知語や管理対象の語と重ならず、near の元の語が
@@ -139,7 +141,6 @@ def select_words(settings: Settings, arguments: argparse.Namespace) -> None:
         "unknown_word_acquisition": settings.unknown_word_acquisition.model_dump(
             include={"exposure_levels"}
         ),
-        "sense_addition": settings.sense_addition.model_dump(include={"exposures_per_donor"}),
         "evaluation": settings.evaluation.model_dump(include={"sentences_per_natural_word"}),
         "tokenizer": next(iter(settings.models.values())).model_dump(),
     }
@@ -308,7 +309,8 @@ def _select_adjectives(
 ) -> list[AdjectiveCandidate]:
     """名詞72語と同じ数の形容詞。名詞と頻度の分布をそろえる。"""
     needed = (
-        settings.sense_addition.exposures_per_donor + settings.passages.evaluation_passages_per_word
+        max(settings.unknown_word_acquisition.exposure_levels)
+        + settings.passages.evaluation_passages_per_word
     )
     maximum_association = settings.word_selection.maximum_category_association
     usable = [

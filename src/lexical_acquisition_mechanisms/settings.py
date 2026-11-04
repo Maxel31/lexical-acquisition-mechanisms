@@ -163,8 +163,8 @@ class UnknownWordAcquisitionSettings(SettingsSection):
 class SenseAdditionSettings(SettingsSection):
     """語義の追加。"""
 
-    # 露出数 K（1 run の学習データに差し込む、1つの donor の用例の数）
-    exposures_per_donor: int = Field(gt=0)
+    # K: 足す語義1つあたりに、1 run の学習データに差し込む用例の数
+    passages_per_added_sense: int = Field(gt=0)
 
 
 class EvaluationSettings(SettingsSection):
