@@ -31,6 +31,7 @@ from lexical_acquisition_mechanisms import (
     probe_and_normalization_words,
     real_word_probes,
     run_settings,
+    sense_accuracy,
     similarity_ratings,
     task_questions,
     training_data,
@@ -269,6 +270,13 @@ def all_actions() -> list[Action]:
             "make-report",
             "図と表を outputs/figures/unknown-word-acquisition/ に作る",
             unknown_word_report.make_report,
+        ),
+        Action(
+            "sense-addition",
+            "measure-sense-accuracy",
+            "最小対の文で、ターゲット語の語義を使い分けられているかを測る",
+            sense_accuracy.measure_sense_accuracy,
+            sense_accuracy.add_arguments,
         ),
     ]
 
