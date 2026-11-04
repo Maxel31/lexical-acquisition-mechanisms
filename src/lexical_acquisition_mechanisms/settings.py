@@ -4,6 +4,7 @@
 項目は、その項目を使う処理を実装するときに足す。
 """
 
+import itertools
 from pathlib import Path
 from typing import Annotated
 
@@ -117,6 +118,17 @@ class UnknownWordSettings(SettingsSection):
     candidates_per_group: int = Field(gt=0)
 
 
+class WordSelectionSettings(SettingsSection):
+    """候補から語を選ぶときの条件（words select）。"""
+
+    # Pile の見本で、意図した語義（形容詞は、形容詞として）で使われていた割合の下限
+    minimum_usage_share: float = Field(ge=0, le=1)
+    # その割合を当てにできるように、LLM が判定できた見本の数の下限
+    minimum_judged_usages: int = Field(gt=0)
+    # Pile で取れる用例の見積もりに、意図した使われ方の割合を掛けた数が、必要な数の何倍以上か
+    passage_margin: float = Field(ge=1)
+
+
 class PassageSettings(SettingsSection):
     """用例（管理対象の語を含む、Pile から切り出した文章）の作り方。"""
 
@@ -124,6 +136,26 @@ class PassageSettings(SettingsSection):
     tokens_per_passage: int = Field(gt=0)
     # 1つの文書から取る用例の数の上限
     maximum_passages_per_document: int = Field(gt=0)
+    # 語ごとの評価用の用例の数
+    evaluation_passages_per_word: int = Field(gt=0)
+
+
+class UnknownWordAcquisitionSettings(SettingsSection):
+    """未知語の獲得。"""
+
+    # 露出回数（1 run の学習データに差し込む、1つの未知語の用例の数）の水準。
+    # 8次の直交ラテン方格で割り当てるので、8つにする
+    exposure_levels: list[int]
+
+    @field_validator("exposure_levels")
+    @classmethod
+    def _eight_increasing_levels(cls, levels: list[int]) -> list[int]:
+        increasing = all(lower < upper for lower, upper in itertools.pairwise(levels))
+        if len(levels) != 8 or not increasing or levels[0] < 0:
+            raise ValueError(
+                f"露出回数の水準は、0 以上の数を8つ、小さい順に並べてください: {levels}"
+            )
+        return levels
 
 
 class Settings(SettingsSection):
@@ -135,7 +167,9 @@ class Settings(SettingsSection):
     base_data: BaseDataSettings
     words: WordsSettings
     unknown_words: UnknownWordSettings
+    word_selection: WordSelectionSettings
     passages: PassageSettings
+    unknown_word_acquisition: UnknownWordAcquisitionSettings
 
 
 def load_settings(path: Path = Path(SETTINGS_FILE_NAME)) -> Settings:
