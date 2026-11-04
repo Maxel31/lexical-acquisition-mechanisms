@@ -23,6 +23,7 @@ from lexical_acquisition_mechanisms import (
     unknown_word_candidates,
     word_finalization,
     word_selection,
+    word_sense_judgment,
 )
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.settings import Settings, SettingsError, load_settings
@@ -131,6 +132,12 @@ def all_actions() -> list[Action]:
             "remove-duplicates-and-split",
             "ほぼ同じ用例の候補を除き、元の文書の単位で学習用と評価用に分ける",
             passage_split.remove_duplicates_and_split,
+        ),
+        Action(
+            "passages",
+            "judge-word-sense",
+            "候補の中で、語が意図した語義で使われているかを、LLM が出現ごとに判定する",
+            word_sense_judgment.judge_word_sense,
         ),
     ]
 
