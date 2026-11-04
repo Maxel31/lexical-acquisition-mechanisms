@@ -12,9 +12,9 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.fixture(scope="module")
 def word_tokenizer() -> WordTokenizer:
-    repository = load_settings(REPOSITORY_ROOT / "settings.yaml").models["OLMo-2-1124-7B"]
+    source = load_settings(REPOSITORY_ROOT / "settings.yaml").models["OLMo-2-1124-7B"]
     try:
-        return WordTokenizer.from_model(repository)
+        return WordTokenizer.from_model(source)
     except OSError as error:
         pytest.skip(f"OLMo 2 のトークナイザを読み込めません: {error}")
 

@@ -1,7 +1,14 @@
 # 実験の設定。各コマンドは、リポジトリの最上位のディレクトリにあるこのファイルを読む。
 
-# --model で指定する名前と、Hugging Face のリポジトリ
+# --model で指定する名前と、Hugging Face のリポジトリ・版。
+# 版は、事前学習のステージ1の最後の重み（継続事前学習の学習率と学習データを、ステージ1に合わせるため）
 models:
-  OLMo-2-0425-1B: allenai/OLMo-2-0425-1B
-  OLMo-2-1124-7B: allenai/OLMo-2-1124-7B
-  OLMo-2-1124-13B: allenai/OLMo-2-1124-13B
+  OLMo-2-0425-1B:
+    repository: allenai/OLMo-2-0425-1B
+    revision: stage1-step1907359-tokens4001B
+  OLMo-2-1124-7B:
+    repository: allenai/OLMo-2-1124-7B
+    revision: stage1-step928646-tokens3896B
+  OLMo-2-1124-13B:
+    repository: allenai/OLMo-2-1124-13B
+    revision: stage1-step596057-tokens5001B

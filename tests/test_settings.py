@@ -18,11 +18,19 @@ def write_settings(directory: Path, text: str) -> Path:
 def test_repository_settings_are_valid() -> None:
     settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
 
-    assert settings.models == {
+    assert {name: source.repository for name, source in settings.models.items()} == {
         "OLMo-2-0425-1B": "allenai/OLMo-2-0425-1B",
         "OLMo-2-1124-7B": "allenai/OLMo-2-1124-7B",
         "OLMo-2-1124-13B": "allenai/OLMo-2-1124-13B",
     }
+    # 継続事前学習は、事前学習のステージ1の最後の重みから始める
+    assert all(source.revision.startswith("stage1-") for source in settings.models.values())
+
+
+def test_revision_can_be_omitted(tmp_path: Path) -> None:
+    path = write_settings(tmp_path, "models:\n  tiny:\n    repository: ./tiny\n")
+
+    assert load_settings(path).models["tiny"].revision is None
 
 
 def test_missing_file_is_reported(tmp_path: Path) -> None:
@@ -33,13 +41,25 @@ def test_missing_file_is_reported(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("text", "expected_message"),
     [
-        ("models:\n  tiny: ./tiny\nmodel_names: []\n", "- model_names: 知らない項目です"),
+        (
+            "models:\n  tiny:\n    repository: ./tiny\nmodel_names: []\n",
+            "- model_names: 知らない項目です",
+        ),
+        (
+            "models:\n  tiny:\n    repository: ./tiny\n    branch: main\n",
+            "- models.tiny.branch: 知らない項目です",
+        ),
+        (
+            "models:\n  tiny:\n    revision: main\n",
+            "- models.tiny.repository: 必要な項目がありません",
+        ),
         ("{}\n", "- models: 必要な項目がありません"),
         ("models: {}\n", "- models: 1つ以上書いてください"),
         ("models: [allenai/OLMo-2-1124-7B]\n", "- models: 「名前: 値」の組を並べてください"),
-        ("models:\n  tiny: 3\n", "- models.tiny: 文字列にしてください"),
+        ("models:\n  tiny: ./tiny\n", "- models.tiny: 「項目名: 値」の組を並べてください"),
+        ("models:\n  tiny:\n    repository: 3\n", "- models.tiny.repository: 文字列にしてください"),
         (
-            "models: {'tiny/model': ./tiny}\n",
+            "models: {'tiny/model': {repository: ./tiny}}\n",
             "- models の名前 'tiny/model': 使えない文字があります",
         ),
     ],
@@ -57,8 +77,8 @@ def test_invalid_content_is_explained(tmp_path: Path, text: str, expected_messag
     ("text", "expected_message"),
     [
         ("models: [unclosed\n", "YAML として読めません"),
-        ("models:\n  a: ./a\nmodels:\n  b: ./b\n", "項目 'models' が2回書かれています"),
-        ("models:\n  a: ./a\n  a: ./b\n", "項目 'a' が2回書かれています"),
+        ("models: {a: {repository: ./a}}\nmodels: {b: {repository: ./b}}\n", "項目 'models' が2回"),
+        ("models:\n  a: {repository: ./a}\n  a: {repository: ./b}\n", "項目 'a' が2回"),
         ("- models\n", "最上位は、項目名と値の組にしてください"),
         ("", "最上位は、項目名と値の組にしてください"),
     ],
