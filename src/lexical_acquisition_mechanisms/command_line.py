@@ -18,6 +18,7 @@ from lexical_acquisition_mechanisms import (
     neutral_contexts,
     noun_candidates,
     passage_collection,
+    passage_split,
     similarity_ratings,
     unknown_word_candidates,
     word_finalization,
@@ -124,6 +125,12 @@ def all_actions() -> list[Action]:
             "collect",
             "Pile から、選んだ語を含む用例の候補を切り出す",
             passage_collection.collect_passages,
+        ),
+        Action(
+            "passages",
+            "remove-duplicates-and-split",
+            "ほぼ同じ用例の候補を除き、元の文書の単位で学習用と評価用に分ける",
+            passage_split.remove_duplicates_and_split,
         ),
     ]
 
