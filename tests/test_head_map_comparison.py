@@ -30,9 +30,15 @@ def test_rank_correlation() -> None:
     assert _spearman(values, -values) == pytest.approx(-1.0)
 
 
-def test_maps_of_the_same_noun_are_compared(
-    tmp_path: Path, tiny_model_source: ModelSource, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def compare(
+    tmp_path: Path,
+    tiny_model_source: ModelSource,
+    monkeypatch: pytest.MonkeyPatch,
+    donor_kind: str = "other-category",
+) -> np.ndarray:
+    """名詞 pasta の地図を比べ、語義の追加の地図に使った効果を返す（donor_kind が名詞を足す種類で
+    なければ、既存の形の地図がない）。
+    """
     monkeypatch.setattr(head_map_comparison, "TOP_HEADS", 2)
     questions = [
         {
@@ -72,7 +78,7 @@ def test_maps_of_the_same_noun_are_compared(
             "usable": True,
         }
         for kind, donor, runs in (
-            ("other-category", "pasta", ("other-category-1", "noun-control")),
+            (donor_kind, "pasta", (f"{donor_kind}-1", "noun-control")),
             ("adjective", "quiet", ("adjective-1", "adjective-control")),
         )
         for run in runs
@@ -104,6 +110,13 @@ def test_maps_of_the_same_noun_are_compared(
         (tmp_path / "maps.npz", tmp_path / "comparison.csv"),
         10000,
     )
+    return effects
+
+
+def test_maps_of_the_same_noun_are_compared(
+    tmp_path: Path, tiny_model_source: ModelSource, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    effects = compare(tmp_path, tiny_model_source, monkeypatch)
 
     maps = np.load(tmp_path / "maps.npz")
     assert list(maps["nouns"]) == ["pasta"]
@@ -119,3 +132,20 @@ def test_maps_of_the_same_noun_are_compared(
         ("pasta", "blicket", 0.25)
     ]
     assert -1 <= rows[0].spearman <= 1
+
+
+def test_nothing_is_measured_without_existing_form_maps(
+    tmp_path: Path, tiny_model_source: ModelSource, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # pasta を形容詞として足した組しかなく、既存の形の地図がない。重みは読まない
+    def no_model(source: ModelSource) -> LanguageModel:
+        raise AssertionError("重みを読んではいけない")
+
+    monkeypatch.setattr(LanguageModel, "load", no_model)
+
+    compare(tmp_path, tiny_model_source, monkeypatch, donor_kind="adjective")
+
+    maps = np.load(tmp_path / "maps.npz")
+    assert maps["nouns"].shape == (0,)
+    assert maps["new_form"].shape == maps["existing_form"].shape == (0, 8)
+    assert read_rows(tmp_path / "comparison.csv", HeadMapComparison) == []
