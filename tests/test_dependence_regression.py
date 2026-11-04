@@ -12,6 +12,7 @@ from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.dependence_regression import (
     RegressionTerm,
     StateComparison,
+    fit_mixed_model,
     write_regression,
 )
 
@@ -34,7 +35,8 @@ def test_regression_recovers_the_effect_of_integration(tmp_path: Path) -> None:
                     # 最初の語の行は使えない組とする
                     "usable": word != 0,
                     "token_count": 1 + word % 3,
-                    "spelling_closeness": "near" if word % 2 else "far",
+                    # 実際のデータと同じく、1トークンの未知語には綴りの近さがない
+                    "spelling_closeness": "" if word % 3 == 0 else ("near" if word % 2 else "far"),
                     "exposure": 10,
                 }
             )
@@ -70,6 +72,10 @@ def test_regression_recovers_the_effect_of_integration(tmp_path: Path) -> None:
     assert integration.coefficient == pytest.approx(0.8, abs=0.05)
     assert integration.lower < 0.8 < integration.upper and integration.p_value < 0.001
     assert abs(meaning.coefficient) < 0.05
+    # 綴りの近さとトークン数を 0・1 の列にしたので、計画行列が退化しない（真の near の効果は 0）
+    assert abs(terms["near"].coefficient) < 0.1 and terms["near"].p_value > 0.01
+    fixed = ("Intercept", "meaning", "integration", "two_tokens", "three_tokens", "near")
+    assert all(np.isfinite(terms[name].standard_error) for name in fixed)
     assert {"variance: unknown_word", "variance: noun", "variance: run"} <= set(terms)
     states = read_rows(tmp_path / "states.csv", StateComparison)
     halves = {row.state: row for row in states if row.threshold == 0.5}
@@ -77,3 +83,31 @@ def test_regression_recovers_the_effect_of_integration(tmp_path: Path) -> None:
     # 統合が進んだ状態ほど、依存度が大きい
     assert halves["both"].mean_dependence > halves["meaning-only"].mean_dependence
     assert halves["integration-only"].mean_dependence > halves["neither"].mean_dependence
+
+
+def test_constant_columns_are_left_out_and_small_tables_are_skipped(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    random_numbers = np.random.default_rng(1)
+    rows = [
+        {
+            "dependence": float(random_numbers.normal()),
+            "meaning": float(random_numbers.uniform()),
+            "integration": float(random_numbers.uniform()),
+            # 使える組が全て2トークンなら、トークン数の列は式から外す
+            "two_tokens": 1,
+            "three_tokens": 0,
+            "near": index % 2,
+            "unknown_word": f"word-{index % 10}",
+            "noun": f"noun-{index % 7}",
+            "run": f"run-{index % 4}",
+        }
+        for index in range(40)
+    ]
+
+    terms = {row.term for row in fit_mixed_model("random-head", rows)}
+
+    assert {"meaning", "integration", "near"} <= terms
+    assert not {"two_tokens", "three_tokens"} & terms
+    assert fit_mixed_model("random-direction", rows[:10]) == []
+    assert "10 組しかない" in capsys.readouterr().out
