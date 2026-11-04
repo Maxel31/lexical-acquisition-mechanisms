@@ -7,6 +7,8 @@
    問題。evaluation-data build-task-questions が書いた natural_word_questions.parquet）を使う。
    語の単位で、クラスごとに HELD_OUT_SHARE の語を確認用に分ける。
 2. (a) 確認用の語での正解率と、偶然の水準（1 ÷ クラスの数）を超えるかの片側の二項検定。
+   比較の基準（test-attribute-directions で使う）として、採用した head ごとに、同じ層の採用して
+   いない head を1つ無作為に選び、そのプローブも学習する（表の baseline が真）。
 3. (b) 語義を足した各 run（対照を除く）の最後の重みで、その run の条件の最小対の課題2の問題（名詞を
    足す条件はカテゴリ、形容詞を足す条件は品詞）のターゲット語に当て、手がかりが示す語義の属性
    （問題の正解）を当てる正解率と、二項検定。手順1で使えるとした語義の問題だけを使う。
@@ -68,6 +70,8 @@ class AttributeProbeAccuracy:
     chance: float
     p_value: float
     significant: bool
+    # 比較の基準として学習した、採用していない head か
+    baseline: bool
 
 
 @dataclass
@@ -141,8 +145,9 @@ def train_attribute_probes(settings: Settings, arguments: argparse.Namespace) ->
             categories,
             settings.words.seed,
         )
+        heads = adopted_heads(classes_path)
         write_probe_transfer(
-            checkpoints, load_model, probes, categories, transfer_paths, transfer_output
+            checkpoints, load_model, probes, heads, categories, transfer_paths, transfer_output
         )
 
     run_unless_unchanged(step, compute, arguments.recompute)
@@ -156,21 +161,17 @@ def write_attribute_probes(
     categories: Sequence[str],
     seed: int,
 ) -> dict[tuple[int, int, str], LogisticProbe]:
-    """学習したプローブ（（層, head, 属性）ごと）を書き、返す。"""
+    """学習したプローブ（（層, head, 属性）ごと。比較の基準の head の分も）を書き、返す。"""
     classes_path, natural_path = input_paths
-    heads = sorted(
-        {
-            (row.layer, row.head)
-            for row in read_rows(classes_path, ComponentClass)
-            if row.head != MLP
-        }
-    )
+    adopted = adopted_heads(classes_path)
     names = {"category": list(categories), "part-of-speech": list(PARTS_OF_SPEECH)}
     probes: dict[tuple[int, int, str], LogisticProbe] = {}
     accuracy = []
-    if heads:
+    if adopted:
         natural = parquet.read_table(natural_path).to_pylist()
         model = load_model(pretrained)
+        baselines = baseline_heads(adopted, model.model.config.num_attention_heads, seed)
+        heads = sorted({*adopted, *baselines.values()})
         for attribute in ATTRIBUTES:
             rows = [row for row in natural if row["task"] == attribute]
             held_out_words = _held_out_words(rows, seed)
@@ -182,9 +183,15 @@ def write_attribute_probes(
                     features[~held_out, number], labels[~held_out], len(names[attribute]), seed
                 )
                 probes[layer, head, attribute] = probe
+                baseline = (layer, head) not in adopted
                 accuracy.append(
                     _accuracy_row(
-                        probe, features[:, number], labels, held_out, layer, head, attribute
+                        probe,
+                        features[:, number],
+                        labels,
+                        held_out,
+                        (layer, head, attribute),
+                        baseline,
                     )
                 )
         del model
@@ -207,13 +214,13 @@ def write_probe_transfer(
     checkpoints: dict[str, Path],
     load_model: Callable[[ModelSource], LanguageModel],
     probes: dict[tuple[int, int, str], LogisticProbe],
+    heads: Sequence[tuple[int, int]],
     categories: Sequence[str],
     input_paths: tuple[Path, Path, Path],
     output: Path,
 ) -> None:
     """(b) 語義を足した各 run で、最小対の課題2の問題のターゲット語に当てた正解率を書く。"""
     questions_path, accuracy_path, words_path = input_paths
-    heads = sorted({(layer, head) for layer, head, _ in probes})
     names = {"category": list(categories), "part-of-speech": list(PARTS_OF_SPEECH)}
     if not heads:
         write_rows(output, AttributeProbeTransfer, [])
@@ -276,6 +283,27 @@ def write_probe_transfer(
     write_rows(output, AttributeProbeTransfer, results)
 
 
+def adopted_heads(classes_path: Path) -> list[tuple[int, int]]:
+    """手順2で採用した head（component_classes.csv の、MLP でないもの）。"""
+    rows = read_rows(classes_path, ComponentClass)
+    return sorted({(row.layer, row.head) for row in rows if row.head != MLP})
+
+
+def baseline_heads(
+    adopted: Sequence[tuple[int, int]], number_of_heads: int, seed: int
+) -> dict[tuple[int, int], tuple[int, int]]:
+    """採用した head ごとの、比較の基準にする、同じ層の採用していない head（無作為に1つ）。
+
+    同じ層の head が全て採用されていれば、基準はない。
+    """
+    chosen = {}
+    for layer, head in adopted:
+        others = [other for other in range(number_of_heads) if (layer, other) not in adopted]
+        if others:
+            chosen[layer, head] = (layer, random.Random(f"{seed}:{layer}:{head}").choice(others))
+    return chosen
+
+
 def _head_outputs(
     model: LanguageModel,
     rows: Sequence[dict[str, object]],
@@ -308,24 +336,22 @@ def _accuracy_row(
     features: np.ndarray,
     labels: np.ndarray,
     held_out: np.ndarray,
-    layer: int,
-    head: int,
-    attribute: str,
+    key: tuple[int, int, str],
+    baseline: bool,
 ) -> AttributeProbeAccuracy:
     predicted = probe.probabilities(features).argmax(axis=1) == labels
     chance = 1 / len(probe.biases)
     correct = int(predicted[held_out].sum())
     p_value = binomial_p_value(correct, int(held_out.sum()), chance)
     return AttributeProbeAccuracy(
-        layer,
-        head,
-        attribute,
+        *key,
         float(predicted[~held_out].mean()),
         float(predicted[held_out].mean()) if held_out.any() else float("nan"),
         int(held_out.sum()),
         chance,
         p_value,
         p_value < SIGNIFICANCE_LEVEL,
+        baseline,
     )
 
 
