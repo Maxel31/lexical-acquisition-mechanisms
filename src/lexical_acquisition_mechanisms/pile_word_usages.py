@@ -101,7 +101,10 @@ def _key(seed: int, shard: int, row: int, start: int) -> float:
 
 
 def _context(text: str, start: int, end: int) -> str:
-    """出現の前後 CONTEXT_CHARACTERS 文字（改行などの空白は1つの空白にする）。"""
+    """出現の前後 CONTEXT_CHARACTERS 文字。出現は [[ ]] で囲む。
+
+    改行などの空白は、1つの空白にする。
+    """
     before = text[max(0, start - CONTEXT_CHARACTERS) : start]
     after = text[end : end + CONTEXT_CHARACTERS]
-    return " ".join(f"{before}{text[start:end]}{after}".split())
+    return " ".join(f"{before}[[{text[start:end]}]]{after}".split())

@@ -67,5 +67,6 @@ def test_examples_do_not_depend_on_other_words_or_processes(tmp_path: Path) -> N
 def test_example_keeps_the_context_with_single_spaces(tmp_path: Path) -> None:
     usages = sample(tmp_path, ["pasta"], examples=10)
 
-    first_document = "I ate pasta. The pasta-like dough. Pasta is good."
-    assert first_document in usages["pasta"].example_texts
+    # 見本ごとに、その出現だけを [[ ]] で囲む
+    assert "I ate [[pasta]]. The pasta-like dough. Pasta is good." in usages["pasta"].example_texts
+    assert "I ate pasta. The [[pasta]]-like dough. Pasta is good." in usages["pasta"].example_texts
