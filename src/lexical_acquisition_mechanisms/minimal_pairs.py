@@ -27,6 +27,7 @@ from lexical_acquisition_mechanisms.llm_client import (
     LlmRequest,
     PromptTemplate,
     prompt_record_settings,
+    require_answers,
 )
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.sense_addition_assignments import SenseAdditionAssignment
@@ -147,7 +148,10 @@ def build_minimal_pair_candidates(
         for row, _ in sense_pairs
     ]
     candidates = []
-    for (row, kind), answer in zip(sense_pairs, client.ask_all(requests), strict=True):
+    answers = client.ask_all(requests)
+    # 答えがない語義の組は、最小対が1つもなくなり、後の分析から黙って消えるので止まる
+    require_answers(answers, "最小対", COMMAND)
+    for (row, kind), answer in zip(sense_pairs, answers, strict=True):
         kept: list[MinimalPairCandidate] = []
         for pair in (answer or {"pairs": []})["pairs"]:
             cues = _cues(pair["first"], pair["second"], row.target, tokenizer)

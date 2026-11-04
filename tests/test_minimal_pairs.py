@@ -4,7 +4,9 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
 
+from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.llm_client import LlmClient, PromptTemplate
 from lexical_acquisition_mechanisms.minimal_pairs import (
@@ -83,3 +85,41 @@ def test_valid_pairs_are_kept(tmp_path: Path, tiny_model_source: ModelSource) ->
     assert {row.kind for row in nouns} == {"other-category"}
     (adjective,) = [row for row in candidates if row.donor == "quiet"]
     assert (adjective.kind, adjective.donor_cue, adjective.target_cue) == ("adjective", "so", "the")
+
+
+def test_missing_answers_stop_instead_of_dropping_sense_pairs(
+    tmp_path: Path, tiny_model_source: ModelSource
+) -> None:
+    settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
+    settings = settings.model_copy(update={"models": {"tiny": tiny_model_source}})
+    words = [
+        SelectedWord("car", "target", category="vehicle", token_count=1, definition="a vehicle"),
+        SelectedWord("quiet", "adjective", definition="calm"),
+    ]
+    write_rows(tmp_path / "words.csv", SelectedWord, words)
+    assignment = SenseAdditionAssignment(
+        "adjective-4", "car", "vehicle", 1, "quiet", "adjective", "", 1
+    )
+    write_rows(tmp_path / "assignments.csv", SenseAdditionAssignment, [assignment])
+
+    def unfinished(request: httpx.Request) -> httpx.Response:
+        # 長さの上限で切れた答え（形に合わない答えは保存せず、None になる）
+        choice = {"message": {"content": '{"pairs": ['}, "finish_reason": "length"}
+        return httpx.Response(200, json={"choices": [choice]})
+
+    client = LlmClient(
+        settings.llm,
+        tmp_path / "answers.sqlite3",
+        rerun_from="evaluation-data generate-minimal-pairs",
+        transport=httpx.MockTransport(unfinished),
+    )
+
+    with pytest.raises(CommandStopped, match="最小対の答えが 1 件"):
+        build_minimal_pair_candidates(
+            settings,
+            PromptTemplate.load(PROMPT, REPOSITORY_ROOT / "llm_prompts"),
+            client,
+            tmp_path / "words.csv",
+            tmp_path / "assignments.csv",
+            tmp_path / "candidates.csv",
+        )
