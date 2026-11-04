@@ -142,6 +142,8 @@ class PassageSettings(SettingsSection):
     evaluation_passages_per_word: int = Field(gt=0)
     # 切り出しの段階で残す候補の数（判定に合格する必要がある数の何倍か）
     collection_factor: float = Field(ge=1)
+    # LLM の判定の精度（合格とした用例のうち、人も 1 とした割合）の、語ごとの下限
+    minimum_judgment_precision: float = Field(ge=0, le=1)
 
 
 class UnknownWordAcquisitionSettings(SettingsSection):

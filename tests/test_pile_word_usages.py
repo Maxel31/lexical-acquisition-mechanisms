@@ -9,7 +9,13 @@ import pytest
 from lexical_acquisition_mechanisms import pile
 from lexical_acquisition_mechanisms.pile import PileDocument
 from lexical_acquisition_mechanisms.pile_word_usages import sample_word_usages, scan_documents
-from lexical_acquisition_mechanisms.settings import PassageSettings
+from lexical_acquisition_mechanisms.settings import load_settings
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+# 用例は 256 トークン、1つの文書から 3 件まで（リポジトリの設定と同じ）
+PASSAGES = load_settings(REPOSITORY_ROOT / "settings.yaml").passages.model_copy(
+    update={"tokens_per_passage": 256, "maximum_passages_per_document": 3}
+)
 
 TEXTS_BY_SHARD = [
     [
@@ -40,12 +46,7 @@ def sample(tmp_path: Path, words: list[str], examples: int, processes: int = 1):
         2,
         examples,
         seed=0,
-        passages=PassageSettings(
-            tokens_per_passage=256,
-            maximum_passages_per_document=3,
-            evaluation_passages_per_word=1,
-            collection_factor=1,
-        ),
+        passages=PASSAGES,
         number_of_processes=processes,
         download_directory=tmp_path,
         download=write_local_shard,
