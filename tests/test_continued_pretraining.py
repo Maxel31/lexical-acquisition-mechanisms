@@ -100,6 +100,8 @@ def test_training_writes_metrics_for_every_step(
     assert [record["step"] for record in metrics] == [1, 2, 3]
     assert all(np.isfinite(record["loss"]) and record["loss"] > 0 for record in metrics)
     assert metrics[1]["inserted_loss"] > 0
+    # 最後の step は1系列だけ（1 step の半分）なので、学習率を半分にする
+    assert [record["learning_rate"] for record in metrics] == pytest.approx([1e-3, 1e-3, 5e-4])
     # 検証データでのパープレキシティは、学習前（step 0）と、重みを保存した step 2・3 に記録する
     validation = [record for record in records if "validation_perplexity" in record]
     assert [record["step"] for record in validation] == [0, 2, 3]

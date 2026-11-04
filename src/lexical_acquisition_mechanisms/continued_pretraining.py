@@ -9,8 +9,9 @@ torchrun から、GPU ごとに1つのプロセスで動かす（GPU がなけ�
   （層の途中の値を残さず、逆伝播のときに計算し直す）でメモリを減らす。
 - データ: 学習データのトークン列を系列の長さずつに分け、先頭から順に読む（並べ替えない。基データは
   事前学習の順のまま）。1 step は batch_size_in_tokens ÷ 系列の長さ 個の系列で、最後の step は残りの
-  系列だけ。step の系列を GPU に順に配り、全ての GPU で計算の回数がそろうように、足りない分は
-  損失に数えない空の系列で埋める。
+  系列だけ（学習率を、系列の数の割合で縮める。少ない系列の雑音の大きい勾配で、ふつうの大きさの
+  更新をしないように）。step の系列を GPU に順に配り、全ての GPU で計算の回数がそろうように、
+  足りない分は損失に数えない空の系列で埋める。
 - 損失: 次のトークンの交差エントロピー + z-loss（出力の対数の分配関数の2乗 × 重み）。step の全ての
   トークンで平均する。
 - 最適化器: AdamW（埋め込みには重みの減衰を掛けない）。学習率は、最初の warmup_fraction の step で
@@ -94,6 +95,12 @@ class SequenceBatches:
         self.number_of_sequences = len(self._tokens) // run.sequence_length
         self.sequences_per_step = run.batch_size_in_tokens // run.sequence_length
         self.number_of_steps = math.ceil(self.number_of_sequences / self.sequences_per_step)
+
+    def step_share(self, step: int) -> float:
+        """step の系列の数の、1 step の系列の数に対する割合（最後の step で 1 未満になりうる）。"""
+        first = step * self.sequences_per_step
+        last = min(first + self.sequences_per_step, self.number_of_sequences)
+        return (last - first) / self.sequences_per_step
 
     def micro_batches(self, step: int) -> Iterator[MicroBatch]:
         """step の系列のうち、この GPU が計算するものを、sequences_per_device 個ずつ返す。"""
@@ -185,7 +192,8 @@ def train(run: RunSettings, recompute: bool = False, command: str = "training ru
             _record_validation(model, run, process, 0)
         for step in range(first_step, number_of_steps):
             started = time.time()
-            learning_rate = run.learning_rate * min(1.0, (step + 1) / warmup_steps)
+            warmup = min(1.0, (step + 1) / warmup_steps)
+            learning_rate = run.learning_rate * warmup * batches.step_share(step)
             for group in optimizer.param_groups:
                 group["lr"] = learning_rate
             totals = _train_step(model, batches, step, run, process)
