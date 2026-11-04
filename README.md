@@ -107,7 +107,7 @@ uv run lexical-acquisition-mechanisms passages sample-for-review
 uv run lexical-acquisition-mechanisms passages finalize --review-csv data/passages/review.csv
 ```
 
-**手作業**（用例が足りない語があって止まったとき）: 表示に従って実行し直す。外した語があれば `words select` から（代わりの語が選ばれる）、なければ `settings.yaml` の `passages.collection_factor` を大きくして `passages collect` から。
+**手作業**（`passages judge-word-sense` か `passages finalize` が、用例が足りない語があって止まったとき）: 表示に従って実行し直す。外した語があれば `words select` から（代わりの語が選ばれる）、なければ `settings.yaml` の `passages.collection_factor` を大きくして `passages collect` から。
 
 **手作業**（精度が足りない語があって止まったとき）: LLM への指示文（`llm_prompts/`）を直し、`passages judge-word-sense` から実行し直す。
 

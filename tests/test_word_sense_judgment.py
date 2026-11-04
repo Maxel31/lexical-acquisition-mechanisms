@@ -9,11 +9,12 @@ import pyarrow.parquet as parquet
 import pytest
 
 from lexical_acquisition_mechanisms import word_sense_judgment
+from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.llm_client import LlmClient, PromptTemplate
-from lexical_acquisition_mechanisms.passage_collection import CANDIDATE_SCHEMA
+from lexical_acquisition_mechanisms.passage_collection import CANDIDATE_SCHEMA, CollectionSummary
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings, load_settings
-from lexical_acquisition_mechanisms.word_selection import SelectedWord
+from lexical_acquisition_mechanisms.word_selection import ExcludedWord, SelectedWord
 from lexical_acquisition_mechanisms.word_sense_judgment import (
     ADJECTIVE_PROMPT,
     NOUN_PROMPT,
@@ -84,7 +85,16 @@ def candidate(
     }
 
 
-def test_candidates_are_judged_until_enough_pass(tmp_path: Path, settings: Settings) -> None:
+def shortage_paths(tmp_path: Path, words: list[SelectedWord]) -> tuple[Path, Path]:
+    """collect の語ごとの数（どの語も、Pile の出現を全て残した）と、外す語の CSV のパス。"""
+    summary = [CollectionSummary(word.word, word.role, 0, 0, 0, "", False) for word in words]
+    write_rows(tmp_path / "collection_summary.csv", CollectionSummary, summary)
+    return tmp_path / "collection_summary.csv", tmp_path / "excluded_words.csv"
+
+
+def test_candidates_are_judged_until_enough_pass(
+    tmp_path: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
     tokenizer = WordTokenizer.from_model(settings.models["tiny"])
     words = [
         SelectedWord("pasta", "noun", token_count=1, definition="a dish", usage_share=0.9),
@@ -113,9 +123,17 @@ def test_candidates_are_judged_until_enough_pass(tmp_path: Path, settings: Setti
     outputs = (tmp_path / "judgments.parquet", tmp_path / "summary.csv")
 
     build_judgments(
-        settings, prompts, client, tmp_path / "words.csv", tmp_path / "split.parquet", outputs
+        settings,
+        prompts,
+        client,
+        tmp_path / "words.csv",
+        tmp_path / "split.parquet",
+        shortage_paths(tmp_path, words),
+        outputs,
     )
 
+    # 評価用の候補は、合格する必要がある数の 2.5 倍に届かないので、表示する
+    assert "pasta（evaluation 1 / 1 件）, quiet（evaluation 1 / 1 件）" in capsys.readouterr().out
     summary = {(row.word, row.split): row for row in read_rows(outputs[1], JudgmentSummary)}
     # 1回目は 3 × 1.2 ÷ 0.9 → 4 件（合格 2）、2回目は 1 × 1.2 ÷ 0.5 → 3 件
     # （"pasta brand" と "pasta dish" の2つの出現がある6番目は、1つが不合格なので不合格）
@@ -172,7 +190,13 @@ def test_rejudging_reuses_previous_results_with_the_same_prompts(
             transport=httpx.MockTransport(respond),
         )
         build_judgments(
-            settings, prompts, client, tmp_path / "words.csv", tmp_path / "split.parquet", outputs
+            settings,
+            prompts,
+            client,
+            tmp_path / "words.csv",
+            tmp_path / "split.parquet",
+            shortage_paths(tmp_path, words),
+            outputs,
         )
 
     # 1回目: "We ate pasta" の答えが長さの上限で切れ、判定できずに不合格になる
@@ -189,3 +213,44 @@ def test_rejudging_reuses_previous_results_with_the_same_prompts(
     prompts["noun"] = PromptTemplate(prompts["noun"].name, prompts["noun"].text + "\n")
     judge(tmp_path / "third.sqlite3")
     assert requested
+
+
+def test_too_few_candidates_stop_before_asking(tmp_path: Path, settings: Settings) -> None:
+    tokenizer = WordTokenizer.from_model(settings.models["tiny"])
+    words = [SelectedWord("pasta", "noun", token_count=1, definition="a dish", usage_share=0.9)]
+    write_rows(tmp_path / "words.csv", SelectedWord, words)
+    # 学習用は 3 件の合格が必要だが、候補が 2 件しかない。評価用の候補はない
+    candidates = [
+        candidate(tokenizer, "pasta", "training", index / 10, text)
+        for index, text in enumerate(PASTA_TEXTS[:2])
+    ]
+    schema = CANDIDATE_SCHEMA.append(arrow.field("split", arrow.string()))
+    parquet.write_table(
+        arrow.Table.from_pylist(candidates, schema=schema), tmp_path / "split.parquet"
+    )
+    requested: list[httpx.Request] = []
+    client = LlmClient(
+        settings.llm,
+        tmp_path / "answers.sqlite3",
+        rerun_from="passages judge-word-sense",
+        transport=httpx.MockTransport(lambda request: requested.append(request) or None),
+    )
+    prompts = {"noun": PromptTemplate.load(NOUN_PROMPT, REPOSITORY_ROOT / "llm_prompts")}
+
+    with pytest.raises(
+        CommandStopped, match="pasta（training 2 / 3 件）, pasta（evaluation 0 / 1 件）"
+    ) as stopped:
+        build_judgments(
+            settings,
+            prompts,
+            client,
+            tmp_path / "words.csv",
+            tmp_path / "split.parquet",
+            shortage_paths(tmp_path, words),
+            (tmp_path / "judgments.parquet", tmp_path / "summary.csv"),
+        )
+
+    assert stopped.value.rerun_from == "words select"
+    assert requested == []
+    excluded = read_rows(tmp_path / "excluded_words.csv", ExcludedWord)
+    assert [(row.word, row.role) for row in excluded] == [("pasta", "noun")]
