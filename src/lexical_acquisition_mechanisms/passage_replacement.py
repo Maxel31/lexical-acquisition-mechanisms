@@ -9,7 +9,9 @@
 - 置き換えはトークン列の中で行う。語の前後はトークンの区切り（先頭スペース付きの語は、それだけで
   1つの区切りになる）なので、文字列で置き換えてトークン化し直したのと同じトークン列になる。
 - 置き換えた後、用例の長さに切り直す。置き換えた語を全て含み、始まりと次のトークンが語の途中に
-  ならない窓のうち、置き換えた語が最も真ん中に来るものにする。
+  ならない窓のうち、置き換えた語が最も真ん中に来るものにする。全てを含む窓がなければ（語が用例の
+  両端の近くにあり、長い語に置き換えたときなど）、置き換えた語をできるだけ多く含む窓にする（窓の外の
+  出現は用例から消える。語を途中で切る窓にはしない）。
 - 置き換えが0件、置き換えた後に元の語が残る、または切り直せないときは、ReplacementError にする。
 """
 
@@ -96,12 +98,21 @@ class PassageReplacer:
             start = position + len(source)
         pieces.append(list(token_ids[start:]))
         replaced_ids = [token for piece in pieces for token in piece]
-        window_start = self._window_start(replaced_ids, new_positions, len(replacement.target_ids))
+        word_length = len(replacement.target_ids)
+        window_start = self._window_start(replaced_ids, new_positions, word_length)
         window = replaced_ids[window_start : window_start + self._length]
         if self._contains(window, source):
             raise ReplacementError("置き換えた後の用例に、元の語が残っています。")
+        # 窓に入った出現だけを残す
+        inside = [
+            index
+            for index, position in enumerate(new_positions)
+            if window_start <= position and position + word_length <= window_start + self._length
+        ]
         return ReplacedPassage(
-            window, [position - window_start for position in new_positions], records
+            window,
+            [new_positions[index] - window_start for index in inside],
+            [records[index] for index in inside],
         )
 
     def _has_article(self, replacement: Replacement, before: list[int]) -> bool:
@@ -120,21 +131,27 @@ class PassageReplacer:
         raise ReplacementError(f"冠詞 {wanted} のトークンがありません。")
 
     def _window_start(self, token_ids: list[int], positions: list[int], word_length: int) -> int:
-        """置き換えた語を全て含む、語の区切りで始まり語の区切りで終わる窓のうち、最も真ん中のもの。"""
-        first = positions[0]
-        last = positions[-1] + word_length
-        lowest = max(0, last - self._length)
-        highest = min(first, len(token_ids) - self._length)
-        middle = (first + last - self._length) / 2
+        """語の区切りで始まり語の区切りで終わる窓のうち、置き換えた語を最も多く含み、それが最も
+        真ん中に来るもの（全てを含む窓があれば、その中から選ぶ）。"""
+        middle = (positions[0] + positions[-1] + word_length - self._length) / 2
         starts = [
             start
-            for start in range(lowest, highest + 1)
+            for start in range(0, len(token_ids) - self._length + 1)
             if not self._boundaries.inside_word(token_ids, start)
             and not self._boundaries.inside_word(token_ids, start + self._length)
         ]
-        if not starts:
+
+        def contained(start: int) -> int:
+            end = start + self._length
+            return sum(
+                start <= position and position + word_length <= end for position in positions
+            )
+
+        best = max((contained(start) for start in starts), default=0)
+        if best == 0:
             raise ReplacementError("置き換えた語を含むように、用例の長さに切り直せません。")
-        return min(starts, key=lambda start: (abs(start - middle), start))
+        chosen = [start for start in starts if contained(start) == best]
+        return min(chosen, key=lambda start: (abs(start - middle), start))
 
     def _contains(self, token_ids: list[int], word_ids: list[int]) -> bool:
         """トークン列に、語（直後が語の続きでないもの）があるか。"""
