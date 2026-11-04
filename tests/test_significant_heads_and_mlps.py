@@ -7,11 +7,12 @@ import pyarrow as arrow
 import pyarrow.parquet as parquet
 import pytest
 
-from lexical_acquisition_mechanisms.csv_tables import read_rows
+from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.significant_heads_and_mlps import (
     ComponentEffect,
-    write_component_effects,
+    write_results,
 )
+from lexical_acquisition_mechanisms.word_selection import SelectedWord
 
 
 def test_control_effects_are_subtracted_and_tested(tmp_path: Path) -> None:
@@ -55,8 +56,14 @@ def test_control_effects_are_subtracted_and_tested(tmp_path: Path) -> None:
         heads=np.array([0, -1, 0]),
     )
 
-    write_component_effects(
-        (tmp_path / "pairs.parquet", tmp_path / "effects.npz"), tmp_path / "effects.csv", 0
+    targets = [SelectedWord(target, "target", category="food") for target in ("car", "lamp", "cup")]
+    write_rows(tmp_path / "words.csv", SelectedWord, targets)
+
+    write_results(
+        (tmp_path / "pairs.parquet", tmp_path / "effects.npz", tmp_path / "words.csv"),
+        (tmp_path / "effects.csv", tmp_path / "selection.csv", tmp_path / "classes.csv"),
+        ["food"],
+        0,
     )
 
     results = [
@@ -72,3 +79,5 @@ def test_control_effects_are_subtracted_and_tested(tmp_path: Path) -> None:
     assert first.lower < first.effect < first.upper
     assert first.significant and not second.significant
     assert (third.effect, third.p_value, third.significant) == (0.0, 1.0, False)
+    # N が最大（4）の条件がないので、採用の基準は当てない
+    assert (tmp_path / "selection.csv").read_text().count("\n") == 1
