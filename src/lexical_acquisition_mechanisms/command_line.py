@@ -25,6 +25,7 @@ from lexical_acquisition_mechanisms import (
     passage_finalization,
     passage_review,
     passage_split,
+    pretrained_model_checks,
     probe_and_normalization_words,
     run_settings,
     similarity_ratings,
@@ -218,6 +219,14 @@ def all_actions() -> list[Action]:
             "build-task-questions",
             "課題の問題を作る（言い換えの語は LLM が挙げる）",
             task_questions.build_task_questions,
+        ),
+        Action(
+            "evaluation-data",
+            "check-with-pretrained-models",
+            "公開されている OLMo 2 の3モデルで、最小対の手がかりが語義を決めているかを確かめ、"
+            "確認に通った最小対から一部を、確認用の data/evaluation/minimal_pairs_review.csv に"
+            "書き出す",
+            pretrained_model_checks.check_with_pretrained_models,
         ),
     ]
 
