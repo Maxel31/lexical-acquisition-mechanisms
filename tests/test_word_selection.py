@@ -92,8 +92,11 @@ def adjective_candidate(
 def settings(
     tiny_model_source: ModelSource, wordnet_directory: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Settings:
-    """食べ物と動物の2カテゴリで、名詞を各2語選ぶ。"""
+    """食べ物と動物の2カテゴリで、名詞を各2語、自然な名詞を各3語、自然な形容詞を2語選ぶ。"""
     monkeypatch.setattr(word_selection, "NOUNS_PER_CATEGORY", 2)
+    monkeypatch.setattr(word_selection, "NATURAL_NOUNS_PER_CATEGORY", 3)
+    monkeypatch.setattr(word_selection, "NATURAL_ADJECTIVES", 2)
+    monkeypatch.setattr(word_selection, "PART_OF_SPEECH_NOUNS_PER_CATEGORY", 1)
     settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
     words = settings.words.model_copy(update={"categories": settings.words.categories[:2]})
     return settings.model_copy(update={"models": {"tiny": tiny_model_source}, "words": words})
@@ -161,6 +164,21 @@ def test_adjectives_match_the_noun_frequencies(tmp_path: Path, settings: Setting
     assert words_with_role(rows, "adjective") == {"big", "green", "happy", "bright"}
     assert rows["happy"]["category"] == ""
     assert float(rows["happy"]["usage_share"]) == pytest.approx(0.95)
+
+
+def test_natural_words_are_the_remaining_words_of_each_token_count(
+    tmp_path: Path, settings: Settings
+) -> None:
+    rows = select(tmp_path, settings, [noun_candidate(*noun) for noun in NOUNS])
+
+    # 管理対象の語と、その同義語（pig・large）を除いた語から、1・2・3トークンの順に選ぶ
+    natural_nouns = words_with_role(rows, "natural-noun")
+    assert {"meatball", "tortellini", "dog", "catfish", "chinchilla"} <= natural_nouns
+    assert len(natural_nouns & {"pasta", "soup"}) == 1
+    assert words_with_role(rows, "natural-adjective") == {"quiet", "delicious"}
+    # 品詞のプローブには、1トークンの名詞（各カテゴリ1語）と、自然な形容詞を使う
+    probe_words = {word for word, row in rows.items() if row["part_of_speech_probe"] == "True"}
+    assert probe_words == (natural_nouns & {"pasta", "soup"}) | {"dog", "quiet", "delicious"}
 
 
 def test_missing_candidates_stop_with_the_category(tmp_path: Path, settings: Settings) -> None:

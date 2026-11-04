@@ -167,6 +167,13 @@ class SenseAdditionSettings(SettingsSection):
     exposures_per_donor: int = Field(gt=0)
 
 
+class EvaluationSettings(SettingsSection):
+    """評価データ。"""
+
+    # 自然な語（実験で操作しない実在語）ごとの、課題の例やプローブの学習に使う文の数
+    sentences_per_natural_word: int = Field(gt=0)
+
+
 class Settings(SettingsSection):
     """settings.yaml の全体。"""
 
@@ -180,6 +187,7 @@ class Settings(SettingsSection):
     passages: PassageSettings
     unknown_word_acquisition: UnknownWordAcquisitionSettings
     sense_addition: SenseAdditionSettings
+    evaluation: EvaluationSettings
 
 
 def load_settings(path: Path = Path(SETTINGS_FILE_NAME)) -> Settings:
