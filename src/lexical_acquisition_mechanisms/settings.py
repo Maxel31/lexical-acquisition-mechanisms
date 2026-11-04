@@ -185,6 +185,43 @@ class EvaluationSettings(SettingsSection):
     maximum_neutral_context_deviation: float = Field(gt=0)
 
 
+class NewTokenEmbeddingSettings(SettingsSection):
+    """1トークンの未知語（新しいトークン番号）の埋め込みの初期値。
+
+    入力側・出力側とも、既存のトークンの埋め込みの平均に、正規分布の乱数を加える。
+    """
+
+    # 乱数の標準偏差の、既存の埋め込みの次元ごとの標準偏差に対する倍率
+    noise_scale: float = Field(ge=0)
+
+
+class TrainingSettings(SettingsSection):
+    """継続事前学習（全ての run で共通）。"""
+
+    # モデルごとの学習率（暫定: 事前学習のステージ1の最後の学習率）
+    learning_rate_by_model: dict[ModelName, float]
+    # 1 step で学習するトークン数（系列の長さの倍数）
+    batch_size_in_tokens: int = Field(gt=0)
+    sequence_length: int = Field(gt=0)
+    # 学習率を0から上げる step の、全ての step に対する割合
+    warmup_fraction: float = Field(ge=0, lt=1)
+    # モデルごとの、1つの GPU で1回に計算する系列の数（GPU のメモリに合わせる）
+    sequences_per_device_by_model: dict[ModelName, int]
+    # 最適化器 AdamW の設定（事前学習と同じ）
+    optimizer_betas: tuple[float, float]
+    optimizer_epsilon: float = Field(gt=0)
+    weight_decay: float = Field(ge=0)
+    # 勾配のノルムの上限
+    gradient_clipping: float = Field(gt=0)
+    # 出力の対数の分配関数が大きくなりすぎないようにする損失（z-loss）の重み（事前学習と同じ）
+    z_loss_weight: float = Field(ge=0)
+    # 途中の重みを保存する、学習の進み具合（最後の重みは必ず保存する）
+    checkpoint_fractions: list[float]
+    new_token_embedding_initialization: NewTokenEmbeddingSettings
+    # 学習の記録を送る W&B（実験の記録を残す Web サービス）のプロジェクト
+    weights_and_biases_project: str
+
+
 class Settings(SettingsSection):
     """settings.yaml の全体。"""
 
@@ -199,6 +236,7 @@ class Settings(SettingsSection):
     unknown_word_acquisition: UnknownWordAcquisitionSettings
     sense_addition: SenseAdditionSettings
     evaluation: EvaluationSettings
+    training: TrainingSettings
 
 
 def load_settings(path: Path = Path(SETTINGS_FILE_NAME)) -> Settings:
@@ -218,7 +256,7 @@ def load_settings(path: Path = Path(SETTINGS_FILE_NAME)) -> Settings:
     try:
         return Settings.model_validate(content)
     except ValidationError as error:
-        raise SettingsError(_describe_problems(path, error)) from error
+        raise SettingsError(describe_problems(path, error)) from error
 
 
 class _LoaderRejectingDuplicateKeys(yaml.SafeLoader):
@@ -261,7 +299,7 @@ _PROBLEM_DESCRIPTIONS = {
 }
 
 
-def _describe_problems(path: Path, error: ValidationError) -> str:
+def describe_problems(path: Path, error: ValidationError) -> str:
     lines = [f"設定ファイル {path} の内容が正しくありません:"]
     for problem in error.errors():
         description = _PROBLEM_DESCRIPTIONS.get(problem["type"])
