@@ -140,6 +140,8 @@ class PassageSettings(SettingsSection):
     maximum_passages_per_document: int = Field(gt=0)
     # 語ごとの評価用の用例の数
     evaluation_passages_per_word: int = Field(gt=0)
+    # 切り出しの段階で残す候補の数（判定に合格する必要がある数の何倍か）
+    collection_factor: float = Field(ge=1)
 
 
 class UnknownWordAcquisitionSettings(SettingsSection):
