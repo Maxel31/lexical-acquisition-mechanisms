@@ -83,7 +83,7 @@ def all_actions() -> list[Action]:
         Action(
             "words",
             "select",
-            "候補から、名詞72語・ターゲット語18語・形容詞72語と、自然な語を選ぶ",
+            "候補から、名詞72語・ターゲット語18語・形容詞72語・未知語72個と、自然な語を選ぶ",
             word_selection.select_words,
         ),
     ]
