@@ -6,12 +6,15 @@
 1. 学習: 学習前のモデル（settings.yaml の版）で、自然な語の課題2の問題（カテゴリの問題と品詞の
    問題。evaluation-data build-task-questions が書いた natural_word_questions.parquet）を使う。
    語の単位で、クラスごとに HELD_OUT_SHARE の語を確認用に分ける。
-2. (a) 確認用の語での正解率と、偶然の水準（1 ÷ クラスの数）を超えるかの片側の二項検定。
+2. (a) 確認用の語での正解率と、偶然の水準（1 ÷ クラスの数）を超えるかの片側の検定（同じ語の問題の
+   正誤は相関するので、語を単位にした2段のブートストラップの標準誤差による正規近似）。
    比較の基準（test-attribute-directions で使う）として、採用した head ごとに、同じ層の採用して
    いない head を1つ無作為に選び、そのプローブも学習する（表の baseline が真）。
 3. (b) 語義を足した各 run（対照を除く）の最後の重みで、その run の条件の最小対の課題2の問題（名詞を
    足す条件はカテゴリ、形容詞を足す条件は品詞）のターゲット語に当て、手がかりが示す語義の属性
-   （問題の正解）を当てる正解率と、二項検定。手順1で使えるとした語義の問題だけを使う。
+   （問題の正解）を当てる正解率と、(a) と同じ検定（ターゲット語を単位にする）。手がかりの種類
+   （donor の語義を示す文・元の語義を示す文）ごとに出す（手がかりを見ずに元の語義の属性を答える
+   プローブでも、全体では約半分が当たるので）。手順1で使えるとした語義の問題だけを使う。
 出力は outputs/probes/<モデル>/attribute_probes.npz（キーは
 "{層}-{head}-{属性}-{weights|biases|mean|scale}"）と、outputs/results/sense-addition/<モデル>/ の
 attribute_probe_accuracy.csv（(a)）・attribute_probe_transfer.csv（(b)）。
@@ -29,6 +32,7 @@ import pyarrow.parquet as parquet
 import torch
 
 from lexical_acquisition_mechanisms import (
+    bootstrap_statistics,
     evaluation_finalization,
     real_word_probes,
     sense_accuracy,
@@ -43,7 +47,7 @@ from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.logistic_probes import LogisticProbe, train_logistic_probe
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings
-from lexical_acquisition_mechanisms.task_accuracy import SIGNIFICANCE_LEVEL, binomial_p_value
+from lexical_acquisition_mechanisms.task_accuracy import SIGNIFICANCE_LEVEL
 from lexical_acquisition_mechanisms.task_prompts import (
     PARTS_OF_SPEECH,
     encode_prompt_with_word_spans,
@@ -55,6 +59,8 @@ HELD_OUT_SHARE = 0.2
 BATCH_SIZE = 32
 # 属性ごとの、課題2の問題の種類（task の列の値）
 ATTRIBUTES = ("category", "part-of-speech")
+# 最小対の問題の手がかりの種類（donor の語義を示す文と、ターゲット語の元の語義を示す文）
+CUES = ("donor", "target")
 
 
 @dataclass
@@ -66,6 +72,8 @@ class AttributeProbeAccuracy:
     training_accuracy: float
     held_out_accuracy: float
     held_out_questions: int
+    # 検定の単位にした、確認用の語の数
+    held_out_words: int
     chance: float
     p_value: float
     significant: bool
@@ -79,7 +87,11 @@ class AttributeProbeTransfer:
     layer: int
     head: int
     attribute: str
+    # 手がかりの種類（donor か target）
+    cue: str
     questions: int
+    # 検定の単位にした、ターゲット語の数
+    targets: int
     accuracy: float
     chance: float
     p_value: float
@@ -146,7 +158,14 @@ def train_attribute_probes(settings: Settings, arguments: argparse.Namespace) ->
         )
         heads = adopted_heads(classes_path)
         write_probe_transfer(
-            checkpoints, load_model, probes, heads, categories, transfer_paths, transfer_output
+            checkpoints,
+            load_model,
+            probes,
+            heads,
+            categories,
+            transfer_paths,
+            transfer_output,
+            settings.words.seed,
         )
 
     run_unless_unchanged(step, compute, arguments.recompute)
@@ -188,9 +207,10 @@ def write_attribute_probes(
                         probe,
                         features[:, number],
                         labels,
-                        held_out,
+                        (held_out, [row["word"] for row in rows]),
                         (layer, head, attribute),
                         baseline,
+                        seed,
                     )
                 )
         del model
@@ -217,6 +237,7 @@ def write_probe_transfer(
     categories: Sequence[str],
     input_paths: tuple[Path, Path, Path],
     output: Path,
+    seed: int,
 ) -> None:
     """(b) 語義を足した各 run で、最小対の課題2の問題のターゲット語に当てた正解率を書く。"""
     questions_path, accuracy_path, words_path = input_paths
@@ -260,22 +281,47 @@ def write_probe_transfer(
         chance = 1 / len(names[attribute])
         for number, (layer, head) in enumerate(heads):
             predicted = probes[layer, head, attribute].probabilities(features[:, number])
-            correct = int((predicted.argmax(axis=1) == labels).sum())
-            p_value = binomial_p_value(correct, len(labels), chance)
-            results.append(
-                AttributeProbeTransfer(
-                    run,
-                    layer,
-                    head,
-                    attribute,
-                    len(labels),
-                    correct / len(labels),
-                    chance,
-                    p_value,
-                    p_value < SIGNIFICANCE_LEVEL,
+            correct = predicted.argmax(axis=1) == labels
+            for cue in CUES:
+                mine = np.array([question["cue"] == cue for question in chosen])
+                if not mine.any():
+                    continue
+                targets = [
+                    question["target"] for question, own in zip(chosen, mine, strict=True) if own
+                ]
+                random_numbers = np.random.default_rng([seed, layer, head, CUES.index(cue)])
+                p_value = word_level_p_value(correct[mine], targets, chance, random_numbers)
+                results.append(
+                    AttributeProbeTransfer(
+                        run,
+                        layer,
+                        head,
+                        attribute,
+                        cue,
+                        int(mine.sum()),
+                        len(set(targets)),
+                        float(correct[mine].mean()),
+                        chance,
+                        p_value,
+                        p_value < SIGNIFICANCE_LEVEL,
+                    )
                 )
-            )
     write_rows(output, AttributeProbeTransfer, results)
+
+
+def word_level_p_value(
+    correct: np.ndarray, words: Sequence[str], chance: float, random_numbers: np.random.Generator
+) -> float:
+    """正解率が偶然の水準を超えるという、片側の p 値。
+
+    同じ語の問題の正誤は相関するので、語を単位にした2段のブートストラップ（語の中の問題も再抽出
+    する）の標準誤差による正規近似にする。
+    """
+    if not len(correct):
+        return 1.0
+    differences = (np.asarray(correct, dtype=float) - chance)[:, None]
+    mean, error = bootstrap_statistics.mean_and_error(list(words), differences, random_numbers)
+    return float(bootstrap_statistics.positive_p_values(mean, error)[0])
 
 
 def read_attribute_probes(path: Path) -> dict[tuple[int, int, str], LogisticProbe]:
@@ -341,19 +387,25 @@ def _accuracy_row(
     probe: LogisticProbe,
     features: np.ndarray,
     labels: np.ndarray,
-    held_out: np.ndarray,
+    held_out_and_words: tuple[np.ndarray, Sequence[str]],
     key: tuple[int, int, str],
     baseline: bool,
+    seed: int,
 ) -> AttributeProbeAccuracy:
+    """held_out_and_words は、問題ごとの、確認用か（真偽）と、問題の語。"""
+    held_out, words = held_out_and_words
     predicted = probe.probabilities(features).argmax(axis=1) == labels
     chance = 1 / len(probe.biases)
-    correct = int(predicted[held_out].sum())
-    p_value = binomial_p_value(correct, int(held_out.sum()), chance)
+    held_out_words = [word for word, chosen in zip(words, held_out, strict=True) if chosen]
+    layer, head, attribute = key
+    random_numbers = np.random.default_rng([seed, layer, head, ATTRIBUTES.index(attribute)])
+    p_value = word_level_p_value(predicted[held_out], held_out_words, chance, random_numbers)
     return AttributeProbeAccuracy(
         *key,
         float(predicted[~held_out].mean()),
         float(predicted[held_out].mean()) if held_out.any() else float("nan"),
         int(held_out.sum()),
+        len(set(held_out_words)),
         chance,
         p_value,
         p_value < SIGNIFICANCE_LEVEL,

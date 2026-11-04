@@ -10,6 +10,7 @@ from lexical_acquisition_mechanisms.attribute_probes import (
     AttributeProbeAccuracy,
     AttributeProbeTransfer,
     baseline_heads,
+    word_level_p_value,
     write_attribute_probes,
     write_probe_transfer,
 )
@@ -119,6 +120,7 @@ def test_probes_are_trained_on_natural_words_and_applied_to_minimal_pairs(
         ["food", "vehicle"],
         (tmp_path / "questions.parquet", tmp_path / "accuracy.csv", tmp_path / "words.csv"),
         tmp_path / "transfer.csv",
+        0,
     )
 
     # MLP は除き、head（0, 1）と、比較の基準の同じ層の head。2クラスとも、5語のうち1語（2文）を
@@ -129,13 +131,29 @@ def test_probes_are_trained_on_natural_words_and_applied_to_minimal_pairs(
     baseline = {(row.layer, row.head) for row in rows if row.baseline}
     assert len(baseline) == 1 and baseline.pop() in {(0, 0), (0, 2), (0, 3)}
     assert all(row.held_out_questions == 4 and row.chance == 0.5 for row in rows)
+    assert all(row.held_out_words == 2 for row in rows)
     probes = np.load(tmp_path / "probes.npz")
     assert probes["0-1-category-weights"].shape == (2, 8)
     transfer = read_rows(tmp_path / "transfer.csv", AttributeProbeTransfer)
-    assert [(row.run, row.attribute, row.questions) for row in transfer] == [
-        ("other-category-1", "category", 2),
-        ("adjective-1", "part-of-speech", 1),
+    # 手がかりの種類ごとの行（形容詞の条件の、元の語義の文は、手順1で使えないので除く）
+    assert [(row.run, row.attribute, row.cue, row.questions, row.targets) for row in transfer] == [
+        ("other-category-1", "category", "donor", 1, 1),
+        ("other-category-1", "category", "target", 1, 1),
+        ("adjective-1", "part-of-speech", "donor", 1, 1),
     ]
+
+
+def test_word_level_p_values_count_words_as_units() -> None:
+    # 4語 × 10問。語の中の正誤がそろっていると、問題の数が多くても、語の数の分しか確かでない
+    correct = np.repeat([1.0, 1.0, 1.0, 0.0], 10)
+    words = [f"word-{index // 10}" for index in range(40)]
+
+    by_word = word_level_p_value(correct, words, 0.5, np.random.default_rng(0))
+    by_question = word_level_p_value(
+        correct, [str(index) for index in range(40)], 0.5, np.random.default_rng(0)
+    )
+
+    assert by_question < 0.001 < by_word
 
 
 def test_baseline_heads_are_other_heads_of_the_same_layer() -> None:

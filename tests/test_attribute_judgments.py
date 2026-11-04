@@ -6,6 +6,7 @@ import numpy as np
 
 from lexical_acquisition_mechanisms.attribute_judgments import (
     AttributeJudgingHead,
+    judging_heads,
     write_attribute_judgments,
 )
 from lexical_acquisition_mechanisms.attribute_probes import (
@@ -60,13 +61,16 @@ def test_heads_need_encoding_causal_effect_and_specificity(tmp_path: Path) -> No
         ):
             rows += patching_rows(head, run, "sense", effect, random_numbers)
     accuracy = [
-        AttributeProbeAccuracy(0, head, "category", 0.9, 0.8, 40, 1 / 6, 0.001, True, False)
+        AttributeProbeAccuracy(0, head, "category", 0.9, 0.8, 40, 8, 1 / 6, 0.001, True, False)
         for head in (1, 2)
     ]
     write_rows(tmp_path / "accuracy.csv", AttributeProbeAccuracy, accuracy)
     transfer = [
-        AttributeProbeTransfer("other-category-4", 0, head, "category", 40, 0.7, 1 / 6, 0.001, True)
+        AttributeProbeTransfer(
+            "other-category-4", 0, head, "category", cue, 20, 6, 0.7, 1 / 6, 0.001, True
+        )
         for head in (1, 2)
+        for cue in ("donor", "target")
     ]
     write_rows(tmp_path / "transfer.csv", AttributeProbeTransfer, transfer)
     probes = {}
@@ -113,13 +117,16 @@ def test_part_of_speech_heads_must_not_work_where_parts_of_speech_agree(tmp_path
         ):
             rows += patching_rows(head, run, "sense", effect, random_numbers, "part-of-speech")
     accuracy = [
-        AttributeProbeAccuracy(0, head, "part-of-speech", 0.9, 0.8, 40, 0.5, 0.001, True, False)
+        AttributeProbeAccuracy(0, head, "part-of-speech", 0.9, 0.8, 40, 8, 0.5, 0.001, True, False)
         for head in (3, 4)
     ]
     write_rows(tmp_path / "accuracy.csv", AttributeProbeAccuracy, accuracy)
     transfer = [
-        AttributeProbeTransfer("adjective-4", 0, head, "part-of-speech", 40, 0.8, 0.5, 0.001, True)
+        AttributeProbeTransfer(
+            "adjective-4", 0, head, "part-of-speech", cue, 20, 6, 0.8, 0.5, 0.001, True
+        )
         for head in (3, 4)
+        for cue in ("donor", "target")
     ]
     write_rows(tmp_path / "transfer.csv", AttributeProbeTransfer, transfer)
     probes = {}
@@ -144,3 +151,21 @@ def test_part_of_speech_heads_must_not_work_where_parts_of_speech_agree(tmp_path
         (3, True, True),
         (4, False, False),
     ]
+
+
+def test_encoding_needs_the_attribute_of_both_cues() -> None:
+    accuracy = [
+        AttributeProbeAccuracy(0, 1, "category", 0.9, 0.8, 40, 8, 1 / 6, 0.001, True, False)
+    ]
+    # 元の語義の文だけで当たる（手がかりを見ずに、元のカテゴリを答える）プローブ
+    transfer = [
+        AttributeProbeTransfer(
+            "other-category-4", 0, 1, "category", cue, 20, 6, value, 1 / 6, p_value, p_value < 0.05
+        )
+        for cue, value, p_value in (("donor", 0.1, 0.9), ("target", 1.0, 0.001))
+    ]
+
+    (head,) = judging_heads([], accuracy, transfer)
+
+    assert (head.donor_cue_accuracy, head.target_cue_accuracy) == (0.1, 1.0)
+    assert not head.encoding

@@ -46,7 +46,7 @@ def test_figures_and_tables_are_written(tmp_path: Path) -> None:
         for head in (0, 1, -1)
     ]
     classes = [ComponentClass(0, 1, "none", "adopted", "adopted", "category")]
-    judging = [AttributeJudgingHead(0, 1, "category", 0.8, 0.7, True, True, True, True)]
+    judging = [AttributeJudgingHead(0, 1, "category", 0.8, 0.7, 0.9, True, True, True, True)]
     paths = tuple(
         tmp_path / name for name in ("accuracy.csv", "effects.csv", "classes.csv", "judging.csv")
     )
