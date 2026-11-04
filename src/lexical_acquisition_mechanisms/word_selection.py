@@ -7,7 +7,9 @@
   トークンが、名詞やほかのターゲット語と重ならない。
 - 形容詞72語: 先頭スペース付きで1トークン。どのカテゴリとも結びつきが強くない。語義の追加で
   足す語義1つあたりに差し込む用例の数（K）を、露出回数の最大まで大きくしても用例が足りるように、
-  名詞と同じ数の用例が取れる候補から選ぶ。
+  名詞と同じ数の用例が取れる候補から選ぶ。トークンが、名詞やターゲット語の最初のトークンと
+  重ならない（例: ターゲット語 " high|chair" と形容詞 " high"。重なると、そのトークンの学習の量が
+  run の間で変わるため）。
 - 未知語72個: 1トークンの24個は、使われていないトークン番号（表記は <new_01> などの管理用の名前）。
   2・3トークンの各24個は、一度も現れない候補から、綴りの近さ（near・far）ごとに12個ずつ、候補の
   無作為な順に選ぶ。最初のトークンが、ほかの未知語や管理対象の語と重ならず、near の元の語が
@@ -170,7 +172,10 @@ def build_selected_words(settings: Settings, tables: SelectionInputs, output_pat
     chosen = ChosenWords(_synsets, excluded)
     nouns = _select_nouns(listed_nouns, settings, chosen)
     targets = _select_target_words(listed_nouns, settings, chosen, nouns, tokenizer)
-    adjectives = _select_adjectives(listed_adjectives, settings, chosen, nouns)
+    taken_first_tokens = {tokenizer.word_token_ids(word.word)[0] for word in [*nouns, *targets]}
+    adjectives = _select_adjectives(
+        listed_adjectives, settings, chosen, nouns, taken_first_tokens, tokenizer
+    )
     rows = [_row(noun, "noun", tokenizer) for noun in nouns]
     rows += [_row(target, "target", tokenizer) for target in targets]
     rows += [_row(adjective, "adjective", tokenizer) for adjective in adjectives]
@@ -306,8 +311,13 @@ def _select_adjectives(
     settings: Settings,
     chosen: ChosenWords,
     nouns: Sequence[NounCandidate],
+    taken_first_tokens: set[int],
+    tokenizer: WordTokenizer,
 ) -> list[AdjectiveCandidate]:
-    """名詞72語と同じ数の形容詞。名詞と頻度の分布をそろえる。"""
+    """名詞72語と同じ数の形容詞。名詞と頻度の分布をそろえる。
+
+    トークンが taken_first_tokens（名詞とターゲット語の最初のトークン）にある候補は使わない。
+    """
     needed = (
         max(settings.unknown_word_acquisition.exposure_levels)
         + settings.passages.evaluation_passages_per_word
@@ -318,6 +328,7 @@ def _select_adjectives(
         for candidate in candidates
         if _usable(candidate, settings, needed)
         and candidate.largest_category_association <= maximum_association
+        and tokenizer.word_token_ids(candidate.word)[0] not in taken_first_tokens
     ]
     adjectives = []
     for noun in sorted(nouns, key=_frequency):
