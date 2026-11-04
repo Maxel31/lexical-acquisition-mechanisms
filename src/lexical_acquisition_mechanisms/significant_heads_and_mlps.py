@@ -4,7 +4,8 @@
 measure-head-and-mlp-effects の組ごとの効果から、条件（足す語義の種類 × 数 N）× 入れ替えた位置 ×
 構成要素ごとに、次を出す（効果の地図）。
 1. 対照を引く: 組ごとに、対照の run の同じ組（同じ最小対・方向）の効果を引く
-2. 最小対の両方向で平均し、最小対で平均する（手順1で2つの語義とも使えるとした最小対だけ）
+2. 最小対の両方向で平均し、最小対で平均する（手順1で2つの語義とも使えるとした最小対だけ。
+   measure-sense-accuracy の表から決める）
 3. ターゲット語と最小対を単位にした2段のブートストラップで、95% の区間と、標準誤差による正規近似の
    両側の p 値を出す
 4. 条件と位置ごとに、構成要素の数について Benjamini–Hochberg 法で補正し、FDR を 5% に抑える
@@ -99,6 +100,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 def select_significant_heads_and_mlps(settings: Settings, arguments: argparse.Namespace) -> None:
     model = arguments.model
     pairs_path, effects_path, _, _ = head_and_mlp_effects.effect_paths(model)
+    accuracy_path = sense_accuracy.result_paths(model)[1]
     measured_by = f"sense-addition measure-head-and-mlp-effects --model {model}"
     categories = [category.name for category in settings.words.categories]
     step = Step(
@@ -106,6 +108,7 @@ def select_significant_heads_and_mlps(settings: Settings, arguments: argparse.Na
         inputs={
             pairs_path: measured_by,
             effects_path: measured_by,
+            accuracy_path: f"sense-addition measure-sense-accuracy --model {model}",
             word_finalization.OUTPUT_PATH: word_finalization.COMMAND,
         },
         outputs=list(output_paths(model)),
@@ -119,7 +122,7 @@ def select_significant_heads_and_mlps(settings: Settings, arguments: argparse.Na
     run_unless_unchanged(
         step,
         lambda: write_results(
-            (pairs_path, effects_path, word_finalization.OUTPUT_PATH),
+            (pairs_path, effects_path, accuracy_path, word_finalization.OUTPUT_PATH),
             output_paths(model),
             categories,
             settings.words.seed,
@@ -129,16 +132,17 @@ def select_significant_heads_and_mlps(settings: Settings, arguments: argparse.Na
 
 
 def write_results(
-    input_paths: tuple[Path, Path, Path],
+    input_paths: tuple[Path, Path, Path, Path],
     outputs: tuple[Path, Path, Path],
     categories: Sequence[str],
     seed: int,
 ) -> None:
-    pairs_path, effects_path, words_path = input_paths
+    pairs_path, effects_path, accuracy_path, words_path = input_paths
     effects_output, selection_output, classes_output = outputs
     rows = parquet.read_table(pairs_path).to_pylist()
+    usable = sense_accuracy.usable_senses(accuracy_path)
     arrays = np.load(effects_path)
-    results, differences = component_effects(rows, arrays, seed)
+    results, differences = component_effects(rows, arrays, usable, seed)
     write_rows(effects_output, ComponentEffect, results)
     # N の条件ごとの、ターゲット語の位置で、効果が正で有意か（構成要素の順）
     significant: dict[tuple[str, int], list[bool]] = {}
@@ -160,16 +164,19 @@ def write_results(
 
 
 def component_effects(
-    rows: Sequence[dict[str, object]], arrays, seed: int
+    rows: Sequence[dict[str, object]],
+    arrays,
+    usable: set[tuple[str, int, str, str]],
+    seed: int,
 ) -> tuple[list[ComponentEffect], dict[tuple[str, int], tuple[list[tuple], np.ndarray]]]:
-    """効果の地図と、条件ごとの（最小対, 最小対 × 構成要素の効果）。
+    """効果の地図と、条件ごとの（最小対, 最小対 × 構成要素の効果）。usable は手順1で使える語義。
 
     後者は、ターゲット語の位置で入れ替えた、対照を引いた効果（採用の基準に使う）。
     """
     random_numbers = np.random.default_rng(seed)
     results = []
     differences = {}
-    for (kind, number), units in minimal_pair_units(rows).items():
+    for (kind, number), units in minimal_pair_units(rows, usable).items():
         weights = bootstrap_weights(
             [unit.target for unit in units], BOOTSTRAP_SAMPLES, random_numbers
         )
@@ -212,9 +219,11 @@ def component_effects(
 
 
 def minimal_pair_units(
-    rows: Sequence[dict[str, object]],
+    rows: Sequence[dict[str, object]], usable: set[tuple[str, int, str, str]]
 ) -> dict[tuple[str, int], list[MinimalPairUnit]]:
-    """条件ごとの、使える最小対（両方向とも、対照の run に同じ組があるもの）。"""
+    """条件ごとの、使える最小対（手順1で2つの語義とも使える組で、両方向とも、対照の run に同じ組が
+    あるもの）。usable は sense_accuracy.usable_senses の（条件, N, ターゲット語, 語義）。
+    """
 
     def key(row: dict[str, object]) -> tuple:
         names = ("kind", "number_of_senses", "target", "donor", "donor_sentence", "direction")
@@ -224,7 +233,11 @@ def minimal_pair_units(
     grouped: dict[tuple, MinimalPairUnit] = {}
     for index, row in enumerate(rows):
         control = controls.get(key(row))
-        if row["run"].endswith("control") or not row["usable"] or control is None:
+        both_usable = all(
+            (row["kind"], row["number_of_senses"], row["target"], sense) in usable
+            for sense in (row["donor"], "original")
+        )
+        if row["run"].endswith("control") or not both_usable or control is None:
             continue
         unit = grouped.setdefault(
             key(row)[:5],

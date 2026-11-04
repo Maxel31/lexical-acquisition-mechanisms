@@ -15,6 +15,7 @@ from lexical_acquisition_mechanisms.head_map_comparison import (
     write_head_maps,
 )
 from lexical_acquisition_mechanisms.language_model import LanguageModel
+from lexical_acquisition_mechanisms.sense_accuracy import SenseAccuracy
 from lexical_acquisition_mechanisms.settings import ModelSource
 from lexical_acquisition_mechanisms.task_prompts import TaskItem, prompt_template
 from lexical_acquisition_mechanisms.unknown_word_assignments import UnknownWordAssignment
@@ -75,7 +76,6 @@ def compare(
             "donor_sentence": "sentence",
             "direction": direction,
             "total_effect": 1.0,
-            "usable": True,
         }
         for kind, donor, runs in (
             (donor_kind, "pasta", (f"{donor_kind}-1", "noun-control")),
@@ -93,6 +93,13 @@ def compare(
         layers=np.repeat([0, 1], 5),
         heads=np.tile([0, 1, 2, 3, -1], 2),
     )
+    # 手順1では、どの語義も使える
+    accuracy = [
+        SenseAccuracy(kind, 1, "car", sense, 2, 1.0, 0.0, 1.0, 0.5, 0.01, True)
+        for kind in (donor_kind, "adjective")
+        for sense in ("pasta", "quiet", "original")
+    ]
+    write_rows(tmp_path / "accuracy.csv", SenseAccuracy, accuracy)
 
     write_head_maps(
         {"run-1": Path(tiny_model_source.repository)},
@@ -105,6 +112,7 @@ def compare(
                 "words.csv",
                 "pairs.parquet",
                 "effects.npz",
+                "accuracy.csv",
             )
         ],
         (tmp_path / "maps.npz", tmp_path / "comparison.csv"),
