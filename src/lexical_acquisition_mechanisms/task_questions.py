@@ -10,6 +10,7 @@
 3. 自然な語での確認の問題（natural_word_questions.parquet）: 例にしなかった自然な語の文の問題。
    問題ごとに、問う語と違う語の例を evaluation.number_of_task_examples 個選び、前に置く。選択肢の
    並び順と、例の選び方は、seed と問題から決まる。
+4. 未知語の獲得の問題（unknown_word_questions.parquet。unknown_word_questions）。
 """
 
 import argparse
@@ -21,7 +22,12 @@ from pathlib import Path
 import pyarrow as arrow
 import pyarrow.parquet as parquet
 
-from lexical_acquisition_mechanisms import natural_word_sentences, word_finalization
+from lexical_acquisition_mechanisms import (
+    natural_word_sentences,
+    neutral_contexts,
+    unknown_word_assignments,
+    word_finalization,
+)
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.llm_client import (
@@ -32,6 +38,7 @@ from lexical_acquisition_mechanisms.llm_client import (
     prompt_record_settings,
 )
 from lexical_acquisition_mechanisms.natural_word_sentences import NaturalWordSentence
+from lexical_acquisition_mechanisms.neutral_contexts import NeutralContext
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.settings import Settings
 from lexical_acquisition_mechanisms.task_prompts import (
@@ -40,6 +47,8 @@ from lexical_acquisition_mechanisms.task_prompts import (
     TaskItem,
     prompt_template,
 )
+from lexical_acquisition_mechanisms.unknown_word_assignments import UnknownWordAssignment
+from lexical_acquisition_mechanisms.unknown_word_questions import unknown_word_questions
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
 
@@ -48,6 +57,7 @@ OUTPUT_DIRECTORY = Path("data/evaluation")
 PARAPHRASES_PATH = OUTPUT_DIRECTORY / "paraphrases.csv"
 EXAMPLES_PATH = OUTPUT_DIRECTORY / "task_examples.csv"
 NATURAL_QUESTIONS_PATH = OUTPUT_DIRECTORY / "natural_word_questions.parquet"
+UNKNOWN_WORD_QUESTIONS_PATH = OUTPUT_DIRECTORY / "unknown_word_questions.parquet"
 PROMPT = "list-paraphrases"
 PARAPHRASES_PER_REQUEST = 5
 DISTRACTORS = 3
@@ -85,8 +95,15 @@ def build_task_questions(settings: Settings, arguments: argparse.Namespace) -> N
         inputs={
             word_finalization.OUTPUT_PATH: word_finalization.COMMAND,
             natural_word_sentences.SENTENCES_PATH: natural_word_sentences.COMMAND,
+            unknown_word_assignments.ASSIGNMENTS_PATH: unknown_word_assignments.COMMAND,
+            neutral_contexts.CONTEXTS_PATH: neutral_contexts.COMMAND,
         },
-        outputs=[PARAPHRASES_PATH, EXAMPLES_PATH, NATURAL_QUESTIONS_PATH],
+        outputs=[
+            PARAPHRASES_PATH,
+            EXAMPLES_PATH,
+            NATURAL_QUESTIONS_PATH,
+            UNKNOWN_WORD_QUESTIONS_PATH,
+        ],
         settings={
             **prompt_record_settings(settings.llm, [prompt]),
             "number_of_task_examples": settings.evaluation.number_of_task_examples,
@@ -102,8 +119,13 @@ def build_task_questions(settings: Settings, arguments: argparse.Namespace) -> N
             settings,
             prompt,
             client,
-            (word_finalization.OUTPUT_PATH, natural_word_sentences.SENTENCES_PATH),
-            (PARAPHRASES_PATH, EXAMPLES_PATH, NATURAL_QUESTIONS_PATH),
+            (
+                word_finalization.OUTPUT_PATH,
+                natural_word_sentences.SENTENCES_PATH,
+                unknown_word_assignments.ASSIGNMENTS_PATH,
+                neutral_contexts.CONTEXTS_PATH,
+            ),
+            (PARAPHRASES_PATH, EXAMPLES_PATH, NATURAL_QUESTIONS_PATH, UNKNOWN_WORD_QUESTIONS_PATH),
         ),
         arguments.recompute,
     )
@@ -113,11 +135,11 @@ def write_task_questions(
     settings: Settings,
     prompt: PromptTemplate,
     client: LlmClient,
-    input_paths: tuple[Path, Path],
-    output_paths: tuple[Path, Path, Path],
+    input_paths: tuple[Path, Path, Path, Path],
+    output_paths: tuple[Path, Path, Path, Path],
 ) -> None:
-    words_path, sentences_path = input_paths
-    paraphrases_path, examples_path, questions_path = output_paths
+    words_path, sentences_path, assignments_path, contexts_path = input_paths
+    paraphrases_path, examples_path, questions_path, unknown_questions_path = output_paths
     tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
     words = {word.word: word for word in read_rows(words_path, SelectedWord)}
     sentences = read_rows(sentences_path, NaturalWordSentence)
@@ -182,6 +204,16 @@ def write_task_questions(
                 }
             )
     parquet.write_table(arrow.Table.from_pylist(questions), questions_path)
+    unknown_questions = unknown_word_questions(
+        read_rows(assignments_path, UnknownWordAssignment),
+        words,
+        read_rows(contexts_path, NeutralContext),
+        examples,
+        categories,
+        count,
+        settings.words.seed,
+    )
+    parquet.write_table(arrow.Table.from_pylist(unknown_questions), unknown_questions_path)
 
 
 def _items(
