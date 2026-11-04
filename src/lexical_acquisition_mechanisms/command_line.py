@@ -35,6 +35,7 @@ from lexical_acquisition_mechanisms import (
     real_word_probes,
     run_settings,
     sense_accuracy,
+    sense_addition_report,
     significant_heads_and_mlps,
     similarity_ratings,
     task_questions,
@@ -310,6 +311,12 @@ def all_actions() -> list[Action]:
             "head の出力のうち属性を表す方向の成分を入れ替えて、属性を判定する head を確かめる",
             attribute_direction_patching.test_attribute_directions,
             attribute_direction_patching.add_arguments,
+        ),
+        Action(
+            "sense-addition",
+            "make-report",
+            "図と表を outputs/figures/sense-addition/ に作る",
+            sense_addition_report.make_report,
         ),
     ]
 
