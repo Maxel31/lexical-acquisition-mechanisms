@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from lexical_acquisition_mechanisms.settings import SettingsError, load_settings
+from lexical_acquisition_mechanisms.settings import Settings, SettingsError, load_settings
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,10 +27,21 @@ def test_repository_settings_are_valid() -> None:
     assert all(source.revision.startswith("stage1-") for source in settings.models.values())
 
 
-def test_revision_can_be_omitted(tmp_path: Path) -> None:
-    path = write_settings(tmp_path, "models:\n  tiny:\n    repository: ./tiny\n")
+def test_revision_can_be_omitted() -> None:
+    content = load_settings(REPOSITORY_ROOT / "settings.yaml").model_dump()
+    content["models"] = {"tiny": {"repository": "./tiny"}}
 
-    assert load_settings(path).models["tiny"].revision is None
+    assert Settings.model_validate(content).models["tiny"].revision is None
+
+
+def test_bounds_are_explained(tmp_path: Path) -> None:
+    text = (REPOSITORY_ROOT / "settings.yaml").read_text(encoding="utf-8")
+    path = write_settings(
+        tmp_path, text.replace("maximum_concurrent_requests: 128", "maximum_concurrent_requests: 0")
+    )
+
+    with pytest.raises(SettingsError, match="llm.maximum_concurrent_requests: 0 より大きい数"):
+        load_settings(path)
 
 
 def test_missing_file_is_reported(tmp_path: Path) -> None:
