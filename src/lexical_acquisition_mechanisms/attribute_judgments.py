@@ -7,7 +7,8 @@
 2. 因果: (b) と同じ run の課題2で、属性の方向の入れ替えの効果（s_Y の正解の対数確率の増え方）が、
    2つの比較の基準（同じ層の無作為な head・同じ次元数の無作為な方向）のどちらよりも大きい
 3. 特異性: 課題1（m の変化）で、属性の方向の入れ替えが比較の基準より効く条件が、属性が違う条件と
-   合う。カテゴリは別カテゴリと形容詞で効き、同カテゴリでは効かない。品詞は形容詞で効く
+   合う（その属性が違う条件でだけ効く）。カテゴリは別カテゴリと形容詞で効き、同カテゴリでは効かない。
+   品詞は形容詞で効き、同カテゴリと別カテゴリでは効かない
 「比較の基準より大きい」は、最小対の各方向での差（属性の方向 − 基準）を最小対の両方向で平均し、
 ターゲット語と最小対を単位にした2段のブートストラップで、片側 p < 0.05 とする。
 出力は outputs/results/sense-addition/<モデル>/ の attribute_direction_tests.csv（run × 課題
@@ -36,7 +37,10 @@ from lexical_acquisition_mechanisms.task_accuracy import SIGNIFICANCE_LEVEL
 # 属性ごとの、属性が違う条件の run と、効くべき種類・効かないべき種類
 RELEVANT_RUNS = {"category": f"other-category-{LARGEST}", "part-of-speech": f"adjective-{LARGEST}"}
 EFFECTIVE_KINDS = {"category": ("other-category", "adjective"), "part-of-speech": ("adjective",)}
-INEFFECTIVE_KINDS = {"category": ("same-category",), "part-of-speech": ()}
+INEFFECTIVE_KINDS = {
+    "category": ("same-category",),
+    "part-of-speech": ("same-category", "other-category"),
+}
 BASELINES = ("random-head", "random-direction")
 
 
