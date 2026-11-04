@@ -3,6 +3,7 @@
 import csv
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from lexical_acquisition_mechanisms import word_selection
@@ -12,7 +13,7 @@ from lexical_acquisition_mechanisms.csv_tables import write_rows
 from lexical_acquisition_mechanisms.noun_candidates import NounCandidate
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings, load_settings
 from lexical_acquisition_mechanisms.unknown_word_candidates import UnknownWordCandidate
-from lexical_acquisition_mechanisms.word_selection import CandidateTables, build_selected_words
+from lexical_acquisition_mechanisms.word_selection import SelectionInputs, build_selected_words
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -125,11 +126,15 @@ def select(
     nouns: list[NounCandidate],
     unknown_words: list[UnknownWordCandidate] = UNKNOWN_WORDS,
 ) -> dict[str, dict[str, str]]:
-    tables = CandidateTables(
+    tables = SelectionInputs(
         nouns=tmp_path / "noun_candidates.csv",
         adjectives=tmp_path / "adjective_candidates.csv",
         unknown_words=tmp_path / "unknown_word_candidates.csv",
+        base_sequences=tmp_path / "base_sequences.npy",
     )
+    tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
+    tokens = tokenizer.encode(["We ate bread, cheese and bread with breadsticks."])
+    np.save(tables.base_sequences, np.array([tokens], dtype=np.uint32))
     write_rows(tables.nouns, NounCandidate, nouns)
     adjectives = [adjective_candidate(*adjective) for adjective in ADJECTIVES]
     write_rows(tables.adjectives, AdjectiveCandidate, adjectives)
@@ -160,6 +165,9 @@ def test_nouns_match_in_frequency_across_categories_without_synonyms(
     assert words_with_role(rows, "noun") == {"bread", "cheese", "hog", "cat"}
     assert rows["cheese"]["category"] == "food"
     assert rows["cheese"]["token_count"] == "1"
+    # 基データ（の代わりの1文）での出現回数。" breadsticks" の一部は数えない
+    assert rows["bread"]["base_data_count"] == "2"
+    assert rows["cheese"]["base_data_count"] == "1"
 
 
 def test_target_words_match_the_multi_token_frequencies(tmp_path: Path, settings: Settings) -> None:

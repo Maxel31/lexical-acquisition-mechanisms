@@ -11,6 +11,7 @@ import yaml
 from lexical_acquisition_mechanisms import base_data
 from lexical_acquisition_mechanisms.base_data import (
     build_base_data,
+    count_word_occurrences,
     has_long_repetition,
     output_paths,
     training_order,
@@ -138,3 +139,20 @@ def test_training_order_matches_the_shuffle_of_the_pretraining_code() -> None:
 )
 def test_long_repetitions_are_found(tokens: np.ndarray, expected: bool) -> None:
     assert has_long_repetition(tokens, 13, 1, 32) is expected
+
+
+def test_word_occurrences_are_counted_within_each_sequence() -> None:
+    sequences = np.array([[5, 6, 7, 5, 6], [5, 9, 5, 6, 8]], dtype=np.uint32)
+    # 7 と 9 は、直前の語の続きになるトークン
+    continues_word = np.isin(np.arange(10), [7, 9])
+
+    counts = count_word_occurrences(
+        sequences, {"five-six": [5, 6], "five": [5], "six-five": [6, 5]}, continues_word
+    )
+
+    # [5, 6] は、1行目の先頭（後に 7 が続く）を除く2回。系列の最後で終わるものは数える
+    assert counts["five-six"] == 2
+    # [5] は、2行目の先頭（後に 9 が続く）を除く3回
+    assert counts["five"] == 3
+    # 1行目の最後と2行目の先頭にまたがる [6, 5] は数えない
+    assert counts["six-five"] == 0
