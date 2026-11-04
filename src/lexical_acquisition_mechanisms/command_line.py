@@ -28,6 +28,7 @@ from lexical_acquisition_mechanisms import (
     probe_and_normalization_words,
     run_settings,
     similarity_ratings,
+    task_questions,
     training_data,
     unknown_word_candidates,
     word_finalization,
@@ -211,6 +212,12 @@ def all_actions() -> list[Action]:
             "generate-minimal-pairs",
             "最小対（手がかりの1語だけが違い、ターゲット語の語義が変わる2文）を作る",
             minimal_pairs.generate_minimal_pairs,
+        ),
+        Action(
+            "evaluation-data",
+            "build-task-questions",
+            "課題の問題を作る（言い換えの語は LLM が挙げる）",
+            task_questions.build_task_questions,
         ),
     ]
 
