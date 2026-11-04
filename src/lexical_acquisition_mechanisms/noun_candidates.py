@@ -20,6 +20,7 @@ from lexical_acquisition_mechanisms.llm_client import (
     LlmRequest,
     PromptTemplate,
     prompt_record_settings,
+    require_answers,
 )
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.pile_word_usages import WordUsages, sample_word_usages
@@ -125,7 +126,9 @@ def build_noun_candidates(
         for category in words.categories
         for kind in words.listing_kinds
     ]
-    candidates = _listed_candidates(requests, client.ask_all(requests))
+    answers = client.ask_all(requests)
+    require_answers(answers, "名詞の一覧", COMMAND)
+    candidates = _listed_candidates(requests, answers)
     tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
     for candidate in candidates:
         if not candidate.rejected_reason:

@@ -91,6 +91,21 @@ class LlmRequest:
         }
 
 
+def require_answers(answers: Sequence[dict[str, Any] | None], what: str, rerun_from: str) -> None:
+    """全ての問い合わせに答えがあることを確かめる（なければ止まる）。
+
+    一覧を挙げさせる問い合わせのように、1件の答えがないだけで結果が大きく欠けるときに使う。
+    得られなかった答えは保存しないので、実行し直すと、その分だけ問い合わせ直す。
+    """
+    missing = sum(answer is None for answer in answers)
+    if missing:
+        raise CommandStopped(
+            f"LLM から、{what}の答えが {missing} 件得られませんでした。"
+            "実行し直すと、得られなかった分だけ問い合わせ直します。",
+            rerun_from=rerun_from,
+        )
+
+
 class InvalidAnswer(Exception):
     """形に合う答えが得られなかった（問い合わせ直しても、同じ結果になる見込みが高い）。"""
 
