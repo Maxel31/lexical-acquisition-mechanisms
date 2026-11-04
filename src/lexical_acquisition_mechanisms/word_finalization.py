@@ -75,14 +75,13 @@ def build_final_words(
         )
     rejected = [row for row in review if row.approved.strip() == "0"]
     if rejected:
-        excluded = word_selection.read_excluded_words(excluded_words_path)
-        known = {(row.word, row.role) for row in excluded}
-        excluded += [
-            ExcludedWord(row.word, row.role, f"{review_path} で approved を 0 にした")
-            for row in rejected
-            if (row.word, row.role) not in known
-        ]
-        write_rows(excluded_words_path, ExcludedWord, excluded)
+        word_selection.add_excluded_words(
+            excluded_words_path,
+            [
+                ExcludedWord(row.word, row.role, f"{review_path} で approved を 0 にした")
+                for row in rejected
+            ],
+        )
         raise CommandStopped(
             f"approved が 0 の語（{', '.join(row.word for row in rejected)}）を、"
             f"{excluded_words_path} に足しました。words select から実行し直すと、"

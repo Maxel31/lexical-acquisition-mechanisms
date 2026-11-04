@@ -3,18 +3,20 @@
 ダウンロードの代わりに、手元に作った parquet を使う。
 """
 
+import argparse
 from pathlib import Path
 
 import pyarrow as arrow
 import pyarrow.parquet as parquet
 import pytest
 
-from lexical_acquisition_mechanisms import pile
+from lexical_acquisition_mechanisms import passage_collection, pile
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.passage_collection import (
     CollectionSummary,
     build_passage_candidates,
+    collect_passages,
 )
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings, load_settings
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
@@ -135,6 +137,8 @@ def test_windows_contain_only_the_standard_form(tmp_path: Path, settings: Settin
     }
     # "Pasta" を含む窓と、短い文書（"A pasta."）は使わない
     assert (summary["pasta"].occurrences, summary["pasta"].candidates) == (6, 4)
+    # pasta は残す数（8件）に届かず、Pile の出現を全て残した。quiet は残す数（2件）に届いた
+    assert (summary["pasta"].reached_limit, summary["quiet"].reached_limit) == (False, True)
     assert "語の標準の形でない形を含む: 1" in summary["pasta"].rejected
     assert "文書が短いか、語の区切りで切れない: 1" in summary["pasta"].rejected
     # quiet の窓のうち、管理対象の名詞 pasta を含むものは使わない
@@ -174,3 +178,21 @@ def test_word_rarer_than_estimated_stops(tmp_path: Path, settings: Settings) -> 
     # 見積もりが実際より多いと、鍵の上限が小さくなり、残す数（8件）に届かない
     with pytest.raises(CommandStopped, match="残す数に届かなかった語があります（\\['pasta'\\]）"):
         collect(tmp_path, settings, LocalShards(), pasta_passages=10_000)
+
+
+def test_record_does_not_depend_on_the_judgment_precision(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    # 判定の精度の下限を変えても、Pile を読み直さない
+    steps = []
+    monkeypatch.setattr(
+        passage_collection,
+        "run_unless_unchanged",
+        lambda step, compute, recompute: steps.append(step),
+    )
+    arguments = argparse.Namespace(recompute=False)
+    collect_passages(settings, arguments)
+    changed = settings.passages.model_copy(update={"minimum_judgment_precision": 0.5})
+    collect_passages(settings.model_copy(update={"passages": changed}), arguments)
+
+    assert steps[0].settings == steps[1].settings
