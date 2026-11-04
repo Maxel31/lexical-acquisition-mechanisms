@@ -99,3 +99,25 @@ def test_parts_of_words_are_not_treated_as_articles(tokenizer: WordTokenizer) ->
 
     assert tokenizer.decode(replaced.token_ids) == "We ate pecan car today."
     assert replaced.records == [("pie", "car")]
+
+
+def test_windows_keep_as_many_occurrences_as_fit(tokenizer: WordTokenizer) -> None:
+    long_word = next(
+        word
+        for word in ("zorbaxel", "blicketory", "flumpering")
+        if len(tokenizer.word_token_ids(word)) == 3
+    )
+    # 語が用例の両端の近くにあり、3トークンの語に置き換えると、両方を含む窓が取れない
+    token_ids = tokenizer.encode(["The car was here and we saw it today. Then the car left."])
+    replacer = PassageReplacer(tokenizer, tokens_per_passage=len(token_ids))
+
+    replaced = replacer.replace(
+        token_ids,
+        positions_of(tokenizer, token_ids, "car"),
+        word_replacement(tokenizer, "car", long_word),
+    )
+
+    assert len(replaced.token_ids) == len(token_ids)
+    assert len(replaced.positions) == len(replaced.records) == 1
+    assert tokenizer.decode(replaced.token_ids).count(long_word) == 1
+    assert " car" not in tokenizer.decode(replaced.token_ids)
