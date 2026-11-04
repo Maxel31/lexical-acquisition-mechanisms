@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from lexical_acquisition_mechanisms import (
     adjective_candidates,
+    assignments,
     base_data,
     hidden_state_similarity,
     neutral_contexts,
@@ -155,6 +156,14 @@ def all_actions() -> list[Action]:
             "合格した候補を、学習用・評価用の用例として書き出す",
             passage_finalization.finalize_passages,
             passage_finalization.add_arguments,
+        ),
+        Action(
+            "assignments",
+            "build",
+            "run ごとに、どの語の用例を、どの語に置き換えて差し込むか"
+            "（未知語の獲得では件数も）を決める",
+            assignments.build_assignments,
+            assignments.add_arguments,
         ),
     ]
 
