@@ -31,9 +31,10 @@ def test_regression_recovers_the_effect_of_integration(tmp_path: Path) -> None:
                     **names,
                     "noun": f"noun-{(word + run) % 20}",
                     "ablation": "category-direction",
-                    "dependence": value,
-                    # 最初の語の行は使えない組とする
-                    "usable": word != 0,
+                    # 依存度 = 未知語での低下 ÷ 名詞での低下。最初の語の行は、名詞での低下が下限
+                    # （0.05）以下なので使わない
+                    "unknown_drop": value * 0.5 if word else 0.0,
+                    "known_drop": 0.5 if word else 0.01,
                     "token_count": 1 + word % 3,
                     # 実際のデータと同じく、1トークンの未知語には綴りの近さがない
                     "spelling_closeness": "" if word % 3 == 0 else ("near" if word % 2 else "far"),

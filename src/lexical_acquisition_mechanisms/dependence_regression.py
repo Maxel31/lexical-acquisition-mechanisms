@@ -1,7 +1,8 @@
 """依存度を、意味と語としての統合の指標などで説明する回帰を当てはめる
 （dependence-on-category-judging-heads fit-regression --model）。
 
-measure-dependence の依存度（d_既知 が小さい組を除く）に、同じ重みでの未知語の獲得の正規化した指標
+measure-dependence の低下から依存度（d_未知 / d_既知）を出し（d_既知 が MINIMUM_KNOWN_DROP 以下の
+組、つまり head が名詞にも効いていない組は除く）、同じ重みでの未知語の獲得の正規化した指標
 m̂（analyze-acquisition-order。意味と統合は、順番の判定に使った層の値）を結びつけ、無効化の種類ごとに、
 次の混合効果モデルを REML で当てはめる（statsmodels。ランダム切片は交差させる）。
     依存度 ~ 意味の m̂ + 統合の m̂ + トークン数 + 綴りの近さ + (1 | 未知語) + (1 | 置換元) + (1 | run)
@@ -45,6 +46,8 @@ from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.settings import Settings
 
+# 名詞での低下がこれ以下（自然対数の単位）なら、依存度を出さない
+MINIMUM_KNOWN_DROP = 0.05
 # 固定効果の列（値が1種類しかない列は、当てはめるときに外す）
 FIXED_EFFECTS = ("meaning", "integration", "two_tokens", "three_tokens", "near")
 # 固定効果6個（切片を含む）と分散3個に対して、当てはめに使う組の数の下限
@@ -110,6 +113,7 @@ def fit_regression(settings: Settings, arguments: argparse.Namespace) -> None:
         outputs=list(output_paths(model)),
         settings={
             "seed": settings.words.seed,
+            "minimum_known_drop": MINIMUM_KNOWN_DROP,
             "thresholds": list(THRESHOLDS),
             "bootstrap_samples": BOOTSTRAP_SAMPLES,
         },
@@ -152,7 +156,7 @@ def regression_data(
     normalized: Sequence[dict[str, object]],
     orders: Sequence[AcquisitionOrder],
 ) -> list[dict[str, object]]:
-    """依存度を出せた組に、意味と統合の m̂ を足した表（m̂ がない組は除く）。"""
+    """依存度を出せる組に、依存度と、意味と統合の m̂ を足した表（m̂ がない組は除く）。"""
     layer_of = {order.indicator: order.layer for order in orders if order.group == "all"}
     indicators = {
         (row["run"], row["word"], row["indicator"]): row["normalized"]
@@ -167,10 +171,11 @@ def regression_data(
             for name in ("meaning", "integration")
         }
         known = all(value is not None and np.isfinite(value) for value in values.values())
-        if row["usable"] and known:
+        if row["known_drop"] > MINIMUM_KNOWN_DROP and known:
             data.append(
                 {
                     **row,
+                    "dependence": row["unknown_drop"] / row["known_drop"],
                     **values,
                     "two_tokens": int(row["token_count"] == 2),
                     "three_tokens": int(row["token_count"] == 3),

@@ -5,7 +5,6 @@ from pathlib import Path
 import numpy as np
 import pyarrow as arrow
 import pyarrow.parquet as parquet
-import pytest
 
 from lexical_acquisition_mechanisms.attribute_judgments import AttributeJudgingHead
 from lexical_acquisition_mechanisms.attribute_probes import baseline_heads
@@ -99,10 +98,10 @@ def test_dependence_is_measured_for_each_ablation(
     ]
     for row in rows:
         assert (row["noun_category"], row["exposure"], row["conditions"]) == ("food", 10, 2)
-        if row["usable"]:
-            assert row["dependence"] == pytest.approx(row["unknown_drop"] / row["known_drop"])
-        else:
-            assert np.isnan(row["dependence"])
+        # 依存度と、使える組かは fit-regression で決める
+        assert "dependence" not in row and "usable" not in row
+    # 無効化で、対数確率が実際に変わる
+    assert any(row["known_drop"] != 0 and row["unknown_drop"] != 0 for row in rows)
 
 
 def test_nothing_is_measured_without_category_judging_heads(
