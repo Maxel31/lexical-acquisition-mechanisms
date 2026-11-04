@@ -4,9 +4,10 @@
 1. 語ごとに、ほぼ同じ候補（一方の5トークンの並びの8割以上が、もう一方にもある）を除く。鍵の小さい
    候補から順に残す。似た組は MinHash（並びの集合から作る短い署名で、似た集合ほど一致しやすい）で
    探し、並びの集合を比べて確かめる。
-2. 元の文書（Pile の断片と行）を、seed から決まる順に並べ、評価用の用例が必要な割合になるまで、
-   文書ごと評価用にする（同じ文書の候補は、学習用と評価用の両方には入らない）。ターゲット語と
-   自然な語は、全て評価用にする。
+2. 元の文書（Pile の断片と行）ごとに、全ての語で共通の分け方を1つ決める（同じ文書の候補は、どの語
+   でも、学習用と評価用の両方には入らない）。ターゲット語か自然な語の候補を含む文書（これらの語は
+   全て評価用）は評価用にする。ほかの文書は、seed と文書から決まる鍵が、評価用の用例の割合より
+   小さければ評価用にする。
 3. 評価用の候補のうち、基データと32トークン以上続けて同じ並びを含むものを除く。
 結果を data/passages/split_candidates.parquet に、語ごとの数を data/passages/split_summary.csv に
 書く。
@@ -38,6 +39,8 @@ NUMBER_OF_HASHES = 64
 ROWS_PER_BAND = 4
 NEARBY_MEMBERS = 50
 BASE_DATA_OVERLAP_LENGTH = 32
+# 学習用の用例も使う役割（ほかの役割の語は、全て評価用）
+TRAINING_ROLES = ("noun", "adjective")
 # 文書の順を決める鍵の seed に足す数（出現や窓の位置を決めた鍵と別の数にするため）
 DOCUMENT_SEED_OFFSET = 2
 HASH_MULTIPLIER = np.uint64(1099511628211)
@@ -92,6 +95,12 @@ def build_split(
         max(settings.unknown_word_acquisition.exposure_levels)
         + settings.passages.evaluation_passages_per_word
     )
+    # ターゲット語と自然な語の候補を含む文書（全て評価用にする）
+    evaluation_documents = {
+        (row["shard"], row["row"])
+        for row in table.select(["role", "shard", "row"]).to_pylist()
+        if row["role"] not in TRAINING_ROLES
+    }
     kept_tables = []
     summaries = []
     for word in sorted(set(table.column("word").to_pylist())):
@@ -100,8 +109,8 @@ def build_split(
         unique = _unique_indices(windows)
         rows = rows.take(unique)
         role = rows.column("role")[0].as_py()
-        share = evaluation_share if role in {"noun", "adjective"} else 1.0
-        splits = _document_splits(rows, share, settings.words.seed)
+        share = evaluation_share if role in TRAINING_ROLES else 1.0
+        splits = _document_splits(rows, evaluation_documents, share, settings.words.seed)
         kept_tables.append(rows.append_column("split", arrow.array(splits)))
         duplicates = len(windows) - len(unique)
         summaries.append(SplitSummary(word, role, len(windows), duplicates, 0, 0, 0))
@@ -166,25 +175,20 @@ def _unique_indices(windows: np.ndarray) -> list[int]:
     return kept
 
 
-def _document_splits(rows: arrow.Table, evaluation_share: float, seed: int) -> list[str]:
-    """候補ごとの分け方。文書を鍵の順に並べ、評価用の数が割合に届くまで、文書ごと評価用にする。"""
-    documents = list(
-        zip(rows.column("shard").to_pylist(), rows.column("row").to_pylist(), strict=True)
-    )
-    order = sorted(
-        set(documents),
-        key=lambda document: occurrence_key(seed + DOCUMENT_SEED_OFFSET, *document, 0),
-    )
-    sizes = Counter(documents)
-    evaluation_documents = set()
-    evaluation_count = 0
-    for document in order:
-        if evaluation_count >= evaluation_share * len(documents):
-            break
-        evaluation_documents.add(document)
-        evaluation_count += sizes[document]
+def _document_splits(
+    rows: arrow.Table, evaluation_documents: set[tuple[int, int]], share: float, seed: int
+) -> list[str]:
+    """候補ごとの分け方（文書ごとに、全ての語で同じになる）。
+
+    evaluation_documents の文書と、文書の鍵が share より小さい文書を評価用にする。
+    """
+    documents = zip(rows.column("shard").to_pylist(), rows.column("row").to_pylist(), strict=True)
     return [
-        "evaluation" if document in evaluation_documents else "training" for document in documents
+        "evaluation"
+        if document in evaluation_documents
+        or occurrence_key(seed + DOCUMENT_SEED_OFFSET, *document, 0) < share
+        else "training"
+        for document in documents
     ]
 
 

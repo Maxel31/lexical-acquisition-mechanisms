@@ -66,10 +66,47 @@ def test_duplicates_are_removed_and_documents_are_split(tmp_path: Path, settings
 
     summary = {row.word: row for row in read_rows(tmp_path / "summary.csv", SplitSummary)}
     assert (summary["pasta"].candidates, summary["pasta"].duplicates) == (21, 1)
-    # 20 件の 1/10 の、2つの文書を評価用にする
-    assert (summary["pasta"].training, summary["pasta"].evaluation) == (18, 2)
+    # 文書ごとの鍵が 1/10 より小さい文書を評価用にする（割合は、文書の多いテストで確かめる）
+    assert summary["pasta"].training + summary["pasta"].evaluation == 20
     # ターゲット語は全て評価用にし、基データと重なる候補は除く
     assert (summary["bagel"].overlapping_base_data, summary["bagel"].evaluation) == (1, 0)
     split = parquet.read_table(tmp_path / "split.parquet").to_pylist()
     assert 1 not in {row["row"] for row in split}
-    assert {row["split"] for row in split} == {"training", "evaluation"}
+    assert "training" in {row["split"] for row in split}
+
+
+def test_documents_are_split_in_the_same_way_for_every_word(
+    tmp_path: Path, settings: Settings
+) -> None:
+    generator = np.random.default_rng(2)
+    rows = []
+    for row in range(300):
+        # 同じ文書の、2つの名詞の候補（窓は別々）
+        for word in ("pasta", "bread"):
+            rows.append(
+                candidate(word, "noun", row, row / 100, generator.integers(1000, 50_000, LENGTH))
+            )
+    # 文書 0 には、ターゲット語の候補もある（ターゲット語は全て評価用）
+    rows.append(candidate("bagel", "target", 0, 0.5, generator.integers(1000, 50_000, LENGTH)))
+    candidates_path = tmp_path / "candidates.parquet"
+    parquet.write_table(arrow.Table.from_pylist(rows, schema=CANDIDATE_SCHEMA), candidates_path)
+    np.save(tmp_path / "base.npy", np.zeros((1, 64), dtype=np.uint32))
+
+    build_split(
+        settings,
+        candidates_path,
+        tmp_path / "base.npy",
+        tmp_path / "split.parquet",
+        tmp_path / "summary.csv",
+    )
+
+    split = parquet.read_table(tmp_path / "split.parquet").to_pylist()
+    by_word = {
+        word: {row["row"]: row["split"] for row in split if row["word"] == word}
+        for word in ("pasta", "bread")
+    }
+    assert by_word["pasta"] == by_word["bread"]
+    assert by_word["pasta"][0] == "evaluation"
+    # 評価用の文書は、ほぼ 1/10
+    evaluation = sum(split == "evaluation" for split in by_word["pasta"].values())
+    assert 15 <= evaluation <= 50
