@@ -18,17 +18,22 @@ from lexical_acquisition_mechanisms.unknown_word_candidates import build_unknown
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
-def arc_row(nonword: str, body_neighbours: int, words_with_onset: int, illegal: int) -> str:
+def arc_row(
+    nonword: str, body_neighbours: int, words_with_onset: int, illegal: int, morphology: str = "m"
+) -> str:
     columns = ["0"] * 26
     columns[0], columns[5] = nonword, str(body_neighbours)
-    columns[21], columns[23] = str(words_with_onset), str(illegal)
+    columns[21], columns[23], columns[24] = str(words_with_onset), str(illegal), morphology
     return "\t".join(columns)
 
 
-# 条件を満たす非語と、満たさない非語（語尾の部分がない・語頭の子音の並びがない・2文字の並びがない）
+FAR = ["blolph", "skrint", "thwurg", "glimbrast", "prandulk"]
+# 条件を満たす非語と、満たさない非語（語尾の部分がない・語頭の子音の並びがない・2文字の並びがない・
+# 語尾 -s のある、単一形態素でない非語）
 ARC_TSV = "\n".join(
-    [arc_row(word, 3, 5, 0) for word in ["blolph", "skrint", "thwurg", "glimbrast", "prandulk"]]
+    [arc_row(word, 3, 5, 0) for word in FAR]
     + [arc_row("zzorp", 0, 5, 0), arc_row("vlimp", 3, 0, 0), arc_row("bnast", 3, 5, 1)]
+    + [arc_row("skrints", 3, 5, 0, "p")]
 )
 
 
@@ -72,8 +77,10 @@ def test_candidates_are_absent_strings_of_two_and_three_tokens(
     with output_path.open(encoding="utf-8") as file:
         rows = list(csv.DictReader(file))
     far_words = {row["word"] for row in rows if row["spelling_closeness"] == "far"}
-    assert far_words <= {"blolph", "skrint", "thwurg", "glimbrast", "prandulk"}
+    assert far_words and far_words <= set(FAR)
     near = [row for row in rows if row["spelling_closeness"] == "near"]
+    # 屈折形に見える語は、near の元にしない
+    assert not [row for row in near if row["source_word"].endswith(("ing", "ed"))]
     assert {int(row["token_count"]) for row in rows} <= {2, 3}
     for row in near:
         assert len(row["word"]) == len(row["source_word"])
