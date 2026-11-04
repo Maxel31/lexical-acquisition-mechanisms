@@ -42,7 +42,6 @@ from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.logistic_probes import LogisticProbe, train_logistic_probe
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
-from lexical_acquisition_mechanisms.sense_accuracy import SenseAccuracy
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings
 from lexical_acquisition_mechanisms.task_accuracy import SIGNIFICANCE_LEVEL, binomial_p_value
 from lexical_acquisition_mechanisms.task_prompts import (
@@ -226,11 +225,7 @@ def write_probe_transfer(
         write_rows(output, AttributeProbeTransfer, [])
         return
     questions = parquet.read_table(questions_path).to_pylist()
-    usable = {
-        (row.kind, row.number_of_senses, row.target, row.sense)
-        for row in read_rows(accuracy_path, SenseAccuracy)
-        if row.usable
-    }
+    usable = sense_accuracy.usable_senses(accuracy_path)
     words = {word.word: word for word in read_rows(words_path, SelectedWord)}
     results = []
     for run, checkpoint in checkpoints.items():
@@ -281,6 +276,17 @@ def write_probe_transfer(
                 )
             )
     write_rows(output, AttributeProbeTransfer, results)
+
+
+def read_attribute_probes(path: Path) -> dict[tuple[int, int, str], LogisticProbe]:
+    """attribute_probes.npz の、（層, head, 属性）ごとのプローブ。"""
+    arrays = np.load(path)
+    parts: dict[tuple[int, int, str], dict[str, np.ndarray]] = {}
+    for key in arrays.files:
+        # キーは "{層}-{head}-{属性}-{名前}"。属性（part-of-speech）にも "-" がある
+        layer, head, *attribute, name = key.split("-")
+        parts.setdefault((int(layer), int(head), "-".join(attribute)), {})[name] = arrays[key]
+    return {key: LogisticProbe(**values) for key, values in parts.items()}
 
 
 def adopted_heads(classes_path: Path) -> list[tuple[int, int]]:
