@@ -58,10 +58,15 @@ def finalize(tmp_path: Path, approvals: tuple[str, str]) -> Path:
         ),
     ]
     write_rows(tmp_path / "review.csv", MinimalPairReviewRow, review)
+    # 課題ごとに例を4つ置く（最小対の2文で、同じ例が選ばれるかを確かめるため）
     examples = [
-        TaskExample("sense", "soup", "We ate {word}.", "broth|cat", "broth"),
-        TaskExample("category", "soup", "We ate {word}.", "food|animal", "food"),
-        TaskExample("part-of-speech", "soup", "We ate {word}.", "noun|adjective", "noun"),
+        example
+        for word in ("soup", "stew", "rice", "bread")
+        for example in (
+            TaskExample("sense", word, "We ate {word}.", "broth|cat", "broth"),
+            TaskExample("category", word, "We ate {word}.", "food|animal", "food"),
+            TaskExample("part-of-speech", word, "We ate {word}.", "noun|adjective", "noun"),
+        )
     ]
     write_rows(tmp_path / "examples.csv", TaskExample, examples)
     write_rows(
@@ -105,7 +110,30 @@ def test_rejected_pairs_are_removed_and_questions_are_built(tmp_path: Path) -> N
     }
     sense = next(question for question in questions if question["task"] == "sense")
     assert sorted(sense["choices"]) == ["automobile", "pasta"]
-    assert "the {word}." in sense["prompt_template"].split("\\n\\n")[-1]
+    assert "the {word}." in sense["prompt_template"].split("\n\n")[-1]
+
+
+def test_both_sentences_of_a_pair_share_examples_and_choices(tmp_path: Path) -> None:
+    finalize(tmp_path, ("1", "0"))
+
+    questions = parquet.read_table(tmp_path / "questions.parquet").to_pylist()
+    pairs: dict[tuple[str, str], dict[str, dict]] = {}
+    for question in questions:
+        key = (question["donor_sentence"], question["task"])
+        pairs.setdefault(key, {})[question["cue"]] = question
+    assert len(pairs) == 4
+    for pair in pairs.values():
+        donor, target = pair["donor"], pair["target"]
+        assert donor["choices"] == target["choices"]
+        # 違うのは、最後の問題の文（手がかりの語）の行だけ
+        donor_lines = donor["prompt_template"].split("\n")
+        target_lines = target["prompt_template"].split("\n")
+        differing = [
+            index
+            for index, (first, second) in enumerate(zip(donor_lines, target_lines, strict=True))
+            if first != second
+        ]
+        assert differing == [len(donor_lines) - 3]
 
 
 def test_unfilled_review_rows_stop(tmp_path: Path) -> None:
