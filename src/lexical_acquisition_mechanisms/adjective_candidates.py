@@ -79,6 +79,8 @@ class AdjectiveCandidate:
     token_count: int = 0
     pile_sample_count: int = 0
     estimated_pile_count: int = 0
+    # Pile 全体で、用例として切り出せる文章の数の見積もり
+    estimated_pile_passages: int = 0
     # LLM が判定できた見本の数と、そのうち形容詞として使われていた割合
     judged_usages: int = 0
     adjective_usage_share: float = 0.0
@@ -92,6 +94,7 @@ def generate_adjective_candidates(settings: Settings, arguments: argparse.Namesp
     prompts = [PromptTemplate.load(name) for name in names]
     record_settings = {
         "words": settings.words.model_dump(),
+        "passages": settings.passages.model_dump(),
         "tokenizer": next(iter(settings.models.values())).model_dump(),
         **prompt_record_settings(settings.llm, prompts),
     }
@@ -141,6 +144,7 @@ def build_adjective_candidates(
         words.pile_sample_shards,
         words.usage_examples_per_word,
         words.seed,
+        settings.passages,
     )
 
     def make_request(word: str, passage: str) -> LlmRequest:
@@ -158,6 +162,7 @@ def build_adjective_candidates(
         share = shares[candidate.word]
         candidate.pile_sample_count = share.pile_sample_count
         candidate.estimated_pile_count = share.estimated_pile_count
+        candidate.estimated_pile_passages = share.estimated_pile_passages
         candidate.judged_usages = share.judged_usages
         candidate.adjective_usage_share = share.share
     _rate_associations(kept, settings, association_prompt, client)

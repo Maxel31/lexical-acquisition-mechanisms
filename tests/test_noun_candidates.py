@@ -105,6 +105,7 @@ def test_candidates_are_checked_with_wordnet_and_pile_usages(
     assert rows["pasta"]["token_count"] == "1"
     assert rows["pasta"]["pile_sample_count"] == "3"
     assert rows["pasta"]["estimated_pile_count"] == str(round(3 * 1650 / 2))
+    assert rows["pasta"]["estimated_pile_passages"] == str(round(3 * 1650 / 2))
     assert rows["pasta"]["judged_usages"] == "3"
     assert float(rows["pasta"]["intended_usage_share"]) == pytest.approx(2 / 3)
     assert rows["giraffe"]["category"] == "animal"

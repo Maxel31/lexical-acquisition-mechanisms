@@ -75,6 +75,8 @@ class NounCandidate:
     # Pile の先頭の断片での、標準の形の出現回数と、Pile 全体での見積もり
     pile_sample_count: int = 0
     estimated_pile_count: int = 0
+    # Pile 全体で、用例として切り出せる文章の数の見積もり
+    estimated_pile_passages: int = 0
     # LLM が判定できた見本の数と、そのうち意図した語義で使われていた割合
     judged_usages: int = 0
     intended_usage_share: float = 0.0
@@ -84,6 +86,7 @@ def generate_noun_candidates(settings: Settings, arguments: argparse.Namespace) 
     prompts = [PromptTemplate.load(LISTING_PROMPT), PromptTemplate.load(USAGE_PROMPT)]
     record_settings = {
         "words": settings.words.model_dump(),
+        "passages": settings.passages.model_dump(),
         "tokenizer": next(iter(settings.models.values())).model_dump(),
         **prompt_record_settings(settings.llm, prompts),
     }
@@ -132,6 +135,7 @@ def build_noun_candidates(
         words.pile_sample_shards,
         words.usage_examples_per_word,
         words.seed,
+        settings.passages,
     )
     _judge_usages(kept, usages, usage_prompt, client, words.pile_sample_shards)
     write_rows(output_path, NounCandidate, candidates)
@@ -192,5 +196,6 @@ def _judge_usages(
         share = shares[candidate.word]
         candidate.pile_sample_count = share.pile_sample_count
         candidate.estimated_pile_count = share.estimated_pile_count
+        candidate.estimated_pile_passages = share.estimated_pile_passages
         candidate.judged_usages = share.judged_usages
         candidate.intended_usage_share = share.share

@@ -13,6 +13,8 @@ class UsageShare:
     # Pile の先頭の断片での、標準の形の出現回数と、Pile 全体での見積もり
     pile_sample_count: int
     estimated_pile_count: int
+    # Pile 全体で、用例として切り出せる文章の数の見積もり
+    estimated_pile_passages: int
     # LLM が判定できた見本の数と、そのうち意図どおりに使われていた割合
     judged_usages: int
     share: float
@@ -42,12 +44,12 @@ def usage_shares(
         if answer is not None:
             judged[word] += 1
             intended[word] += bool(answer[answer_field])
+    scale = pile.NUMBER_OF_SHARDS / pile_sample_shards
     return {
         word: UsageShare(
             pile_sample_count=usages[word].count,
-            estimated_pile_count=round(
-                usages[word].count * pile.NUMBER_OF_SHARDS / pile_sample_shards
-            ),
+            estimated_pile_count=round(usages[word].count * scale),
+            estimated_pile_passages=round(usages[word].passage_count * scale),
             judged_usages=judged[word],
             share=intended[word] / judged[word] if judged[word] else 0.0,
         )
