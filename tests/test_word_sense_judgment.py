@@ -130,3 +130,62 @@ def test_candidates_are_judged_until_enough_pass(tmp_path: Path, settings: Setti
     sixth = next(row for row in judgments if row["word"] == "pasta" and round(row["key"], 2) == 0.5)
     assert (sixth["passed"], len(sixth["reasons"])) == (False, 2)
     assert asked_prompts.count("adjective") == 1
+
+
+def test_rejudging_reuses_previous_results_with_the_same_prompts(
+    tmp_path: Path, settings: Settings
+) -> None:
+    tokenizer = WordTokenizer.from_model(settings.models["tiny"])
+    words = [SelectedWord("pasta", "noun", token_count=1, definition="a dish", usage_share=0.9)]
+    write_rows(tmp_path / "words.csv", SelectedWord, words)
+    candidates = [
+        candidate(tokenizer, "pasta", "training", index / 10, text)
+        for index, text in enumerate(PASTA_TEXTS)
+    ]
+    candidates.append(candidate(tokenizer, "pasta", "evaluation", 0.95, "Good pasta here."))
+    schema = CANDIDATE_SCHEMA.append(arrow.field("split", arrow.string()))
+    parquet.write_table(
+        arrow.Table.from_pylist(candidates, schema=schema), tmp_path / "split.parquet"
+    )
+    prompts = {
+        part_of_speech: PromptTemplate.load(name, REPOSITORY_ROOT / "llm_prompts")
+        for part_of_speech, name in [("noun", NOUN_PROMPT), ("adjective", ADJECTIVE_PROMPT)]
+    }
+    outputs = (tmp_path / "judgments.parquet", tmp_path / "summary.csv")
+    requested: list[str] = []
+
+    def judge(answers_path: Path, unfinished: str = "") -> None:
+        def respond(request: httpx.Request) -> httpx.Response:
+            passage = json.loads(request.content)["messages"][0]["content"].split("Passage:")[1]
+            requested.append(passage)
+            if unfinished and unfinished in passage:
+                choice = {"message": {"content": "{"}, "finish_reason": "length"}
+            else:
+                answer = {"intended": "]] brand" not in passage, "reason": "stub"}
+                choice = {"message": {"content": json.dumps(answer)}, "finish_reason": "stop"}
+            return httpx.Response(200, json={"choices": [choice]})
+
+        client = LlmClient(
+            settings.llm,
+            answers_path,
+            rerun_from="passages judge-word-sense",
+            transport=httpx.MockTransport(respond),
+        )
+        build_judgments(
+            settings, prompts, client, tmp_path / "words.csv", tmp_path / "split.parquet", outputs
+        )
+
+    # 1回目: "We ate pasta" の答えが長さの上限で切れ、判定できずに不合格になる
+    judge(tmp_path / "first.sqlite3", unfinished="We ate [[pasta]]")
+    first = {row["key"]: row["passed"] for row in parquet.read_table(outputs[0]).to_pylist()}
+    assert first[0.0] is False
+    # 2回目（同じ指示文。答えの保存は空）: 前回判定した候補は問い合わせず、結果も同じ
+    requested.clear()
+    judge(tmp_path / "second.sqlite3")
+    second = {row["key"]: row["passed"] for row in parquet.read_table(outputs[0]).to_pylist()}
+    assert second == first
+    assert requested == []
+    # 指示文を直すと、前回の結果は使わない
+    prompts["noun"] = PromptTemplate(prompts["noun"].name, prompts["noun"].text + "\n")
+    judge(tmp_path / "third.sqlite3")
+    assert requested

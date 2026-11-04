@@ -6,10 +6,15 @@
 - 用例は、全ての出現が合格したときに合格とする。
 - 語と分け方（学習用・評価用）の組ごとに、鍵の小さい候補から、合格した用例が必要な数に届くまで
   判定する。合格する割合を見込んで少しずつ問い合わせ、足りなければ続きを問い合わせる。
+- 実行し直したとき（例: K を変えたとき）、前回と同じ指示文と LLM なら、前回判定した候補は前回の結果
+  （答えが得られずに不合格にしたものを含む）を使い、問い合わせない。答えの得られなかった問い合わせは
+  保存されないので、問い合わせ直すと結果が変わり、学習に使った用例とずれうるため。
+- 出現の位置がない候補は、問い合わせずに不合格にする。
 結果を data/passages/judgments.parquet に、組ごとの数を data/passages/judgment_summary.csv に書く。
 """
 
 import argparse
+import json
 import math
 from collections import Counter
 from collections.abc import Mapping
@@ -52,6 +57,8 @@ SCHEMA = {
 REQUEST_MARGIN = 1.2
 MINIMUM_PASS_RATE = 0.2
 MINIMUM_REQUESTS = 20
+# judgments.parquet の、判定に使った指示文と LLM を書くメタデータの鍵
+JUDGMENT_SETTINGS_KEY = b"judgment_settings"
 
 
 @dataclass
@@ -139,11 +146,17 @@ def build_judgments(
     judged_indices: list[int] = []
     accepted_values: list[bool] = []
     reason_lists: list[list[str]] = []
+    signature = json.dumps(
+        prompt_record_settings(settings.llm, list(prompts.values())), sort_keys=True
+    )
+    previous = _previous_judgments(judgments_path, signature)
     while batch := _next_batch(remaining, needed, judged, passed, words):
         candidates = table.take([index for _, index in batch]).to_pylist()
         requests = []
         owners = []
         for number, candidate in enumerate(candidates):
+            if _candidate_key(candidate) in previous:
+                continue
             word = words[candidate["word"]]
             for position in candidate["occurrence_positions"]:
                 requests.append(_request(word, candidate, position, prompts, tokenizer))
@@ -151,19 +164,25 @@ def build_judgments(
         verdicts: list[list[dict[str, Any] | None]] = [[] for _ in batch]
         for owner, answer in zip(owners, client.ask_all(requests), strict=True):
             verdicts[owner].append(answer)
-        for (group, index), answers in zip(batch, verdicts, strict=True):
-            accepted = all(answer is not None and answer["intended"] for answer in answers)
+        for (group, index), candidate, answers in zip(batch, candidates, verdicts, strict=True):
+            if _candidate_key(candidate) in previous:
+                accepted, reasons = previous[_candidate_key(candidate)]
+            else:
+                accepted = bool(answers) and all(
+                    answer is not None and answer["intended"] for answer in answers
+                )
+                reasons = [answer["reason"] if answer else "判定できなかった" for answer in answers]
             judged[group] += 1
             passed[group] += accepted
             judged_indices.append(index)
             accepted_values.append(accepted)
-            reason_lists.append(
-                [answer["reason"] if answer else "判定できなかった" for answer in answers]
-            )
+            reason_lists.append(reasons)
     results = table.take(judged_indices)
     results = results.append_column("passed", arrow.array(accepted_values, arrow.bool_()))
     reasons = arrow.array(reason_lists, arrow.list_(arrow.string()))
-    parquet.write_table(results.append_column("reasons", reasons), judgments_path)
+    results = results.append_column("reasons", reasons)
+    metadata = {**(results.schema.metadata or {}), JUDGMENT_SETTINGS_KEY: signature.encode()}
+    parquet.write_table(results.replace_schema_metadata(metadata), judgments_path)
     summaries = [
         JudgmentSummary(
             word,
@@ -176,6 +195,23 @@ def build_judgments(
         for word, split in sorted(remaining)
     ]
     write_rows(summary_path, JudgmentSummary, summaries)
+
+
+def _candidate_key(candidate: Mapping[str, Any]) -> tuple[str, int, int, int]:
+    return candidate["word"], candidate["shard"], candidate["row"], candidate["start"]
+
+
+def _previous_judgments(
+    path: Path, signature: str
+) -> dict[tuple[str, int, int, int], tuple[bool, list[str]]]:
+    """前回の判定の結果（候補ごとの合否と理由）。指示文か LLM が違えば、使わない（空）。"""
+    if not path.exists():
+        return {}
+    table = parquet.read_table(path)
+    if (table.schema.metadata or {}).get(JUDGMENT_SETTINGS_KEY) != signature.encode():
+        return {}
+    rows = table.select(["word", "shard", "row", "start", "passed", "reasons"]).to_pylist()
+    return {_candidate_key(row): (row["passed"], row["reasons"]) for row in rows}
 
 
 def _indices_by_group(table: arrow.Table) -> dict[tuple[str, str], list[int]]:
