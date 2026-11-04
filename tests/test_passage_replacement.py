@@ -84,3 +84,18 @@ def test_missing_occurrences_are_errors(tokenizer: WordTokenizer) -> None:
         replacer.replace(token_ids, [], replacement)
     with pytest.raises(ReplacementError, match="位置 0 に元の語がありません"):
         replacer.replace(token_ids, [0], replacement)
+
+
+def test_parts_of_words_are_not_treated_as_articles(tokenizer: WordTokenizer) -> None:
+    # " pec|an| pie" の "an" は、pecan の一部で冠詞ではない
+    token_ids = tokenizer.encode(["We ate pecan pie today."])
+    replacer = PassageReplacer(tokenizer, tokens_per_passage=len(token_ids))
+
+    replaced = replacer.replace(
+        token_ids,
+        positions_of(tokenizer, token_ids, "pie"),
+        word_replacement(tokenizer, "pie", "car"),
+    )
+
+    assert tokenizer.decode(replaced.token_ids) == "We ate pecan car today."
+    assert replaced.records == [("pie", "car")]

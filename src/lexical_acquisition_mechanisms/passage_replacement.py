@@ -4,7 +4,8 @@
   トークンの位置）だけ。所有格の 's など、後ろのトークンはそのまま残す。
 - 置き換えた語の直前が冠詞 a / an（大文字で始まるものを含む）なら、置き換えた後の語の最初の文字が
   母音（a・e・i・o・u）かどうかに合わせて a / an にする。トークン番号で差し込む語（1トークンの
-  未知語）では、冠詞を元のまま残す。
+  未知語）では、冠詞を元のまま残す。先頭スペースのない a / an のトークンは、語の途中（前の
+  トークンが英字で終わる。例: " pec|an| pie" の "an"）なら冠詞とみなさない。
 - 置き換えはトークン列の中で行う。語の前後はトークンの区切り（先頭スペース付きの語は、それだけで
   1つの区切りになる）なので、文字列で置き換えてトークン化し直したのと同じトークン列になる。
 - 置き換えた後、用例の長さに切り直す。置き換えた語を全て含み、始まりと次のトークンが語の途中に
@@ -81,7 +82,7 @@ class PassageReplacer:
             before = list(token_ids[start:position])
             original = self._tokenizer.decode(source)
             replaced = self._tokenizer.decode(list(replacement.target_ids))
-            if replacement.adjust_articles and before and before[-1] in self._articles:
+            if self._has_article(replacement, before):
                 article = self._article_for(before[-1], replacement.target_text)
                 original = self._tokenizer.decode([before[-1]]) + original
                 replaced = self._tokenizer.decode([article]) + replaced
@@ -102,6 +103,12 @@ class PassageReplacer:
         return ReplacedPassage(
             window, [position - window_start for position in new_positions], records
         )
+
+    def _has_article(self, replacement: Replacement, before: list[int]) -> bool:
+        """置き換える語の直前（before の最後）が、合わせる冠詞か。語の一部の a / an は除く。"""
+        if not replacement.adjust_articles or not before or before[-1] not in self._articles:
+            return False
+        return not self._boundaries.inside_word(before, len(before) - 1)
 
     def _article_for(self, token_id: int, target_text: str) -> int:
         """置き換えた後の語の最初の文字に合わせた冠詞のトークン（大文字と先頭スペースは元のまま）。"""
