@@ -20,6 +20,7 @@ from lexical_acquisition_mechanisms import (
     base_data,
     category_dependence,
     continued_pretraining,
+    dependence_regression,
     evaluation_finalization,
     head_and_mlp_effects,
     hidden_state_similarity,
@@ -326,6 +327,13 @@ def all_actions() -> list[Action]:
             "を測る",
             category_dependence.measure_dependence,
             category_dependence.add_arguments,
+        ),
+        Action(
+            "dependence-on-category-judging-heads",
+            "fit-regression",
+            "依存度を、意味と語としての統合の指標などで説明する回帰を当てはめる",
+            dependence_regression.fit_regression,
+            dependence_regression.add_arguments,
         ),
     ]
 
