@@ -8,7 +8,14 @@ from pathlib import Path
 from typing import Annotated
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    ValidationError,
+    field_validator,
+)
 
 SETTINGS_FILE_NAME = "settings.yaml"
 
@@ -51,12 +58,38 @@ class LlmSettings(SettingsSection):
     maximum_concurrent_requests: int = Field(gt=0)
 
 
+class CategorySettings(SettingsSection):
+    """名詞のカテゴリ（食べ物・動物などの意味の分類）。"""
+
+    # カテゴリの名前。課題2（属性の判定）の選択肢の語でもある
+    name: str = Field(pattern=r"^[a-z]+$")
+    # LLM に、このカテゴリの名詞を挙げさせるときの説明
+    description: str
+    # このカテゴリの語義の上位語（WordNet の synset の名前。例: food.n.01）
+    wordnet_roots: list[str] = Field(min_length=1)
+
+
+class WordsSettings(SettingsSection):
+    """実験で操作する語と、自然な語の選び方。"""
+
+    categories: list[CategorySettings] = Field(min_length=2)
+
+    @field_validator("categories")
+    @classmethod
+    def _names_are_unique(cls, categories: list[CategorySettings]) -> list[CategorySettings]:
+        names = [category.name for category in categories]
+        if len(set(names)) != len(names):
+            raise ValueError(f"カテゴリの名前が重なっています: {names}")
+        return categories
+
+
 class Settings(SettingsSection):
     """settings.yaml の全体。"""
 
     # --model で指定する名前と、モデルの取得元
     models: dict[ModelName, ModelSource] = Field(min_length=1)
     llm: LlmSettings
+    words: WordsSettings
 
 
 def load_settings(path: Path = Path(SETTINGS_FILE_NAME)) -> Settings:
