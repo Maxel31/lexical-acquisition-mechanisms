@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from lexical_acquisition_mechanisms import wordnet_senses
 from lexical_acquisition_mechanisms.settings import load_settings
 from lexical_acquisition_mechanisms.wordnet_senses import (
     adjective_senses,
@@ -17,22 +16,13 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CATEGORIES = load_settings(REPOSITORY_ROOT / "settings.yaml").words.categories
 
 
-@pytest.fixture(scope="module", autouse=True)
-def wordnet_in_temporary_directory(tmp_path_factory: pytest.TempPathFactory):
-    original = wordnet_senses.NLTK_DATA_DIRECTORY
-    wordnet_senses.NLTK_DATA_DIRECTORY = tmp_path_factory.mktemp("data") / "nltk_data"
-    wordnet_senses.load_wordnet.cache_clear()
-    try:
-        wordnet_senses.load_wordnet()
-    except (RuntimeError, OSError) as error:
-        pytest.skip(f"WordNet を用意できません: {error}")
-    yield wordnet_senses.NLTK_DATA_DIRECTORY
-    wordnet_senses.NLTK_DATA_DIRECTORY = original
-    wordnet_senses.load_wordnet.cache_clear()
+@pytest.fixture(autouse=True)
+def use_wordnet(wordnet_directory: Path) -> None:
+    pass
 
 
-def test_download_directory_is_private(wordnet_in_temporary_directory: Path) -> None:
-    mode = wordnet_in_temporary_directory.stat().st_mode
+def test_download_directory_is_private(wordnet_directory: Path) -> None:
+    mode = wordnet_directory.stat().st_mode
     assert not mode & (stat.S_IWGRP | stat.S_IWOTH)
 
 

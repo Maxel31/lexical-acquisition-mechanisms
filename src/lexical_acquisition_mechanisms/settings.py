@@ -84,6 +84,16 @@ class WordsSettings(SettingsSection):
     """実験で操作する語と、自然な語の選び方。"""
 
     categories: list[CategorySettings] = Field(min_length=2)
+    # LLM に、カテゴリごとに名詞を挙げさせるときの、挙げる語の種類（種類ごとに1回ずつ挙げさせる）
+    noun_listing_kinds: list[str] = Field(min_length=1)
+    # 1回に挙げさせる名詞の数
+    nouns_per_listing: int = Field(gt=0)
+    # 頻度と使われ方を見積もるときに読む、Pile の先頭の断片の数（全部で1,650個）
+    pile_sample_shards: int = Field(gt=0, le=1650)
+    # 使われ方を LLM が判定する、語ごとの見本の数
+    usage_examples_per_word: int = Field(gt=0)
+    # 見本を選ぶときなどに使う seed
+    seed: int
 
     @field_validator("categories")
     @classmethod

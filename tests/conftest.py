@@ -6,6 +6,7 @@ import pytest
 import torch
 from transformers import AutoTokenizer, Olmo2Config, Olmo2ForCausalLM
 
+from lexical_acquisition_mechanisms import wordnet_senses
 from lexical_acquisition_mechanisms.settings import ModelSource, load_settings
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -41,3 +42,18 @@ def tiny_model_source(tmp_path_factory: pytest.TempPathFactory) -> ModelSource:
     model.save_pretrained(directory)
     tokenizer.save_pretrained(directory)
     return ModelSource(repository=str(directory))
+
+
+@pytest.fixture(scope="session")
+def wordnet_directory(tmp_path_factory: pytest.TempPathFactory):
+    """WordNet を、テスト用の一時的なディレクトリにダウンロードして使う。"""
+    original = wordnet_senses.NLTK_DATA_DIRECTORY
+    wordnet_senses.NLTK_DATA_DIRECTORY = tmp_path_factory.mktemp("data") / "nltk_data"
+    wordnet_senses.load_wordnet.cache_clear()
+    try:
+        wordnet_senses.load_wordnet()
+    except (RuntimeError, OSError) as error:
+        pytest.skip(f"WordNet を用意できません: {error}")
+    yield wordnet_senses.NLTK_DATA_DIRECTORY
+    wordnet_senses.NLTK_DATA_DIRECTORY = original
+    wordnet_senses.load_wordnet.cache_clear()
