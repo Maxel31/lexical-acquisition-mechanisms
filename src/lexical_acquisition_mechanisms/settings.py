@@ -172,6 +172,13 @@ class EvaluationSettings(SettingsSection):
 
     # 自然な語（実験で操作しない実在語）ごとの、課題の例やプローブの学習に使う文の数
     sentences_per_natural_word: int = Field(gt=0)
+    # 中立文脈（語の意味を示さない文の書き出し）の候補。前から順に、条件に合うものを使う
+    neutral_context_candidates: list[str] = Field(min_length=1)
+    # 使う中立文脈の数（文脈なしを除く）
+    number_of_neutral_contexts: int = Field(gt=0)
+    # 中立文脈の条件: 自然な名詞の対数確率のカテゴリごとの平均（全カテゴリの平均との差）が、
+    # 全候補での平均から、どのカテゴリでもこれ（自然対数）より離れない
+    maximum_neutral_context_deviation: float = Field(gt=0)
 
 
 class Settings(SettingsSection):

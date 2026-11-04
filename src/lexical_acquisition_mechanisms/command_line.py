@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from lexical_acquisition_mechanisms import (
     adjective_candidates,
     base_data,
+    neutral_contexts,
     noun_candidates,
     similarity_ratings,
     unknown_word_candidates,
@@ -92,6 +93,13 @@ def all_actions() -> list[Action]:
             "rate-similarity-with-llm",
             "ターゲット語と名詞の組ごとに、意味の近さを LLM が評定する",
             similarity_ratings.rate_similarity_with_llm,
+        ),
+        Action(
+            "evaluation-data",
+            "select-neutral-contexts",
+            "中立文脈（語の意味を示さない文の書き出し）を、公開されている OLMo 2 で、"
+            "どのカテゴリの語も予測しやすくしていないことを確かめて選ぶ",
+            neutral_contexts.select_neutral_contexts,
         ),
     ]
 
