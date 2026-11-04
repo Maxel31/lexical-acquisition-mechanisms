@@ -10,6 +10,7 @@
 - 違う語が、ちょうど1つで、空欄より前にあるものでない
 - 空欄にターゲット語を入れたとき、2文のトークン数が違う（head の出力を位置ごとに入れ替えるため）
 - 同じ組の、ほかの候補と同じ
+使える候補が1つもない語義の組があれば止まる（その語義が、後の全ての分析から黙って消えないように）。
 語義の組ごとに、最小対の数（evaluation.minimal_pairs_per_sense_pair）×
 evaluation.minimal_pair_candidate_factor 個まで残し、data/evaluation/minimal_pair_candidates.csv に
 書く（学習前のモデルで確かめるのは、evaluation-data check-with-pretrained-models）。
@@ -21,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from lexical_acquisition_mechanisms import sense_addition_assignments, word_finalization
+from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.llm_client import (
     ANSWERS_PATH,
@@ -157,6 +159,7 @@ def build_minimal_pair_candidates(
         for row, _ in sense_pairs
     ]
     candidates = []
+    empty = []
     answers = client.ask_all(requests)
     # 答えがない語義の組は、最小対が1つもなくなり、後の分析から黙って消えるので止まる
     require_answers(answers, "最小対", COMMAND)
@@ -183,7 +186,16 @@ def build_minimal_pair_candidates(
                 for other in kept
             ):
                 kept.append(candidate)
+        if not kept:
+            empty.append(f"{row.target}/{row.donor}")
         candidates += kept
+    if empty:
+        raise CommandStopped(
+            f"使える候補が1つもない語義の組があります（{len(empty)} 組: {empty[:10]}）。"
+            "settings.yaml の evaluation.minimal_pair_candidate_factor を大きくするか、"
+            f"llm_prompts/{PROMPT}.md を直してください。",
+            rerun_from=COMMAND,
+        )
     write_rows(output_path, MinimalPairCandidate, candidates)
 
 

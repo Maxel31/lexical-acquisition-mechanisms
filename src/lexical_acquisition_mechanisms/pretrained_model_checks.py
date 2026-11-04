@@ -6,7 +6,8 @@ evaluation-data check-with-pretrained-models の処理。
 出やすい（全てのモデルで）候補だけを使う。語義の組ごとに、候補の順に
 evaluation.minimal_pairs_per_sense_pair 組まで残し（data/evaluation/checked_minimal_pairs.csv）、
 組ごとに1組を、人が確かめる minimal_pairs_review.csv に書く（空欄にはターゲット語を入れる。語義を
-足したモデルで使う文なので）。
+足したモデルで使う文なので）。確認に通った最小対が足りない語義の組は表示し、1つもない組があれば、
+書き出した後に止まる（その語義が、後の全ての分析から黙って消えないように）。
 自然な語での課題の正解率（task_accuracy.csv）と、ターゲット語の言い換えの語の確認
 （target_paraphrase_checks.csv）も書く（task_accuracy）。
 """
@@ -227,6 +228,13 @@ def check_evaluation_data(
     ]
     if short:
         print(f"確認に通った最小対が足りない語義の組があります（{len(short)} 組: {short[:10]}）。")
+    empty = [f"{target}/{donor}" for (target, donor), group in kept.items() if not group]
+    if empty:
+        raise CommandStopped(
+            f"確認に通った最小対が1つもない語義の組があります（{len(empty)} 組: {empty[:10]}）。"
+            "settings.yaml の evaluation.minimal_pair_candidate_factor を大きくしてください。",
+            rerun_from=minimal_pairs.COMMAND,
+        )
 
 
 def _write_review(

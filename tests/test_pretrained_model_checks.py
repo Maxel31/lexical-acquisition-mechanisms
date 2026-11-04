@@ -65,7 +65,10 @@ def candidate(donor_sentence: str, target_sentence: str) -> MinimalPairCandidate
     )
 
 
-def test_evaluation_data_is_checked(tmp_path: Path, tiny_model_source: ModelSource) -> None:
+def check(
+    tmp_path: Path, tiny_model_source: ModelSource, candidates: list[MinimalPairCandidate]
+) -> CheckPaths:
+    """入力を書き、決まった対数確率を返すモデルで確かめる。"""
     settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
     evaluation = settings.evaluation.model_copy(
         update={"minimal_pairs_per_sense_pair": 2, "number_of_task_examples": 1}
@@ -100,12 +103,6 @@ def test_evaluation_data_is_checked(tmp_path: Path, tiny_model_source: ModelSour
         for word, role in (("car", "target"), ("pasta", "noun"))
     ]
     write_rows(paths.words, SelectedWord, words)
-    candidates = [
-        candidate("She saw the ___ today.", "She met the ___ today."),
-        candidate("She cooked the ___ today.", "She parked the ___ today."),
-        candidate("He ate the ___ quickly.", "He drove the ___ quickly."),
-        candidate("We cooked the ___ again.", "We parked the ___ again."),
-    ]
     write_rows(paths.candidates, MinimalPairCandidate, candidates)
     template = "Sentence: The {word} is here.\\nQuestion: ?\\nAnswer:"
     questions = [
@@ -135,6 +132,18 @@ def test_evaluation_data_is_checked(tmp_path: Path, tiny_model_source: ModelSour
     write_rows(paths.paraphrases, Paraphrase, [Paraphrase("car", "target", "automobile")])
 
     check_evaluation_data(settings, lambda source: ModelFollowingCues(tokenizer), paths)
+    return paths
+
+
+def test_evaluation_data_is_checked(tmp_path: Path, tiny_model_source: ModelSource) -> None:
+    candidates = [
+        candidate("She saw the ___ today.", "She met the ___ today."),
+        candidate("She cooked the ___ today.", "She parked the ___ today."),
+        candidate("He ate the ___ quickly.", "He drove the ___ quickly."),
+        candidate("We cooked the ___ again.", "We parked the ___ again."),
+    ]
+
+    paths = check(tmp_path, tiny_model_source, candidates)
 
     # 手がかりが語義を決めない1組目は使わず、通った組を、語義の組ごとに2組まで残す
     checked = read_rows(paths.checked_pairs, CheckedMinimalPair)
@@ -154,6 +163,18 @@ def test_evaluation_data_is_checked(tmp_path: Path, tiny_model_source: ModelSour
     assert (accuracy["sense"].accuracy, accuracy["sense"].usable) == (0.0, False)
     (paraphrase,) = read_rows(paths.paraphrase_checks, ParaphraseCheck)
     assert (paraphrase.sentences, paraphrase.paraphrase_share) == (2, 1.0)
+
+
+def test_sense_pairs_without_checked_minimal_pairs_stop(
+    tmp_path: Path, tiny_model_source: ModelSource
+) -> None:
+    # 手がかりが語義を決めない候補しかない
+    candidates = [candidate("She saw the ___ today.", "She met the ___ today.")]
+
+    with pytest.raises(
+        CommandStopped, match="1つもない語義の組があります（1 組: \\['car/pasta'\\]）"
+    ):
+        check(tmp_path, tiny_model_source, candidates)
 
 
 def test_binomial_p_value() -> None:
