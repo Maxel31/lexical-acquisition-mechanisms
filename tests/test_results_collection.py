@@ -33,7 +33,7 @@ def write_inputs(directory: Path) -> None:
     normalized = [row | {"normalized": 0.8} for row in indicators]
     parquet.write_table(arrow.Table.from_pylist(normalized), directory / NAMES[1])
     orders = [
-        AcquisitionOrder("all", indicator, 3, 100.0, 50.0, 200.0, "")
+        AcquisitionOrder("all", indicator, 3, 100.0, 50.0, 200.0, 1.0, "")
         for indicator in ("form", "meaning", "integration")
     ]
     write_rows(directory / NAMES[2], AcquisitionOrder, orders)

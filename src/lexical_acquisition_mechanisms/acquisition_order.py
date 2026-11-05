@@ -4,12 +4,15 @@
 1. 正規化: m̂ = (m − m0) / (m1 − m0)。m0 は同じ run の露出0回の未知語（トークン数と綴りの近さが
    同じもの）の平均。m1 は、形への慣れと統合では同じ run の同じトークン数の既知の名詞（1トークンは
    名詞72語）の平均、意味では同じ run の、割り当てた名詞を同じトークン数に分けた形と元の名詞の値
-   （1トークンの未知語は2トークンに分けた形）。|m1 − m0| が指標ごとの下限より小さいときは警告する。
+   （1トークンの未知語は2トークンに分けた形）。|m1 − m0| が指標ごとの下限より小さい組は、値が何倍
+   にも膨らみうるので、m̂ を nan にして（曲線と層の選び方から外して）、その数を表示する。
 2. 曲線: 指標ごと（統合と意味は層ごと）に、露出回数の水準ごとの m̂ の、未知語での平均。露出回数は
    log10(1 + 露出回数) で並べ、m̂ が 0.5 に達する露出回数を、隣り合う水準の間の直線で求める。
    順番の判定に使う層は、指標ごとに、露出回数が最大の水準での平均が最も大きい層（表に書く）。
-3. 検定: 未知語を単位に BOOTSTRAP_SAMPLES 回の再抽出をし、0.5 に達する露出回数と、2つの指標の順番の
-   割合（とその反対の割合から出す両側の p 値）を出す。トークン数・綴りの近さごとにも出す。
+3. 検定: 未知語を単位に BOOTSTRAP_SAMPLES 回の再抽出をし、0.5 に達する露出回数の 95% の範囲
+   （達しない再抽出も inf として含める）と、0.5 に達した再抽出の割合と、指標がほかの指標より先に
+   達した再抽出の割合を出す（両側の p 値は、2 × min(割合, 1 − 割合)）。トークン数・綴りの近さ
+   ごとにも出す。
 出力は outputs/results/unknown-word-acquisition/<モデル>/ の normalized_indicators.parquet・
 acquisition_curves.csv・acquisition_order.csv。
 """
@@ -33,7 +36,7 @@ from lexical_acquisition_mechanisms.unknown_word_indicators import (
 )
 
 INDICATORS = ("form", "meaning", "integration")
-# |m1 − m0| がこれより小さければ、正規化した値が不安定なので警告する（指標の単位で）
+# |m1 − m0| がこれより小さければ、正規化した値が不安定なので使わない（指標の単位で）
 MINIMUM_REFERENCE_GAPS = {
     "form": 0.1,
     "form-second": 0.1,
@@ -65,6 +68,8 @@ class AcquisitionOrder:
     half_exposure: float
     lower: float
     upper: float
+    # 0.5 に達した再抽出の割合
+    reached_share: float
     # この指標が、ほかの2つの指標のそれぞれより先に 0.5 に達した再抽出の割合
     earlier_than: str
 
@@ -153,7 +158,7 @@ def normalize(rows: Sequence[dict[str, object]]) -> list[dict[str, object]]:
             key = ("split", row["run"], row["noun"], row["token_count"], row["layer"])
             by_key.setdefault(key, []).append(row["value"])
     normalized = []
-    warned = set()
+    unstable: dict[tuple[str, int], int] = {}
     for row in rows:
         if row["kind"] != "unknown" or not row["noun"]:
             continue
@@ -175,14 +180,19 @@ def normalize(rows: Sequence[dict[str, object]]) -> list[dict[str, object]]:
                 by_key.get(("m1", row["run"], row["token_count"], indicator, row["layer"]), [])
             )
         gap = m1 - m0
-        if abs(gap) < MINIMUM_REFERENCE_GAPS[indicator] and (indicator, row["layer"]) not in warned:
-            warned.add((indicator, row["layer"]))
-            print(
-                f"{indicator}（層 {row['layer']}）で、m1 と m0 の差が小さい（{gap:.4f}）"
-                "組があります。"
-            )
-        value = (row["value"] - m0) / gap if gap else math.nan
+        if abs(gap) < MINIMUM_REFERENCE_GAPS[indicator]:
+            key = (indicator, row["layer"])
+            unstable[key] = unstable.get(key, 0) + 1
+            value = math.nan
+        else:
+            value = (row["value"] - m0) / gap
         normalized.append({**row, "m0": m0, "m1": m1, "normalized": value})
+    for (indicator, layer), count in sorted(unstable.items()):
+        print(
+            f"{indicator}（層 {layer}）で、m1 と m0 の差が下限"
+            f"（{MINIMUM_REFERENCE_GAPS[indicator]}）より小さい {count} 行の、正規化した値を"
+            "使いません。"
+        )
     return normalized
 
 
@@ -206,7 +216,7 @@ def _analyze_group(
                 curves.append(
                     AcquisitionCurvePoint(group, indicator, layer, exposure, float(value), count)
                 )
-            if best is None or means[-1] > best[1]:
+            if not np.isnan(means[-1]) and (best is None or means[-1] > best[1]):
                 best = (layer, means[-1])
         if best is not None:
             chosen_layers[indicator] = best[0]
@@ -222,8 +232,9 @@ def _analyze_group(
     orders = []
     for name in tables:
         values = np.array(samples[name])
-        finite = values[np.isfinite(values)]
-        lower, upper = np.percentile(finite, [2.5, 97.5]) if len(finite) else (math.inf, math.inf)
+        # 達しない再抽出（inf）も含めて、値の間を補間せずに分位点を取る
+        lower = np.percentile(values, 2.5, method="lower")
+        upper = np.percentile(values, 97.5, method="higher")
         earlier = [
             f"{other}: {np.mean(values < np.array(samples[other])):.3f}"
             for other in tables
@@ -237,6 +248,7 @@ def _analyze_group(
                 estimates[name],
                 float(lower),
                 float(upper),
+                float(np.mean(np.isfinite(values))),
                 ", ".join(earlier),
             )
         )

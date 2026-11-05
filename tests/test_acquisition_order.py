@@ -109,3 +109,42 @@ def test_indicators_reach_half_in_order(tmp_path: Path) -> None:
     # 形への慣れは、露出 0 と 10 の間（log10(1 + 露出回数) の直線で 0.5 に達する所）
     assert orders["form"].half_exposure == pytest.approx(10 ** (math.log10(11) * 0.5 / 0.6) - 1)
     assert "meaning: 1.000" in orders["form"].earlier_than
+    assert orders["form"].reached_share == 1.0
+
+
+def test_resamples_that_never_reach_half_widen_the_range(tmp_path: Path) -> None:
+    # 統合は、u1 だけが最大の露出回数で大きく、u1 を含まない再抽出では 0.5 に達しない
+    indicators = rows()
+    for row in indicators:
+        if row["indicator"] == "integration" and row["exposure"] == 1000:
+            row["value"] = 2.0 if row["word"] == "u1" else 0.3
+    parquet.write_table(arrow.Table.from_pylist(indicators), tmp_path / "indicators.parquet")
+    outputs = (tmp_path / "normalized.parquet", tmp_path / "curves.csv", tmp_path / "order.csv")
+
+    write_acquisition_order(tmp_path / "indicators.parquet", outputs, seed=0)
+
+    (integration,) = [
+        row
+        for row in read_rows(outputs[2], AcquisitionOrder)
+        if (row.group, row.indicator) == ("all", "integration")
+    ]
+    assert math.isfinite(integration.half_exposure)
+    # u1 を1回も含まない再抽出（約 (3/4)^4 = 32%）は 0.5 に達しないので、上限は inf
+    assert integration.upper == math.inf
+    assert 0.5 < integration.reached_share < 0.8
+
+
+def test_values_with_a_small_reference_gap_are_not_used(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # 統合の m1（既知の名詞）と m0（露出0回の未知語）の差が、下限（0.05）より小さい
+    indicators = rows()
+    for row in indicators:
+        if row["kind"] == "known-noun" and row["indicator"] == "integration":
+            row["value"] = 0.01
+
+    normalized = normalize(indicators)
+
+    integration = [row for row in normalized if row["indicator"] == "integration"]
+    assert integration and all(math.isnan(row["normalized"]) for row in integration)
+    assert "integration（層 0）で、m1 と m0 の差が下限" in capsys.readouterr().out
