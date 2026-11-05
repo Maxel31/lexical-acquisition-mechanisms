@@ -52,7 +52,8 @@ def test_category_names_must_be_unique() -> None:
 def test_bounds_are_explained(tmp_path: Path) -> None:
     text = (REPOSITORY_ROOT / "settings.yaml").read_text(encoding="utf-8")
     path = write_settings(
-        tmp_path, text.replace("maximum_concurrent_requests: 1024", "maximum_concurrent_requests: 0")
+        tmp_path,
+        text.replace("maximum_concurrent_requests: 1024", "maximum_concurrent_requests: 0"),
     )
 
     with pytest.raises(SettingsError, match="llm.maximum_concurrent_requests: 0 より大きい数"):

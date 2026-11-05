@@ -405,7 +405,16 @@ def main(
     arguments = parser.parse_args(command_line_arguments)
     action: Action = arguments.selected_action
     try:
-        action.run(load_settings(), arguments)
+        settings = load_settings()
+        # --model を取るコマンドは、ここで名前を確かめる
+        model = getattr(arguments, "model", None)
+        if model is not None and model not in settings.models:
+            raise CommandStopped(
+                f"モデル {model} は settings.yaml の models にありません"
+                f"（{list(settings.models)}）。",
+                rerun_from=shlex.join(command_line_arguments),
+            )
+        action.run(settings, arguments)
     except SettingsError as error:
         _report_stop(str(error), rerun_from=shlex.join(command_line_arguments))
         return 1

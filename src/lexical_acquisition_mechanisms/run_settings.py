@@ -21,7 +21,6 @@ from lexical_acquisition_mechanisms import (
     unknown_word_training_data,
     word_finalization,
 )
-from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.settings import (
@@ -112,11 +111,6 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 def write_run_settings(settings: Settings, arguments: argparse.Namespace) -> None:
     experiment, model = arguments.experiment, arguments.model
-    if model not in settings.models:
-        raise CommandStopped(
-            f"モデル {model} は settings.yaml の models にありません（{list(settings.models)}）。",
-            rerun_from=f"training write-run-settings --experiment {experiment} --model {model}",
-        )
     paths = [run_settings_path(experiment, model, run) for run in EXPERIMENT_RUNS[experiment]]
     step = Step(
         f"training write-run-settings --experiment {experiment} --model {model}",

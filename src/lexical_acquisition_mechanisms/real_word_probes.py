@@ -19,7 +19,6 @@ from pathlib import Path
 import numpy as np
 
 from lexical_acquisition_mechanisms import neutral_contexts, probe_and_normalization_words
-from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.continued_pretraining import initialize_token_embeddings
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.language_model import LanguageModel
@@ -62,11 +61,6 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 def train_real_word_probes(settings: Settings, arguments: argparse.Namespace) -> None:
     model_name = arguments.model
-    if model_name not in settings.models:
-        raise CommandStopped(
-            f"モデル {model_name} は settings.yaml の models にありません。",
-            rerun_from=f"unknown-word-acquisition train-real-word-probes --model {model_name}",
-        )
     step = Step(
         f"unknown-word-acquisition train-real-word-probes --model {model_name}",
         inputs={
