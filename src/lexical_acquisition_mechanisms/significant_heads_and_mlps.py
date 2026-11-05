@@ -10,7 +10,10 @@ measure-head-and-mlp-effects の組ごとの効果から、条件（足す語義
 4. 条件と位置ごとに、構成要素の数について Benjamini–Hochberg 法で補正し、FDR を 5% に抑える
 正規化した効果は、対照を引いた効果を、全てを入れ替えたときの効果（m(s_X) − m(s_Y)）の平均で割った値
 （1 なら、その構成要素だけで語義が完全に切り替わる）。
-結果は outputs/results/sense-addition/<モデル>/component_effects.csv に書く。
+さらに、採用の基準（N に対する傾き・ターゲット語を半分ずつに分けた再現）を当て、2-2 の表に従って
+分類する（component_adoption）。
+結果は outputs/results/sense-addition/<モデル>/ の component_effects.csv（効果の地図）・
+component_selection.csv（種類 × 構成要素ごとの採用の基準）・component_classes.csv（分類）に書く。
 """
 
 import argparse
@@ -21,7 +24,7 @@ from pathlib import Path
 import numpy as np
 import pyarrow.parquet as parquet
 
-from lexical_acquisition_mechanisms import head_and_mlp_effects, sense_accuracy
+from lexical_acquisition_mechanisms import head_and_mlp_effects, sense_accuracy, word_finalization
 from lexical_acquisition_mechanisms.bootstrap_statistics import (
     BOOTSTRAP_SAMPLES,
     benjamini_hochberg,
@@ -29,9 +32,17 @@ from lexical_acquisition_mechanisms.bootstrap_statistics import (
     normal_p_values,
     weighted_means,
 )
-from lexical_acquisition_mechanisms.csv_tables import write_rows
+from lexical_acquisition_mechanisms.component_adoption import (
+    ComponentClass,
+    ComponentSelection,
+    classify,
+    select_components,
+    target_halves,
+)
+from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.settings import Settings
+from lexical_acquisition_mechanisms.word_selection import SelectedWord
 
 SCOPES = ("target_position", "after_target_positions")
 FALSE_DISCOVERY_RATE = 0.05
@@ -72,8 +83,13 @@ class MinimalPairUnit:
     control: list[int]
 
 
-def output_path(model: str) -> Path:
-    return sense_accuracy.RESULTS_DIRECTORY / model / "component_effects.csv"
+def output_paths(model: str) -> tuple[Path, Path, Path]:
+    directory = sense_accuracy.RESULTS_DIRECTORY / model
+    return (
+        directory / "component_effects.csv",
+        directory / "component_selection.csv",
+        directory / "component_classes.csv",
+    )
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -84,33 +100,75 @@ def select_significant_heads_and_mlps(settings: Settings, arguments: argparse.Na
     model = arguments.model
     pairs_path, effects_path, _, _ = head_and_mlp_effects.effect_paths(model)
     measured_by = f"sense-addition measure-head-and-mlp-effects --model {model}"
+    categories = [category.name for category in settings.words.categories]
     step = Step(
         f"sense-addition select-significant-heads-and-mlps --model {model}",
-        inputs={pairs_path: measured_by, effects_path: measured_by},
-        outputs=[output_path(model)],
+        inputs={
+            pairs_path: measured_by,
+            effects_path: measured_by,
+            word_finalization.OUTPUT_PATH: word_finalization.COMMAND,
+        },
+        outputs=list(output_paths(model)),
         settings={
             "seed": settings.words.seed,
+            "categories": categories,
             "bootstrap_samples": BOOTSTRAP_SAMPLES,
             "false_discovery_rate": FALSE_DISCOVERY_RATE,
         },
     )
     run_unless_unchanged(
         step,
-        lambda: write_component_effects(
-            (pairs_path, effects_path), output_path(model), settings.words.seed
+        lambda: write_results(
+            (pairs_path, effects_path, word_finalization.OUTPUT_PATH),
+            output_paths(model),
+            categories,
+            settings.words.seed,
         ),
         arguments.recompute,
     )
 
 
-def write_component_effects(
-    input_paths: tuple[Path, Path], output: Path, seed: int
-) -> list[ComponentEffect]:
-    pairs_path, effects_path = input_paths
+def write_results(
+    input_paths: tuple[Path, Path, Path],
+    outputs: tuple[Path, Path, Path],
+    categories: Sequence[str],
+    seed: int,
+) -> None:
+    pairs_path, effects_path, words_path = input_paths
+    effects_output, selection_output, classes_output = outputs
     rows = parquet.read_table(pairs_path).to_pylist()
     arrays = np.load(effects_path)
+    results, differences = component_effects(rows, arrays, seed)
+    write_rows(effects_output, ComponentEffect, results)
+    # N の条件ごとの、ターゲット語の位置で、効果が正で有意か（構成要素の順）
+    significant: dict[tuple[str, int], list[bool]] = {}
+    for row in results:
+        if row.scope == SCOPES[0]:
+            key = (row.kind, row.number_of_senses)
+            significant.setdefault(key, []).append(row.significant and row.effect > 0)
+    halves = target_halves(read_rows(words_path, SelectedWord), categories)
+    selections = select_components(
+        differences,
+        {key: np.array(values) for key, values in significant.items()},
+        halves,
+        arrays["layers"],
+        arrays["heads"],
+        seed,
+    )
+    write_rows(selection_output, ComponentSelection, selections)
+    write_rows(classes_output, ComponentClass, classify(selections))
+
+
+def component_effects(
+    rows: Sequence[dict[str, object]], arrays, seed: int
+) -> tuple[list[ComponentEffect], dict[tuple[str, int], tuple[list[tuple], np.ndarray]]]:
+    """効果の地図と、条件ごとの（最小対, 最小対 × 構成要素の効果）。
+
+    後者は、ターゲット語の位置で入れ替えた、対照を引いた効果（採用の基準に使う）。
+    """
     random_numbers = np.random.default_rng(seed)
     results = []
+    differences = {}
     for (kind, number), units in minimal_pair_units(rows).items():
         weights = bootstrap_weights(
             [unit.target for unit in units], BOOTSTRAP_SAMPLES, random_numbers
@@ -121,6 +179,9 @@ def write_component_effects(
             treated = np.array([values[unit.treated].mean(axis=0) for unit in units])
             control = np.array([values[unit.control].mean(axis=0) for unit in units])
             difference = treated - control
+            if scope == SCOPES[0]:
+                keys = [(unit.target, unit.donor, unit.donor_sentence) for unit in units]
+                differences[kind, number] = (keys, difference)
             samples = weighted_means(weights, difference)
             effect = difference.mean(axis=0)
             lower, upper = np.percentile(samples, [2.5, 97.5], axis=0)
@@ -147,8 +208,7 @@ def write_component_effects(
                 )
                 for index in range(values.shape[1])
             ]
-    write_rows(output, ComponentEffect, results)
-    return results
+    return results, differences
 
 
 def minimal_pair_units(
