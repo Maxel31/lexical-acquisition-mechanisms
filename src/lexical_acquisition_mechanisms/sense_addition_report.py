@@ -56,6 +56,7 @@ from lexical_acquisition_mechanisms.significant_heads_and_mlps import (
 
 COMMAND = "sense-addition make-report"
 FIGURES_DIRECTORY = Path("outputs/figures/sense-addition")
+MAP_COLOR_PERCENTILE = 99
 
 
 def report_inputs(model: str) -> tuple[Path, Path, Path, Path, Path, Path]:
@@ -187,7 +188,9 @@ def _plot_maps(rows: Sequence[ComponentEffect], path: Path, model: str) -> None:
     layers = max(row.layer for row in rows) + 1
     heads = max(row.head for row in rows) + 1
     values = [abs(row.normalized_effect) for row in rows if np.isfinite(row.normalized_effect)]
-    limit = max(values, default=1.0) or 1.0
+    # 色の範囲は、絶対値の99パーセンタイル（少数の大きな値で、ほかの値が見えなくならないように）
+    limit = float(np.percentile(values, MAP_COLOR_PERCENTILE)) if values else 1.0
+    limit = limit or 1.0
     figure, axes = pyplot.subplots(
         len(KINDS), len(NUMBERS_OF_SENSES), figsize=(4 * len(NUMBERS_OF_SENSES), 4 * len(KINDS))
     )
