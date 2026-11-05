@@ -68,12 +68,18 @@ def test_probe_and_normalization_words(
     # 1トークンの負例は、未知語に使わなかった未使用のトークン番号（100279〜100351）
     assert kinds[(1, "untrained-token")] == 73
     assert kinds[(1, "real-word")] == 4
-    assert all(row.text not in {"pasta", "bread"} for row in probe)
+    # 管理対象の語と、正規化の基準の既知の名詞は、プローブに使わない
+    known_nouns = {"giraffe", "lasagna", "armadillo", "chinchilla"}
+    assert all(row.text not in {"pasta", "bread", *known_nouns} for row in probe)
     real = {row.text for row in probe if row.kind == "real-word"}
     for row in probe:
         assert len(row.token_ids.split()) == row.token_count
         if row.kind == "nonword":
             assert row.text not in real
+            # 非語は、その文字列の標準のトークン化
+            assert tokenizer.word_token_ids(row.text) == list(map(int, row.token_ids.split()))
+    for token_count in (2, 3):
+        assert 0 < kinds[(token_count, "nonword")] <= kinds[(token_count, "real-word")]
     assert {row.split for row in probe} == {"training", "held-out"}
     normalization = read_rows(outputs[1], NormalizationWord)
     assert [row.text for row in normalization if row.kind == "known-noun"] == [

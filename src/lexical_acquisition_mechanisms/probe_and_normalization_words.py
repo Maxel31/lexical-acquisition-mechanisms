@@ -2,10 +2,13 @@
 （evaluation-data build-probe-and-normalization-words）。
 
 プローブの語（data/evaluation/probe_words.csv。トークン数 1・2・3 ごと）
-- 正例: 実在語。名詞と形容詞の候補のうち、管理対象の語でなく、Pile で多く使われる語（頻度の高い順に
+- 正例: 実在語。名詞と形容詞の候補のうち、管理対象の語と既知の名詞（下の正規化の基準。プローブの
+  学習に使った語を評価に使わないため）でなく、Pile で多く使われる語（頻度の高い順に
   evaluation.probe_words_per_token_count 語）。
 - 負例: 2・3トークンは、実在語どうしで2つ目以降のトークンを入れ替えた非語（例: " gir|affe" と
-  " las|agna" → " gir|agna" と " las|affe"）。実在語と同じ形や、実在語のトークン列になるものは除く。
+  " las|agna" → " gir|agna" と " las|affe"）。実在語と同じ形（候補の一覧か WordNet にある語）や、
+  実在語のトークン列になるもの、その文字列の標準のトークン化と違うトークン列になるもの（未知語は
+  標準のトークン化なので）は除く。組を作り直して、実在語と同じ数まで作る。
   1トークンは、学習していない新しいトークン（未知語に使わなかった未使用のトークン番号。学習のときと
   同じ方法で初期化して使う）。
 - 語の HELD_OUT_SHARE を、学習に使わない確認用（プローブが、学習に使わなかった語でも当てられるか）に
@@ -36,6 +39,7 @@ from lexical_acquisition_mechanisms.output_records import Step, run_unless_uncha
 from lexical_acquisition_mechanisms.settings import Settings
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
+from lexical_acquisition_mechanisms.wordnet_senses import load_wordnet
 
 COMMAND = "evaluation-data build-probe-and-normalization-words"
 OUTPUT_DIRECTORY = Path("data/evaluation")
@@ -43,6 +47,8 @@ PROBE_WORDS_PATH = OUTPUT_DIRECTORY / "probe_words.csv"
 NORMALIZATION_WORDS_PATH = OUTPUT_DIRECTORY / "normalization_words.csv"
 TOKEN_COUNTS = (1, 2, 3)
 HELD_OUT_SHARE = 0.2
+# 非語を作るときに、実在語の組を作り直す回数の上限
+PAIRING_ROUNDS = 10
 MANAGED_ROLES = ("noun", "target", "adjective", "unknown")
 
 
@@ -113,9 +119,16 @@ def write_probe_and_normalization_words(
     real_words = {row.word for row in [*nouns, *adjectives]} | managed
     random_numbers = random.Random(settings.words.seed)
     evaluation = settings.evaluation
+    known_nouns = {
+        token_count: _frequent_words(nouns, managed, token_count, tokenizer)[
+            : evaluation.normalization_nouns_per_token_count
+        ]
+        for token_count in (2, 3)
+    }
+    excluded = managed | {word for known in known_nouns.values() for word, _ in known}
     probe_words = []
     for token_count in TOKEN_COUNTS:
-        chosen = _frequent_words([*nouns, *adjectives], managed, token_count, tokenizer)
+        chosen = _frequent_words([*nouns, *adjectives], excluded, token_count, tokenizer)
         chosen = chosen[: evaluation.probe_words_per_token_count]
         positives = [
             ProbeWord(token_count, "real-word", word, _ids(ids), "") for word, ids in chosen
@@ -126,13 +139,11 @@ def write_probe_and_normalization_words(
             negatives = _swapped_nonwords(chosen, real_words, tokenizer, random_numbers)
         probe_words += _split(positives, random_numbers) + _split(negatives, random_numbers)
     write_rows(output_paths[0], ProbeWord, probe_words)
-    normalization = []
-    for token_count in (2, 3):
-        known = _frequent_words(nouns, managed, token_count, tokenizer)
-        normalization += [
-            NormalizationWord("known-noun", token_count, word, _ids(ids))
-            for word, ids in known[: evaluation.normalization_nouns_per_token_count]
-        ]
+    normalization = [
+        NormalizationWord("known-noun", token_count, word, _ids(ids))
+        for token_count, known in known_nouns.items()
+        for word, ids in known
+    ]
     unsplittable = []
     for noun in (word for word in words if word.role == "noun"):
         for token_count in (2, 3):
@@ -215,19 +226,29 @@ def _swapped_nonwords(
     tokenizer: WordTokenizer,
     random_numbers: random.Random,
 ) -> list[ProbeWord]:
-    """実在語を無作為に組にし、2つ目以降のトークンを入れ替えた非語。"""
+    """実在語を無作為に組にし、2つ目以降のトークンを入れ替えた非語（実在語と同じ数まで）。"""
     real_sequences = {tuple(ids) for _, ids in chosen}
-    order = list(range(len(chosen)))
-    random_numbers.shuffle(order)
-    nonwords = []
-    for first, second in zip(order[0::2], order[1::2], strict=False):
-        pairs = ((chosen[first][1], chosen[second][1]), (chosen[second][1], chosen[first][1]))
-        for head, tail in pairs:
-            ids = [head[0], *tail[1:]]
-            text = tokenizer.decode(ids).strip()
-            if tuple(ids) not in real_sequences and text.lower() not in real_words:
-                nonwords.append(ProbeWord(len(ids), "nonword", text, _ids(ids), ""))
-    return nonwords
+    wordnet = load_wordnet()
+    nonwords: dict[str, ProbeWord] = {}
+    for _ in range(PAIRING_ROUNDS):
+        if len(nonwords) >= len(chosen):
+            break
+        order = list(range(len(chosen)))
+        random_numbers.shuffle(order)
+        for first, second in zip(order[0::2], order[1::2], strict=False):
+            pairs = ((chosen[first][1], chosen[second][1]), (chosen[second][1], chosen[first][1]))
+            for head, tail in pairs:
+                ids = [head[0], *tail[1:]]
+                text = tokenizer.decode(ids).strip()
+                usable = (
+                    tuple(ids) not in real_sequences
+                    and text.lower() not in real_words
+                    and not wordnet.synsets(text.lower())
+                    and tokenizer.word_token_ids(text) == ids
+                )
+                if usable and len(nonwords) < len(chosen):
+                    nonwords.setdefault(text, ProbeWord(len(ids), "nonword", text, _ids(ids), ""))
+    return list(nonwords.values())
 
 
 def _split(rows: list[ProbeWord], random_numbers: random.Random) -> list[ProbeWord]:
