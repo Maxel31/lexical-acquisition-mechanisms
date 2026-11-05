@@ -53,11 +53,7 @@ def run_unless_unchanged(step: Step, compute: Callable[[], None], recompute: boo
                 "先に、これを書き出すコマンドを実行してください。",
                 rerun_from=writing_command,
             )
-    fingerprint = {
-        "command": step.command,
-        "settings": json.loads(json.dumps(step.settings, sort_keys=True)),
-        "inputs": {str(path): _current_hash(path) for path in step.inputs},
-    }
+    fingerprint = step_fingerprint(step)
     if not recompute and all(_read_fingerprint(path) == fingerprint for path in step.outputs):
         print(f"省略しました: {step.command}（入力と設定が前回と同じ。やり直すときは --recompute）")
         return False
@@ -86,6 +82,15 @@ def run_unless_unchanged(step: Step, compute: Callable[[], None], recompute: boo
             record_path_of(path), json.dumps(record, ensure_ascii=False, indent=2) + "\n"
         )
     return True
+
+
+def step_fingerprint(step: Step) -> dict[str, Any]:
+    """処理を省けるかを決める、コマンド・設定・入力のハッシュ。"""
+    return {
+        "command": step.command,
+        "settings": json.loads(json.dumps(step.settings, sort_keys=True)),
+        "inputs": {str(path): _current_hash(path) for path in step.inputs},
+    }
 
 
 def edited_file_settings(path: Path, writing_command: str) -> dict[str, str]:

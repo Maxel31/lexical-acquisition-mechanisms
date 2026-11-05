@@ -57,6 +57,7 @@ from lexical_acquisition_mechanisms.head_and_mlp_effects import DIRECTIONS, pair
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.logistic_probes import LogisticProbe
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
+from lexical_acquisition_mechanisms.run_results import RunResults
 from lexical_acquisition_mechanisms.sense_addition_assignments import KINDS
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings
 from lexical_acquisition_mechanisms.task_prompts import choice_token_ids
@@ -133,6 +134,7 @@ def test_attribute_directions(settings: Settings, arguments: argparse.Namespace)
             "tested_pairs": TESTED_PAIRS,
         },
     )
+    results = RunResults(measurement, arguments.recompute)
     run_unless_unchanged(
         measurement,
         lambda: write_attribute_patching(
@@ -142,9 +144,11 @@ def test_attribute_directions(settings: Settings, arguments: argparse.Namespace)
             patching_path,
             settings.words.seed,
             tasks,
+            results,
         ),
         arguments.recompute,
     )
+    results.clear()
     judgment = Step(
         command,
         inputs={
@@ -180,8 +184,12 @@ def write_attribute_patching(
     output: Path,
     seed: int,
     tasks: set[str] | None = None,
+    results: RunResults | None = None,
 ) -> list[dict[str, object]]:
-    """入れ替えの行を書き、返す（tasks は、測る課題。None なら全て）。"""
+    """入れ替えの行を書き、返す（tasks は、測る課題。None なら全て）。
+
+    results があれば、測り終えた run の結果を残し、残っていれば使う。
+    """
     classes_path, probes_path, questions_path, accuracy_path, words_path = input_paths
     adopted = adopted_heads(classes_path)
     rows: list[dict[str, object]] = []
@@ -191,11 +199,19 @@ def write_attribute_patching(
         usable = sense_accuracy.usable_senses(accuracy_path)
         words = {word.word: word for word in read_rows(words_path, SelectedWord)}
         for run, checkpoint in checkpoints.items():
+            done = results.get(run) if results is not None else None
+            if done is not None:
+                rows += done
+                continue
             model = load_model(ModelSource(repository=str(checkpoint)))
             baselines = baseline_heads(adopted, model.model.config.num_attention_heads, seed)
             plans = planned_patches(adopted, baselines, probes, seed)
+            run_rows = []
             for pair in tested_pairs(run, questions, usable, seed):
-                rows += measure_pair(model, run, pair, plans, questions, words, tasks)
+                run_rows += measure_pair(model, run, pair, plans, questions, words, tasks)
+            rows += run_rows
+            if results is not None:
+                results.put(run, run_rows)
             # 次の run の重みを読む前に、この重みを GPU から消す
             del model
             gc.collect()

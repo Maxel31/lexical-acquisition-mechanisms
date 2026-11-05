@@ -54,6 +54,7 @@ from lexical_acquisition_mechanisms.patching_checks import (
     check_estimates,
     summarize_checks,
 )
+from lexical_acquisition_mechanisms.run_results import RunResults
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings
 from lexical_acquisition_mechanisms.task_prompts import (
     choice_token_ids,
@@ -115,6 +116,7 @@ def measure_head_and_mlp_effects(settings: Settings, arguments: argparse.Namespa
             "checked_pairs": CHECKED_PAIRS,
         },
     )
+    results = RunResults(step, arguments.recompute)
     run_unless_unchanged(
         step,
         lambda: write_effects(
@@ -123,9 +125,11 @@ def measure_head_and_mlp_effects(settings: Settings, arguments: argparse.Namespa
             input_paths,
             effect_paths(model),
             settings.words.seed,
+            results,
         ),
         arguments.recompute,
     )
+    results.clear()
 
 
 def minimal_pair_questions(questions: Sequence[dict[str, object]]) -> list[MinimalPairQuestions]:
@@ -152,7 +156,9 @@ def write_effects(
     input_paths: tuple[Path, Path],
     output_paths: tuple[Path, Path, Path, Path],
     seed: int,
+    results: RunResults | None = None,
 ) -> None:
+    """run ごとの効果を書く。results があれば、測り終えた run の結果を残し、残っていれば使う。"""
     words_path, questions_path = input_paths
     words = {word.word: word for word in read_rows(words_path, SelectedWord)}
     questions = parquet.read_table(questions_path).to_pylist()
@@ -171,13 +177,24 @@ def write_effects(
         ]
         if not run_pairs:
             continue
+        first_row = len(rows)
+        done = results.get(run) if results is not None else None
+        if done is not None:
+            run_rows, run_target, run_after, run_checks, run_skipped, order = done
+            rows += run_rows
+            effects["target_position"] += run_target
+            effects["after_target_positions"] += run_after
+            checks += run_checks
+            skipped |= run_skipped
+            continue
         model = load_model(ModelSource(repository=str(checkpoint)))
         order = components(model)
-        first_row = len(rows)
+        run_checks = []
+        run_skipped = set()
         for pair in run_pairs:
             measured = _measure_pair(model, pair, questions, words)
             if measured is None:
-                skipped.add(pair)
+                run_skipped.add(pair)
                 continue
             metrics, directions = measured
             question_orders = (
@@ -205,7 +222,7 @@ def write_effects(
                 effects["target_position"].append(word)
                 effects["after_target_positions"].append(after)
         if not run.endswith("control") and len(rows) > first_row:
-            checks += check_estimates(
+            run_checks = check_estimates(
                 model,
                 run,
                 first_row,
@@ -213,6 +230,20 @@ def write_effects(
                 np.array(effects["target_position"][first_row:]),
                 lambda row, model=model: _target_position_inputs(model, questions, words, row),
                 seed,
+            )
+        checks += run_checks
+        skipped |= run_skipped
+        if results is not None:
+            results.put(
+                run,
+                (
+                    rows[first_row:],
+                    effects["target_position"][first_row:],
+                    effects["after_target_positions"][first_row:],
+                    run_checks,
+                    run_skipped,
+                    order,
+                ),
             )
         del model
         gc.collect()

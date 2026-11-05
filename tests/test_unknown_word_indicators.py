@@ -10,7 +10,9 @@ from lexical_acquisition_mechanisms.csv_tables import write_rows
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.logistic_probes import train_logistic_probe
 from lexical_acquisition_mechanisms.neutral_contexts import NeutralContext
+from lexical_acquisition_mechanisms.output_records import Step
 from lexical_acquisition_mechanisms.probe_and_normalization_words import NormalizationWord
+from lexical_acquisition_mechanisms.run_results import RunResults
 from lexical_acquisition_mechanisms.settings import ModelSource
 from lexical_acquisition_mechanisms.unknown_word_assignments import UnknownWordAssignment
 from lexical_acquisition_mechanisms.unknown_word_indicators import write_indicators
@@ -67,15 +69,16 @@ def test_indicators_are_measured_for_words_and_references(
     np.savez(tmp_path / "probes.npz", **probes)
     checkpoint = Path(tiny_model_source.repository)
 
+    inputs = [
+        tmp_path / name
+        for name in ("words.csv", "assignments.csv", "contexts.csv", "references.csv")
+    ]
     write_indicators(
         {"run-1": checkpoint, "control": checkpoint},
         lambda source: LanguageModel.load(source, device="cpu"),
         tmp_path / "probes.npz",
         tmp_path / "indicators.parquet",
-        [
-            tmp_path / name
-            for name in ("words.csv", "assignments.csv", "contexts.csv", "references.csv")
-        ],
+        inputs,
     )
 
     rows = [
@@ -99,3 +102,21 @@ def test_indicators_are_measured_for_words_and_references(
         "near",
     )
     assert all(np.isfinite(row["value"]) for row in rows)
+
+    # 途中の結果があれば、測り終えた run は測り直さない（モデルを読まない）
+    results = RunResults(Step("measure", inputs={}, outputs=[tmp_path / "again.parquet"]))
+    results.put("run-1", rows)
+    results.put("control", [])
+
+    def load_model(source: ModelSource) -> LanguageModel:
+        raise AssertionError("測り終えた run のモデルは読まない")
+
+    write_indicators(
+        {"run-1": checkpoint, "control": checkpoint},
+        load_model,
+        tmp_path / "probes.npz",
+        tmp_path / "again.parquet",
+        inputs,
+        results=results,
+    )
+    assert parquet.read_table(tmp_path / "again.parquet").num_rows == len(rows)
