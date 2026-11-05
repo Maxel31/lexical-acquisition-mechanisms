@@ -398,12 +398,12 @@ def _half_exposure(means: np.ndarray, exposures: Sequence[int]) -> float:
     finite = np.isfinite(np.asarray(means, dtype=float))
     values = np.asarray(means, dtype=float)[finite]
     positions = np.log10(1 + np.array(exposures, dtype=float))[finite]
+    if len(values) and values[0] >= HALF:
+        return float(10 ** positions[0] - 1)
     for index in range(1, len(values)):
         before, after = values[index - 1], values[index]
         if before < HALF <= after:
             share = (HALF - before) / (after - before)
             position = positions[index - 1] + share * (positions[index] - positions[index - 1])
             return float(10**position - 1)
-    if len(values) and values[0] >= HALF:
-        return float(10 ** positions[0] - 1)
     return math.inf
