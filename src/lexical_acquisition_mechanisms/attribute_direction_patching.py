@@ -11,7 +11,7 @@
   （random-head）と、同じ head の同じ次元数の無作為な方向（random-direction）で、同じ入れ替えをする
 - 測るもの（metric_change は、s_Y の側への動き）
   - 課題1（sense）: m の変化 m − m_入れ替え後（m は、s_X と s_Y の語義の選択肢の対数確率の差）と、
-    s_Y の語義を選ぶようになったか（switched）
+    s_Y の語義を選ぶようになったか（switched。全ての選択肢のうち、s_Y の語義の対数確率が最も大きい）
   - 課題2（その run の種類の課題。名詞を足す条件はカテゴリ、形容詞は品詞）: s_Y の正解の対数確率の
     増え方と、答えが s_Y の正解になったか
 出力は outputs/results/sense-addition/<モデル>/attribute_patching.parquet。続けて、属性を判定する
@@ -262,10 +262,7 @@ def measure_pair(
                 continue
             source_ids, destination_ids, span, answers = inputs
             position = span[-1]
-            if task == "sense":
-                candidates = list(answers)
-            else:
-                candidates = choice_token_ids(question["choices"], model.tokenizer)
+            candidates = choice_token_ids(question["choices"], model.tokenizer)
             outputs = model.head_outputs([destination_ids], [position], heads)[0]
             patches = [()] + [
                 (
@@ -280,7 +277,7 @@ def measure_pair(
             values = subspace_patched_log_probabilities(
                 model, source_ids, [position], patches, candidates
             )
-            moves, switched = _movements(values, task, candidates, answers[1])
+            moves, switched = movements(values, task, candidates, answers)
             rows += [
                 {
                     "run": run,
@@ -305,16 +302,18 @@ def measure_pair(
     return rows
 
 
-def _movements(
-    values: np.ndarray, task: str, candidates: Sequence[int], destination: int
+def movements(
+    values: np.ndarray, task: str, candidates: Sequence[int], answers: tuple[int, int]
 ) -> tuple[np.ndarray, np.ndarray]:
     """行ごとの、s_Y の側への動き（入れ替えない1行目との差）と、s_Y の答えを選ぶか。
 
+    values は（入れ替え, 選択肢）の対数確率。answers は（処理する文の正解, s_Y の正解）のトークン。
     課題1は、m（処理する文の語義 − s_Y の語義の対数確率）の減り方。課題2は、s_Y の正解の対数確率の
-    増え方。
+    増え方。選ぶかは、全ての選択肢のうちで s_Y の正解の対数確率が最も大きいか。
     """
+    destination = list(candidates).index(answers[1])
+    switched = values.argmax(axis=1) == destination
     if task == "sense":
-        metric = values[:, 0] - values[:, 1]
-        return metric[0] - metric, metric < 0
-    column = list(candidates).index(destination)
-    return values[:, column] - values[0, column], values.argmax(axis=1) == column
+        metric = values[:, list(candidates).index(answers[0])] - values[:, destination]
+        return metric[0] - metric, switched
+    return values[:, destination] - values[0, destination], switched

@@ -7,7 +7,10 @@ import pyarrow as arrow
 import pyarrow.parquet as parquet
 import pytest
 
-from lexical_acquisition_mechanisms.attribute_direction_patching import write_attribute_patching
+from lexical_acquisition_mechanisms.attribute_direction_patching import (
+    movements,
+    write_attribute_patching,
+)
 from lexical_acquisition_mechanisms.attribute_probes import baseline_heads
 from lexical_acquisition_mechanisms.component_adoption import ComponentClass
 from lexical_acquisition_mechanisms.csv_tables import write_rows
@@ -18,7 +21,7 @@ from lexical_acquisition_mechanisms.task_prompts import TaskItem, prompt_templat
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
 
-CHOICES = {"sense": ("vehicle", "fruit"), "category": ("food", "vehicle")}
+CHOICES = {"sense": ("vehicle", "fruit", "house"), "category": ("food", "vehicle")}
 ANSWERS = {("sense", "donor"): "fruit", ("sense", "target"): "vehicle"}
 ANSWERS |= {("category", "donor"): "food", ("category", "target"): "vehicle"}
 
@@ -125,3 +128,14 @@ def test_attribute_directions_are_patched_with_two_baselines(
     assert same == pytest.approx([0.0] * len(same), abs=1e-5)
     different = [row["metric_change"] for row in rows if row["donor_sentence"] == "different"]
     assert any(abs(value) > 1e-6 for value in different)
+
+
+def test_switching_needs_the_other_sense_to_be_the_best_of_all_choices() -> None:
+    # 選択肢は（s_X の語義, s_Y の語義, ほかの語）。入れ替えない行と、入れ替えた2行
+    values = np.array([[-1.0, -3.0, -4.0], [-2.0, -1.5, -1.0], [-2.0, -1.0, -3.0]])
+
+    moves, switched = movements(values, "sense", [10, 20, 30], (10, 20))
+
+    # 2行目は s_Y の語義が s_X より大きくなったが、ほかの語が最も大きいので、選ぶようにはならない
+    assert moves == pytest.approx([0.0, 2.5, 3.0])
+    assert switched.tolist() == [False, False, True]
