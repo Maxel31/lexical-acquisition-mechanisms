@@ -25,9 +25,10 @@ from lexical_acquisition_mechanisms.pile_word_usages import sample_word_usages
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings, load_settings
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+# 複数形で挙がった語（giraffes）は、WordNet の見出しの形（giraffe）にする
 LISTED_NOUNS = {
     "food": ["pasta", "chicken", "ice cream", "car"],
-    "animal": ["giraffe", "chicken"],
+    "animal": ["giraffes", "chicken"],
 }
 TEXTS_BY_SHARD = [
     ["We ate pasta tonight.", "A pasta brand was sold."],
@@ -47,7 +48,8 @@ def write_local_shard(file_name: str, directory: Path) -> Path:
 def answer_like_the_llm(request: httpx.Request) -> httpx.Response:
     """名詞を挙げる問いには LISTED_NOUNS を返す。
 
-    使われ方の問いには、「brand」がなければ意図どおりと答える。
+    使われ方の問いには、「brand」があれば名前の一部、「Fresh」があれば比喩（同じ語義）、
+    それ以外は字義どおりと答える。
     """
     content = json.loads(request.content)["messages"][0]["content"]
     if content.startswith("You are helping to build word lists"):
@@ -55,7 +57,9 @@ def answer_like_the_llm(request: httpx.Request) -> httpx.Response:
         nouns = [{"word": word, "meaning": "x"} for word in LISTED_NOUNS.get(category, [])]
         answer = {"nouns": nouns}
     else:
-        answer = {"intended": "brand" not in content.split("Passage:")[1], "reason": "stub"}
+        passage = content.split("Passage:")[1]
+        usage = "name" if "brand" in passage else "figurative" if "Fresh" in passage else "intended"
+        answer = {"usage": usage, "reason": "stub"}
     choice = {"message": {"content": json.dumps(answer)}, "finish_reason": "stop"}
     return httpx.Response(200, json={"choices": [choice]})
 
@@ -108,7 +112,9 @@ def test_candidates_are_checked_with_wordnet_and_pile_usages(
     assert rows["pasta"]["estimated_pile_count"] == str(round(3 * 1650 / 2))
     assert rows["pasta"]["estimated_pile_passages"] == str(round(3 * 1650 / 2))
     assert rows["pasta"]["judged_usages"] == "3"
-    assert float(rows["pasta"]["intended_usage_share"]) == pytest.approx(2 / 3)
+    # 字義どおりは3件中1件、同じ語義（比喩を含む）は2件
+    assert float(rows["pasta"]["intended_usage_share"]) == pytest.approx(1 / 3)
+    assert float(rows["pasta"]["same_meaning_usage_share"]) == pytest.approx(2 / 3)
     assert rows["giraffe"]["category"] == "animal"
     assert rows["giraffe"]["rejected_reason"] == ""
     assert rows["chicken"]["rejected_reason"] == "複数のカテゴリで挙がった"

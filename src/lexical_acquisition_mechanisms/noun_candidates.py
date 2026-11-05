@@ -1,9 +1,13 @@
 """名詞の候補を作る（words generate-noun-candidates）。
 
-1. LLM が、カテゴリごとに名詞を挙げる（挙げる語の種類を変えて、何回か）。
+1. LLM が、カテゴリごとに名詞を挙げる（挙げる語の種類を変えて、何回か）。挙げた語が WordNet の
+   名詞の見出しになく、元の形（例: gloves → glove）が見出しにあれば、元の形にする。
 2. WordNet で、そのカテゴリの語義があり、ほかのカテゴリの語義がない語だけを残す。
 3. Pile の先頭の断片で、標準の形（例: " pasta"）の出現回数を数え、見本を選ぶ。
-4. LLM が見本ごとに、その語が意図した語義（WordNet の説明）の名詞として使われているかを判定する。
+4. LLM が見本ごとに、その語の使われ方を判定する（USAGES: 意図した語義（WordNet の説明）の名詞として
+   字義どおり・同じ語義の比喩や慣用句や複合名詞の一部・別の語義・名前の一部・名詞でない）。
+   字義どおりの割合（後で用例として使える割合）と、同じ語義の割合（比喩などを含む。設計書の
+   「ほぼ単義」を、別の語義・名前・名詞でない使い方が少ないことで判断するため）を出す。
 名詞72語・ターゲット語18語・自然な名詞は、words select がこの候補から選ぶ。
 """
 
@@ -28,7 +32,11 @@ from lexical_acquisition_mechanisms.pile_word_usages import WordUsages, sample_w
 from lexical_acquisition_mechanisms.settings import Settings
 from lexical_acquisition_mechanisms.usage_shares import usage_shares
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
-from lexical_acquisition_mechanisms.wordnet_senses import noun_senses, other_parts_of_speech
+from lexical_acquisition_mechanisms.wordnet_senses import (
+    load_wordnet,
+    noun_senses,
+    other_parts_of_speech,
+)
 
 COMMAND = "words generate-noun-candidates"
 OUTPUT_PATH = Path("data/words/noun_candidates.csv")
@@ -51,10 +59,12 @@ LISTING_SCHEMA = {
     "required": ["nouns"],
     "additionalProperties": False,
 }
+# 見本での使われ方（先頭の2つは、意図した語義）
+USAGES = ("intended", "figurative", "another meaning", "name", "not a noun")
 USAGE_SCHEMA = {
     "type": "object",
-    "properties": {"intended": {"type": "boolean"}, "reason": {"type": "string"}},
-    "required": ["intended", "reason"],
+    "properties": {"usage": {"type": "string", "enum": list(USAGES)}, "reason": {"type": "string"}},
+    "required": ["usage", "reason"],
     "additionalProperties": False,
 }
 
@@ -79,9 +89,11 @@ class NounCandidate:
     estimated_pile_count: int = 0
     # Pile 全体で、用例として切り出せる文章の数の見積もり
     estimated_pile_passages: int = 0
-    # LLM が判定できた見本の数と、そのうち意図した語義で使われていた割合
+    # LLM が判定できた見本の数と、そのうち意図した語義で、字義どおりに使われていた割合と、
+    # 意図した語義で使われていた割合（比喩・慣用句・複合名詞の一部を含む）
     judged_usages: int = 0
     intended_usage_share: float = 0.0
+    same_meaning_usage_share: float = 0.0
 
 
 def generate_noun_candidates(settings: Settings, arguments: argparse.Namespace) -> None:
@@ -157,13 +169,24 @@ def _listed_candidates(
     for request, answer in zip(requests, answers, strict=True):
         category = request.values["category"]
         for noun in (answer or {"nouns": []})["nouns"]:
-            word = noun["word"].strip()
+            word = _base_form(noun["word"].strip())
             candidate = by_word.setdefault(word, NounCandidate(word, category, noun["meaning"]))
             if candidate.category != category:
                 candidate.rejected_reason = "複数のカテゴリで挙がった"
             elif not WORD_FORM.match(word):
                 candidate.rejected_reason = "1語の小文字ではない"
     return sorted(by_word.values(), key=lambda candidate: (candidate.category, candidate.word))
+
+
+def _base_form(word: str) -> str:
+    """WordNet の名詞の見出しにない語（例: 複数形の gloves）を、見出しにある元の形（glove）にする。
+
+    元の形も見出しになければ、そのまま返す。
+    """
+    wordnet = load_wordnet()
+    if wordnet.lemmas(word, pos=wordnet.NOUN):
+        return word
+    return wordnet.morphy(word, wordnet.NOUN) or word
 
 
 def _check_with_wordnet(candidate: NounCandidate, settings: Settings) -> None:
@@ -199,11 +222,16 @@ def _judge_usages(
         return LlmRequest(prompt, values, USAGE_SCHEMA)
 
     words = [candidate.word for candidate in candidates]
-    shares = usage_shares(words, usages, pile_sample_shards, make_request, "intended", client)
+    conditions = {
+        "intended": lambda answer: answer["usage"] == USAGES[0],
+        "same meaning": lambda answer: answer["usage"] in USAGES[:2],
+    }
+    shares = usage_shares(words, usages, pile_sample_shards, make_request, conditions, client)
     for candidate in candidates:
         share = shares[candidate.word]
         candidate.pile_sample_count = share.pile_sample_count
         candidate.estimated_pile_count = share.estimated_pile_count
         candidate.estimated_pile_passages = share.estimated_pile_passages
         candidate.judged_usages = share.judged_usages
-        candidate.intended_usage_share = share.share
+        candidate.intended_usage_share = share.shares["intended"]
+        candidate.same_meaning_usage_share = share.shares["same meaning"]

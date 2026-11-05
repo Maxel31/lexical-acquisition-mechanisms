@@ -85,6 +85,7 @@ def noun_candidate(
         estimated_pile_passages=count,
         judged_usages=50,
         intended_usage_share=share,
+        same_meaning_usage_share=share,
     )
 
 
@@ -294,3 +295,16 @@ def test_adjectives_do_not_share_the_first_token_of_target_words(settings: Setti
     )
 
     assert [adjective.word for adjective in adjectives] == ["tall"]
+
+
+def test_figurative_uses_of_the_same_meaning_do_not_count_against_monosemy(
+    settings: Settings,
+) -> None:
+    # 字義どおりは半分だが、残りは同じ語義の比喩・慣用句（例: the elephant in the room）
+    elephant = noun_candidate("elephant", "animal", 1, 5.5, share=0.5)
+    elephant.same_meaning_usage_share = 0.96
+    # 別の語義・名前で使われることが多い語（例: seal）
+    seal = noun_candidate("seal", "animal", 1, 5.5, share=0.5)
+
+    assert word_selection._usable(elephant, settings, 10_500)
+    assert not word_selection._usable(seal, settings, 10_500)

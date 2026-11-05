@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from lexical_acquisition_mechanisms import pile
 from lexical_acquisition_mechanisms.llm_client import LlmClient, LlmRequest
@@ -15,9 +16,9 @@ class UsageShare:
     estimated_pile_count: int
     # Pile 全体で、用例として切り出せる文章の数の見積もり
     estimated_pile_passages: int
-    # LLM が判定できた見本の数と、そのうち意図どおりに使われていた割合
+    # LLM が判定できた見本の数と、そのうち条件（判定の答えについての、名前ごとの条件）を満たした割合
     judged_usages: int
-    share: float
+    shares: dict[str, float]
 
 
 def usage_shares(
@@ -25,10 +26,10 @@ def usage_shares(
     usages: Mapping[str, WordUsages],
     pile_sample_shards: int,
     make_request: Callable[[str, str], LlmRequest],
-    answer_field: str,
+    conditions: Mapping[str, Callable[[dict[str, Any]], bool]],
     client: LlmClient,
 ) -> dict[str, UsageShare]:
-    """語ごとに、見本の判定（make_request(語, 見本) への答えの answer_field）が真の割合を出す。
+    """語ごとに、見本の判定（make_request(語, 見本) への答え）が、条件ごとに真の割合を出す。
 
     答えが得られなかった見本は、割合の分母に入れない。
     """
@@ -39,11 +40,12 @@ def usage_shares(
             requests.append(make_request(word, passage))
             owners.append(word)
     judged = dict.fromkeys(words, 0)
-    intended = dict.fromkeys(words, 0)
+    satisfied = {word: dict.fromkeys(conditions, 0) for word in words}
     for word, answer in zip(owners, client.ask_all(requests), strict=True):
         if answer is not None:
             judged[word] += 1
-            intended[word] += bool(answer[answer_field])
+            for name, condition in conditions.items():
+                satisfied[word][name] += bool(condition(answer))
     scale = pile.NUMBER_OF_SHARDS / pile_sample_shards
     return {
         word: UsageShare(
@@ -51,7 +53,10 @@ def usage_shares(
             estimated_pile_count=round(usages[word].count * scale),
             estimated_pile_passages=round(usages[word].passage_count * scale),
             judged_usages=judged[word],
-            share=intended[word] / judged[word] if judged[word] else 0.0,
+            shares={
+                name: count / judged[word] if judged[word] else 0.0
+                for name, count in satisfied[word].items()
+            },
         )
         for word in words
     }

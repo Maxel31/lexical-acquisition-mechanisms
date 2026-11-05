@@ -163,7 +163,7 @@ def build_adjective_candidates(
         usages,
         words.pile_sample_shards,
         make_request,
-        "adjective",
+        {"adjective": lambda answer: answer["adjective"]},
         client,
     )
     for candidate in kept:
@@ -172,7 +172,7 @@ def build_adjective_candidates(
         candidate.estimated_pile_count = share.estimated_pile_count
         candidate.estimated_pile_passages = share.estimated_pile_passages
         candidate.judged_usages = share.judged_usages
-        candidate.adjective_usage_share = share.share
+        candidate.adjective_usage_share = share.shares["adjective"]
     _rate_associations(kept, settings, association_prompt, client)
     write_rows(output_path, AdjectiveCandidate, sorted(candidates.values(), key=lambda c: c.word))
 
