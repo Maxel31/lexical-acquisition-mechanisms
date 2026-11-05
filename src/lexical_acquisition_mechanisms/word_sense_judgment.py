@@ -7,7 +7,8 @@
 - 語と分け方（学習用・評価用）の組ごとに、鍵の小さい候補から、合格した用例が必要な数に届くまで
   判定する。合格する割合を見込んで少しずつ問い合わせ、足りなければ続きを問い合わせる。
 - 実行し直したとき（例: K を変えたとき）、前回と同じ指示文と LLM で、語の語義の説明も同じなら、
-  前回判定した候補は前回の結果（答えが得られずに不合格にしたものを含む）を使い、問い合わせない。
+  前回判定した候補（窓のトークンと出現の位置も同じもの）は前回の結果（答えが得られずに不合格に
+  したものを含む）を使い、問い合わせない。
   答えの得られなかった問い合わせは保存されないので、問い合わせ直すと結果が変わり、学習に使った用例と
   ずれうるため。--recompute を付けたときは使わない。
 - 出現の位置がない候補は、問い合わせずに不合格にする。
@@ -17,6 +18,7 @@
 """
 
 import argparse
+import hashlib
 import json
 import math
 from collections import Counter
@@ -231,13 +233,32 @@ def _check_candidates(
         )
 
 
-def _candidate_key(candidate: Mapping[str, Any]) -> tuple[str, int, int, int]:
-    return candidate["word"], candidate["shard"], candidate["row"], candidate["start"]
+def _candidate_key(candidate: Mapping[str, Any]) -> tuple[str, int, int, int, bytes]:
+    """候補の鍵: 語・断片・行・始まりと、窓の中身（トークンと出現の位置）の要約。"""
+    window = _window_digest(
+        np.asarray(candidate["token_ids"], dtype=np.int64),
+        np.asarray(candidate["occurrence_positions"], dtype=np.int64),
+    )
+    return candidate["word"], candidate["shard"], candidate["row"], candidate["start"], window
+
+
+def _window_digest(token_ids: np.ndarray, positions: np.ndarray) -> bytes:
+    """窓のトークンと出現の位置の要約（設定を変えて切り出し直すと、同じ始まりでも窓が変わりうる）。"""
+    data = token_ids.astype(np.int64).tobytes() + b"|" + positions.astype(np.int64).tobytes()
+    return hashlib.blake2b(data, digest_size=16).digest()
+
+
+def _list_values(column: arrow.ChunkedArray) -> list[np.ndarray]:
+    """リストの列の、行ごとの値（Python の値に直さずに取り出す）。"""
+    combined = column.combine_chunks()
+    values = combined.values.to_numpy(zero_copy_only=False)
+    offsets = combined.offsets.to_numpy()
+    return [values[offsets[index] : offsets[index + 1]] for index in range(len(combined))]
 
 
 def _previous_judgments(
     path: Path, signature: str, definitions: Mapping[str, str]
-) -> dict[tuple[str, int, int, int], tuple[bool, list[str]]]:
+) -> dict[tuple[str, int, int, int, bytes], tuple[bool, list[str]]]:
     """前回の判定の結果（候補ごとの合否と理由）。
 
     指示文か LLM が違えば、使わない（空）。語の語義の説明（definitions）が前回と違う語の候補も
@@ -251,9 +272,17 @@ def _previous_judgments(
         return {}
     judged_with = json.loads(metadata.get(JUDGMENT_DEFINITIONS_KEY, b"{}"))
     rows = table.select(["word", "shard", "row", "start", "passed", "reasons"]).to_pylist()
+    windows = zip(
+        _list_values(table.column("token_ids")),
+        _list_values(table.column("occurrence_positions")),
+        strict=True,
+    )
     return {
-        _candidate_key(row): (row["passed"], row["reasons"])
-        for row in rows
+        (row["word"], row["shard"], row["row"], row["start"], _window_digest(*window)): (
+            row["passed"],
+            row["reasons"],
+        )
+        for row, window in zip(rows, windows, strict=True)
         if row["word"] in judged_with and judged_with[row["word"]] == definitions.get(row["word"])
     }
 
