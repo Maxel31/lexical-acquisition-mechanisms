@@ -146,6 +146,8 @@ def build_judgments(
     tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
     # 候補は多い（数百万件）ので、判定する候補だけを、その都度 Python の値にする
     table = parquet.read_table(split_path)
+    schema = table.schema
+    table = contiguous_with_large_lists(table)
     remaining = _indices_by_group(table)
     needed = {
         group: needed_passing_passages(words[group[0]].role, group[1], settings)
@@ -189,7 +191,8 @@ def build_judgments(
             judged_indices.append(index)
             accepted_values.append(accepted)
             reason_lists.append(reasons)
-    results = table.take(judged_indices)
+    # 判定した候補だけなら、元の型（list）に戻せる
+    results = table.take(judged_indices).cast(schema)
     results = results.append_column("passed", arrow.array(accepted_values, arrow.bool_()))
     reasons = arrow.array(reason_lists, arrow.list_(arrow.string()))
     results = results.append_column("reasons", reasons)
@@ -231,6 +234,22 @@ def _check_candidates(
             f"（{passage_shortage.listed(few)}）。合格する割合が低いと、passages finalize で"
             "足りなくなります。"
         )
+
+
+def contiguous_with_large_lists(table: arrow.Table) -> arrow.Table:
+    """リストの列を large_list にし、かたまりを1つにつなげた表。
+
+    リストの列の take は、かたまりをつなげてから取る。候補（数百万件 × 用例の長さ）では、要素の数が
+    2^31 を超えて list のオフセットがあふれ、問い合わせのたびにつなぎ直すのも遅いので、先に1回だけ
+    つなげる。
+    """
+    fields = [
+        arrow.field(field.name, arrow.large_list(field.type.value_type), field.nullable)
+        if arrow.types.is_list(field.type)
+        else field
+        for field in table.schema
+    ]
+    return table.cast(arrow.schema(fields, table.schema.metadata)).combine_chunks()
 
 
 def _candidate_key(candidate: Mapping[str, Any]) -> tuple[str, int, int, int, bytes]:
