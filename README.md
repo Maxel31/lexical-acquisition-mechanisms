@@ -344,7 +344,10 @@ uv run lexical-acquisition-mechanisms results collect
 ## テスト
 
 ```bash
+# 処理ごとのテスト
 uv run pytest
+# 割り当てから全結果の集計までの全てのコマンドを、続けて実行する通しのテスト（CPU で約15分）
+uv run pytest -m slow
 ```
 
 GPU と LLM のサーバがなくても、全コマンドが最後まで通るかを確かめます。
