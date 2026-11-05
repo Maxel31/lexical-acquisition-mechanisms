@@ -41,9 +41,20 @@ def write_inputs(directory: Path) -> None:
     parquet.write_table(arrow.Table.from_pylist(indicators), directory / NAMES[0])
     normalized = [row | {"normalized": 0.8} for row in indicators]
     parquet.write_table(arrow.Table.from_pylist(normalized), directory / NAMES[1])
+    indicators = ("form", "meaning", "integration")
     orders = [
-        AcquisitionOrder("all", indicator, 3, 100.0, 50.0, 200.0, 1.0, "", "")
-        for indicator in ("form", "meaning", "integration")
+        AcquisitionOrder(
+            "all",
+            indicator,
+            3,
+            100.0,
+            50.0,
+            200.0,
+            1.0,
+            ", ".join(f"{other}: 0.500" for other in indicators if other != indicator),
+            ", ".join(f"{other}: 1.000" for other in indicators if other != indicator),
+        )
+        for indicator in indicators
     ]
     write_rows(directory / NAMES[2], AcquisitionOrder, orders)
     accuracy = [SenseAccuracy("adjective", 4, "car", "quiet", 20, 0.9, 0.5, 0.4, 0.5, 0.01, True)]
@@ -149,11 +160,18 @@ def test_results_of_all_experiments_are_collected(tmp_path: Path) -> None:
                 ("reached-share", ""),
             )
         },
+        **{
+            ("unknown-word-acquisition", f"{indicator}-earlier-than-{other}{suffix}"): 1
+            for indicator in ("form", "meaning", "integration")
+            for other in ("form", "meaning", "integration")
+            if other != indicator
+            for suffix in ("", "-p-value")
+        },
         ("sense-addition", "component-class"): 1,
         **{
             ("dependence-on-category-judging-heads", f"regression-{term}{suffix}"): 1
             for term in ("meaning", "integration")
-            for suffix in ("", "-p-value")
+            for suffix in ("", "-lower", "-upper", "-p-value")
         },
         **{
             ("sense-addition", f"category-{measure}"): 1
@@ -179,4 +197,10 @@ def test_results_of_all_experiments_are_collected(tmp_path: Path) -> None:
     assert (count["word"], count["condition"], count["value"]) == ("car", "target", 1200)
     effect = next(row for row in rows if row["indicator"] == "head-effect" and row["head"] == -1)
     assert (effect["run"], effect["number_of_senses"], effect["layer"]) == ("adjective-4", 4, 0)
+    order = next(row for row in rows if row["indicator"] == "meaning-earlier-than-form")
+    assert (order["condition"], order["value"]) == ("all", 0.5)
+    interval = next(row for row in rows if row["indicator"] == "regression-meaning-upper")
+    assert interval["value"] == 0.7
+    test = next(row for row in rows if row["indicator"] == "category-attribute-change")
+    assert test["number_of_senses"] == 4
     assert (tmp_path / "model_sizes.png").stat().st_size > 0
