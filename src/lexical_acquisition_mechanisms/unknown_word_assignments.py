@@ -119,18 +119,10 @@ def _groups(
         )
         for token_count in TOKEN_COUNTS
     }
-    nouns_by_token_count: dict[int, list[SelectedWord]] = {count: [] for count in TOKEN_COUNTS}
-    snake = [*TOKEN_COUNTS, *reversed(TOKEN_COUNTS)]
-    for category in settings.words.categories:
-        nouns = sorted(
-            (word for word in words if word.role == "noun" and word.category == category.name),
-            key=lambda noun: (noun.estimated_pile_count, noun.word),
-        )
-        for index, noun in enumerate(nouns):
-            nouns_by_token_count[snake[index % len(snake)]].append(noun)
+    noun_partition = nouns_by_token_count(words, settings)
     groups = []
     for token_count in TOKEN_COUNTS:
-        nouns = nouns_by_token_count[token_count]
+        nouns = noun_partition[token_count]
         noun_groups = [
             nouns[start::GROUPS_PER_TOKEN_COUNT] for start in range(GROUPS_PER_TOKEN_COUNT)
         ]
@@ -142,6 +134,27 @@ def _groups(
                 f"（未知語 {len(unknown_words)} 個、名詞 {len(nouns)} 語）。"
             )
     return groups
+
+
+def nouns_by_token_count(
+    words: list[SelectedWord], settings: Settings
+) -> dict[int, list[SelectedWord]]:
+    """名詞を、トークン数（1・2・3）に分ける。
+
+    カテゴリごとに頻度の順に並べ、1・2・3・3・2・1・… の順に配る（各トークン数に各カテゴリ4語）。
+    分けた中は、カテゴリの順（カテゴリの中は頻度の順）に並ぶ。語義の追加では、この分け方を
+    ターゲット語のトークン数ごとの「枠」に使う。
+    """
+    partition: dict[int, list[SelectedWord]] = {count: [] for count in TOKEN_COUNTS}
+    snake = [*TOKEN_COUNTS, *reversed(TOKEN_COUNTS)]
+    for category in settings.words.categories:
+        nouns = sorted(
+            (word for word in words if word.role == "noun" and word.category == category.name),
+            key=lambda noun: (noun.estimated_pile_count, noun.word),
+        )
+        for index, noun in enumerate(nouns):
+            partition[snake[index % len(snake)]].append(noun)
+    return partition
 
 
 def _unknown_word_groups(unknown_words: list[SelectedWord]) -> list[list[SelectedWord]]:
