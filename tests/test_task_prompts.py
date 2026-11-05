@@ -7,6 +7,7 @@ from lexical_acquisition_mechanisms.task_prompts import (
     TaskItem,
     choice_token_ids,
     encode_prompt,
+    encode_prompt_with_word_spans,
     item_text,
     prompt_template,
 )
@@ -34,3 +35,17 @@ def test_prompt_puts_the_word_tokens_in_both_lines(tokenizer: WordTokenizer) -> 
     assert token_ids == tokenizer.encode([template.replace("{word}", "zubbet")])
     with pytest.raises(ValueError, match="1トークンではありません"):
         choice_token_ids(["food", "zubbet"], tokenizer)
+
+
+def test_word_spans_cover_the_inserted_word(tokenizer: WordTokenizer) -> None:
+    question = TaskItem("sense", "She ate the {word}.", ("food", "tool"), "food")
+    word_ids = tokenizer.word_token_ids("zubbet")
+
+    token_ids, spans = encode_prompt_with_word_spans(
+        prompt_template([], question), word_ids, tokenizer
+    )
+
+    # 文の中と、問いの行の2か所
+    assert len(spans) == 2
+    assert all([token_ids[index] for index in span] == word_ids for span in spans)
+    assert tokenizer.decode(token_ids[: spans[0].start]) == "Sentence: She ate the"

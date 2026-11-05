@@ -18,6 +18,7 @@ from lexical_acquisition_mechanisms import (
     base_data,
     continued_pretraining,
     evaluation_finalization,
+    head_and_mlp_effects,
     hidden_state_similarity,
     minimal_pairs,
     natural_word_sentences,
@@ -277,6 +278,14 @@ def all_actions() -> list[Action]:
             "最小対の文で、ターゲット語の語義を使い分けられているかを測る",
             sense_accuracy.measure_sense_accuracy,
             sense_accuracy.add_arguments,
+        ),
+        Action(
+            "sense-addition",
+            "measure-head-and-mlp-effects",
+            "各 head と MLP の出力を、最小対のもう一方の文での出力に入れ替え、語義の選択への効果を"
+            "測る",
+            head_and_mlp_effects.measure_head_and_mlp_effects,
+            head_and_mlp_effects.add_arguments,
         ),
     ]
 

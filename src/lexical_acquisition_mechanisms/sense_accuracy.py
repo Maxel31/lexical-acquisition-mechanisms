@@ -76,8 +76,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model", required=True, help="settings.yaml の models の名前")
 
 
-def measure_sense_accuracy(settings: Settings, arguments: argparse.Namespace) -> None:
-    model = arguments.model
+def final_checkpoints(model: str, command: str) -> dict[str, Path]:
+    """語義の追加の各 run の、最後の重みのディレクトリ（学習を終えていない run があれば止まる）。"""
     checkpoints = {
         run: run_settings.CHECKPOINTS_DIRECTORY / EXPERIMENT / model / run / FINAL_DIRECTORY
         for run in sense_addition_assignments.run_names()
@@ -86,10 +86,17 @@ def measure_sense_accuracy(settings: Settings, arguments: argparse.Namespace) ->
     if missing:
         raise CommandStopped(
             f"学習を終えていない run があります（{missing}）。先に学習してください。",
-            rerun_from=f"sense-addition measure-sense-accuracy --model {model}",
+            rerun_from=command,
         )
+    return checkpoints
+
+
+def measure_sense_accuracy(settings: Settings, arguments: argparse.Namespace) -> None:
+    model = arguments.model
+    command = f"sense-addition measure-sense-accuracy --model {model}"
+    checkpoints = final_checkpoints(model, command)
     step = Step(
-        f"sense-addition measure-sense-accuracy --model {model}",
+        command,
         inputs={
             word_finalization.OUTPUT_PATH: word_finalization.COMMAND,
             evaluation_finalization.QUESTIONS_PATH: evaluation_finalization.COMMAND,
@@ -125,7 +132,7 @@ def write_sense_accuracy(
         chosen = [
             (index, question)
             for index, question in enumerate(questions)
-            if _evaluated_in(run, question)
+            if evaluated_in(run, question)
         ]
         if not chosen:
             continue
@@ -151,7 +158,7 @@ def write_sense_accuracy(
     write_rows(accuracy_path, SenseAccuracy, sense_accuracy(questions, answers))
 
 
-def _evaluated_in(run: str, question: dict[str, object]) -> bool:
+def evaluated_in(run: str, question: dict[str, object]) -> bool:
     """問題を、その run で解かせるか（条件の run と、対応する対照の run）。"""
     condition = f"{question['kind']}-{question['number_of_senses']}"
     return run == condition or run == CONTROL_OF_KIND[question["kind"]]

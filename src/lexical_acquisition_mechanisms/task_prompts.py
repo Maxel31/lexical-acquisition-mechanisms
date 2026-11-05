@@ -58,16 +58,27 @@ def encode_prompt(template: str, word_ids: Sequence[int], tokenizer: WordTokeniz
 
     {word} の前の空白は、語のトークン列の先頭スペースとして入れる。
     """
+    token_ids, _ = encode_prompt_with_word_spans(template, word_ids, tokenizer)
+    return token_ids
+
+
+def encode_prompt_with_word_spans(
+    template: str, word_ids: Sequence[int], tokenizer: WordTokenizer
+) -> tuple[list[int], list[range]]:
+    """encode_prompt と同じトークン列と、語を入れた各位置の範囲（問題文に現れる順）。"""
     pieces = template.split(WORD)
     parts: list[str | Sequence[int]] = []
+    word_parts = []
     for index, piece in enumerate(pieces):
         is_last = index == len(pieces) - 1
         text = piece if is_last else piece.removesuffix(" ")
         if text:
             parts.append(text)
         if not is_last:
+            word_parts.append(len(parts))
             parts.append(list(word_ids))
-    return tokenizer.encode(parts)
+    token_ids, spans = tokenizer.encode_with_spans(parts)
+    return token_ids, [spans[index] for index in word_parts]
 
 
 def choice_token_ids(choices: Sequence[str], tokenizer: WordTokenizer) -> list[int]:
