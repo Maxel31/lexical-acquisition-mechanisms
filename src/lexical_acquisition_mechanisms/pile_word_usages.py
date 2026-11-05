@@ -1,7 +1,8 @@
 """Pile の一部（先頭の断片）での、語の出現回数と使われ方の見本。
 
 語の候補を選ぶときに、Pile での頻度と、使われ方（意図した語義・品詞で使われる割合）を見積もる。
-数えるのは標準の形（先頭スペース付き・小文字。例: " pasta"）で、直後が英字でないものだけ。
+数えるのは標準の形（先頭スペース付き・小文字。例: " pasta"）で、直後が文字（英字に限らない。例:
+"pastañ" の ñ）でないものだけ。
 用例として切り出せる文章の数も見積もる: 文書ごとに、前に数えた出現から用例1つ分の文字数以上
 離れた出現を数え、1つの文書から取る用例の数の上限で打ち切る。前後（用例の半分の文字数）に同じ語の
 別の形（例: "Pasta"、" pastas"）がある出現は数えない（後で切り出すとき、別の形を含む文章は使わない
@@ -24,6 +25,9 @@ from lexical_acquisition_mechanisms.pile import PileDocument
 from lexical_acquisition_mechanisms.settings import PassageSettings
 
 WORD_PATTERN = re.compile(r"[A-Za-z]+")
+# 語の前後に続かない文字（どの文字体系でも、文字なら語の一部とみなす。数字と _ は除く）
+NOT_AFTER_LETTER = r"(?<![^\W\d_])"
+NOT_BEFORE_LETTER = r"(?![^\W\d_])"
 # 見本として、出現の前後に残す文字数
 CONTEXT_CHARACTERS = 300
 # 用例の数を見積もるときの、1トークンあたりの文字数（英語の文章でのおおよその値）
@@ -135,7 +139,9 @@ def _other_form_nearby(text: str, match: re.Match[str], distance: int) -> bool:
 
 @cache
 def _forms_of(word: str) -> re.Pattern[str]:
-    return re.compile(rf"(?<![A-Za-z]){re.escape(word)}(?:e?s)?(?![A-Za-z])", re.IGNORECASE)
+    return re.compile(
+        rf"{NOT_AFTER_LETTER}{re.escape(word)}(?:e?s)?{NOT_BEFORE_LETTER}", re.IGNORECASE
+    )
 
 
 def standard_form_occurrences(
@@ -155,6 +161,9 @@ def standard_form_occurrences(
         word = match.group()
         start = match.start()
         if word not in words or start == 0 or text[start - 1] != " ":
+            continue
+        # 英字でない文字が続く出現（例: "pastañ"）は、分けてトークン化すると、まとめたときと違う
+        if match.end() < len(text) and text[match.end()].isalpha():
             continue
         number, last_start = passages_in_document.get(word, (0, -characters_per_passage))
         counted = (

@@ -131,6 +131,11 @@ def kept_occurrences(word: SelectedWord, settings: Settings) -> int:
     return math.ceil(needed_passages(word, settings) * factor)
 
 
+def context_characters(settings: Settings) -> int:
+    """出現の前後に残す文字数（窓を切り出すときも、同じ値で文書の端かを判断する）。"""
+    return settings.passages.tokens_per_passage * CONTEXT_CHARACTERS_PER_TOKEN
+
+
 def collect_passages(settings: Settings, arguments: argparse.Namespace) -> None:
     record_settings = {
         "passages": settings.passages.model_dump(
@@ -178,7 +183,7 @@ def build_passage_candidates(
     forms = {word.word: inflected_forms(word.word, word.role) for word in words}
     window_settings = WindowSettings(
         tokens_per_passage=settings.passages.tokens_per_passage,
-        context_characters=settings.passages.tokens_per_passage * CONTEXT_CHARACTERS_PER_TOKEN,
+        context_characters=context_characters(settings),
         seed=settings.words.seed,
         other_forms=forms,
         managed_forms={
@@ -255,7 +260,7 @@ def build_occurrences(
         seed=settings.words.seed,
         characters_per_passage=characters_per_passage(settings.passages),
         maximum_passages_per_document=settings.passages.maximum_passages_per_document,
-        context_characters=settings.passages.tokens_per_passage * CONTEXT_CHARACTERS_PER_TOKEN,
+        context_characters=context_characters(settings),
     )
     shard_directory = _prepare_shard_directory(
         output_directory / SHARD_DIRECTORY.name, scan.keywords
