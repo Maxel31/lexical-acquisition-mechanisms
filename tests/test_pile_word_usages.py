@@ -111,3 +111,19 @@ def test_passages_are_counted_apart_and_up_to_the_limit_per_document() -> None:
     assert usages["pasta"].count == 6
     # 1つ目の文書: 近い2回は1件にし、3件で打ち切る。2つ目の文書: 1件
     assert usages["pasta"].passage_count == 4
+
+
+def test_words_followed_by_other_letters_are_not_counted() -> None:
+    # "pastañ" の pasta は、分けてトークン化すると、まとめたときと違うので数えない
+    documents = [PileDocument(0, 0, "a pastañ dish and a pasta dish")]
+
+    usages = scan_documents(
+        iter(documents),
+        frozenset({"pasta"}),
+        examples_per_word=10,
+        seed=0,
+        characters_per_passage=10,
+        maximum_passages_per_document=3,
+    )
+
+    assert usages["pasta"].count == 1

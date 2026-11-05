@@ -21,7 +21,12 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
-from lexical_acquisition_mechanisms.pile_word_usages import WORD_PATTERN, occurrence_key
+from lexical_acquisition_mechanisms.pile_word_usages import (
+    NOT_AFTER_LETTER,
+    NOT_BEFORE_LETTER,
+    WORD_PATTERN,
+    occurrence_key,
+)
 from lexical_acquisition_mechanisms.settings import ModelSource
 from lexical_acquisition_mechanisms.word_tokenizer import WordBoundaries, WordTokenizer
 
@@ -154,7 +159,9 @@ def cut_window(
 def _form_pattern(word: str, settings: WindowSettings) -> re.Pattern[str]:
     if word not in _form_patterns:
         forms = "|".join(map(re.escape, [word, *sorted(settings.other_forms.get(word, ()))]))
-        _form_patterns[word] = re.compile(rf"(?<![A-Za-z])(?:{forms})(?![A-Za-z])", re.IGNORECASE)
+        _form_patterns[word] = re.compile(
+            rf"{NOT_AFTER_LETTER}(?:{forms}){NOT_BEFORE_LETTER}", re.IGNORECASE
+        )
     return _form_patterns[word]
 
 

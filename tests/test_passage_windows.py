@@ -2,6 +2,7 @@
 
 import pytest
 
+from lexical_acquisition_mechanisms import passage_windows
 from lexical_acquisition_mechanisms.passage_windows import (
     PassageWindow,
     WindowSettings,
@@ -30,8 +31,12 @@ def occurrence(start: int, word: str = "pasta", text: str = TEXT) -> dict:
     }
 
 
-def test_windows_are_the_same_with_several_processes(tiny_model_source: ModelSource) -> None:
-    occurrences = [occurrence(TEXT.index("pasta"))] * 3
+def test_windows_are_the_same_with_several_processes(
+    tiny_model_source: ModelSource, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 1件ずつのまとまりに分け、別々の出現（行が違うので、窓の位置も違いうる）の順が保たれるか
+    monkeypatch.setattr(passage_windows, "CHUNK_SIZE", 1)
+    occurrences = [occurrence(TEXT.index("pasta")) | {"row": row} for row in range(6)]
 
     alone = cut_windows(occurrences, tiny_model_source, SETTINGS, number_of_processes=1)
     together = cut_windows(occurrences, tiny_model_source, SETTINGS, number_of_processes=2)
