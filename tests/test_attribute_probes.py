@@ -9,6 +9,7 @@ import pyarrow.parquet as parquet
 from lexical_acquisition_mechanisms.attribute_probes import (
     AttributeProbeAccuracy,
     AttributeProbeTransfer,
+    baseline_heads,
     write_attribute_probes,
     write_probe_transfer,
 )
@@ -114,17 +115,19 @@ def test_probes_are_trained_on_natural_words_and_applied_to_minimal_pairs(
         checkpoints,
         load_model,
         probes,
+        [(0, 1)],
         ["food", "vehicle"],
         (tmp_path / "questions.parquet", tmp_path / "accuracy.csv", tmp_path / "words.csv"),
         tmp_path / "transfer.csv",
     )
 
-    # MLP は除き、head（0, 1）だけ。2クラスとも、5語のうち1語（2文）を確認用にする
+    # MLP は除き、head（0, 1）と、比較の基準の同じ層の head。2クラスとも、5語のうち1語（2文）を
+    # 確認用にする
     rows = read_rows(tmp_path / "probe_accuracy.csv", AttributeProbeAccuracy)
-    assert [(row.layer, row.head, row.attribute) for row in rows] == [
-        (0, 1, "category"),
-        (0, 1, "part-of-speech"),
-    ]
+    adopted = [(row.layer, row.head, row.attribute) for row in rows if not row.baseline]
+    assert adopted == [(0, 1, "category"), (0, 1, "part-of-speech")]
+    baseline = {(row.layer, row.head) for row in rows if row.baseline}
+    assert len(baseline) == 1 and baseline.pop() in {(0, 0), (0, 2), (0, 3)}
     assert all(row.held_out_questions == 4 and row.chance == 0.5 for row in rows)
     probes = np.load(tmp_path / "probes.npz")
     assert probes["0-1-category-weights"].shape == (2, 8)
@@ -133,3 +136,14 @@ def test_probes_are_trained_on_natural_words_and_applied_to_minimal_pairs(
         ("other-category-1", "category", 2),
         ("adjective-1", "part-of-speech", 1),
     ]
+
+
+def test_baseline_heads_are_other_heads_of_the_same_layer() -> None:
+    adopted = [(0, 1), (0, 2), (1, 0), (2, 0), (2, 1), (2, 2)]
+
+    chosen = baseline_heads(adopted, 3, 0)
+
+    assert chosen[0, 1] == chosen[0, 2] == (0, 0)
+    assert chosen[1, 0] in {(1, 1), (1, 2)}
+    # 層の head が全て採用されていれば、基準はない
+    assert (2, 0) not in chosen
