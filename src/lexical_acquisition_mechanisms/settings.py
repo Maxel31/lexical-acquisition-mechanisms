@@ -127,6 +127,8 @@ class WordSelectionSettings(SettingsSection):
     minimum_judged_usages: int = Field(gt=0)
     # Pile で取れる用例の見積もりに、意図した使われ方の割合を掛けた数が、必要な数の何倍以上か
     passage_margin: float = Field(ge=1)
+    # 形容詞72語の、どのカテゴリとの結びつきの評定（1〜7）も、これ以下にする
+    maximum_category_association: int = Field(ge=1, le=7)
 
 
 class PassageSettings(SettingsSection):
@@ -158,6 +160,13 @@ class UnknownWordAcquisitionSettings(SettingsSection):
         return levels
 
 
+class SenseAdditionSettings(SettingsSection):
+    """語義の追加。"""
+
+    # 露出数 K（1 run の学習データに差し込む、1つの donor の用例の数）
+    exposures_per_donor: int = Field(gt=0)
+
+
 class Settings(SettingsSection):
     """settings.yaml の全体。"""
 
@@ -170,6 +179,7 @@ class Settings(SettingsSection):
     word_selection: WordSelectionSettings
     passages: PassageSettings
     unknown_word_acquisition: UnknownWordAcquisitionSettings
+    sense_addition: SenseAdditionSettings
 
 
 def load_settings(path: Path = Path(SETTINGS_FILE_NAME)) -> Settings:

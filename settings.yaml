@@ -85,6 +85,8 @@ word_selection:
   # Pile で取れる用例の見積もりに、意図した使われ方の割合を掛けた数が、必要な数の何倍以上か
   # （ほぼ同じ用例の除去と、ほかの管理対象の語を含む用例の除外で減る分を見込む）
   passage_margin: 2.0
+  # 形容詞72語の、どのカテゴリとの結びつきの評定（1〜7）も、これ以下にする
+  maximum_category_association: 3
 
 # 用例（管理対象の語を含む、Pile から切り出した文章）
 passages:
@@ -99,3 +101,8 @@ passages:
 unknown_word_acquisition:
   # 露出回数（1 run の学習データに差し込む、1つの未知語の用例の数）の8つの水準
   exposure_levels: [0, 1, 10, 100, 1000, 3000, 5000, 10000]
+
+# 語義の追加
+sense_addition:
+  # 露出数 K（1 run の学習データに差し込む、1つの donor の用例の数。暫定）
+  exposures_per_donor: 3000

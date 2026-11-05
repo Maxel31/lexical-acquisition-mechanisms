@@ -6,11 +6,12 @@ from pathlib import Path
 import pytest
 
 from lexical_acquisition_mechanisms import word_selection
+from lexical_acquisition_mechanisms.adjective_candidates import AdjectiveCandidate
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import write_rows
 from lexical_acquisition_mechanisms.noun_candidates import NounCandidate
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings, load_settings
-from lexical_acquisition_mechanisms.word_selection import build_selected_words
+from lexical_acquisition_mechanisms.word_selection import CandidateTables, build_selected_words
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 # (語, カテゴリ, 先頭スペース付きのトークン数, Pile での出現回数の常用対数)
@@ -33,6 +34,17 @@ NOUNS = [
     ("giraffe", "animal", 2, 3.31),
     ("armadillo", "animal", 3, 3.47),
     ("chinchilla", "animal", 3, 3.0),
+]
+# (語, Pile での出現回数の常用対数, 形容詞として使われていた割合, カテゴリとの結びつきの最大)
+ADJECTIVES = [
+    ("big", 5.25, 0.95, 2),
+    ("large", 5.3, 0.95, 2),
+    ("happy", 5.6, 0.95, 1),
+    ("quiet", 5.0, 0.95, 2),
+    ("bright", 6.0, 0.95, 3),
+    ("green", 5.5, 0.95, 3),
+    ("delicious", 5.9, 0.95, 6),
+    ("cold", 5.3, 0.6, 2),
 ]
 
 
@@ -59,6 +71,23 @@ def noun_candidate(
     )
 
 
+def adjective_candidate(
+    word: str, frequency: float, share: float, association: int
+) -> AdjectiveCandidate:
+    count = round(10**frequency)
+    return AdjectiveCandidate(
+        word,
+        "x",
+        synset=f"{word}.a.01",
+        token_count=1,
+        estimated_pile_count=count,
+        estimated_pile_passages=count,
+        judged_usages=50,
+        adjective_usage_share=share,
+        largest_category_association=association,
+    )
+
+
 @pytest.fixture
 def settings(
     tiny_model_source: ModelSource, wordnet_directory: Path, monkeypatch: pytest.MonkeyPatch
@@ -71,12 +100,16 @@ def settings(
 
 
 def select(
-    tmp_path: Path, settings: Settings, candidates: list[NounCandidate]
+    tmp_path: Path, settings: Settings, nouns: list[NounCandidate]
 ) -> dict[str, dict[str, str]]:
-    candidates_path = tmp_path / "noun_candidates.csv"
-    write_rows(candidates_path, NounCandidate, candidates)
+    tables = CandidateTables(
+        nouns=tmp_path / "noun_candidates.csv", adjectives=tmp_path / "adjective_candidates.csv"
+    )
+    write_rows(tables.nouns, NounCandidate, nouns)
+    adjectives = [adjective_candidate(*adjective) for adjective in ADJECTIVES]
+    write_rows(tables.adjectives, AdjectiveCandidate, adjectives)
     output_path = tmp_path / "selected_words.csv"
-    build_selected_words(settings, candidates_path, output_path)
+    build_selected_words(settings, tables, output_path)
     with output_path.open(encoding="utf-8") as file:
         return {row["word"]: row for row in csv.DictReader(file)}
 
@@ -118,6 +151,16 @@ def test_target_words_match_the_multi_token_frequencies(tmp_path: Path, settings
     }
     assert rows["lasagna"]["token_count"] == "2"
     assert len(rows["lasagna"]["token_ids"].split()) == 2
+
+
+def test_adjectives_match_the_noun_frequencies(tmp_path: Path, settings: Settings) -> None:
+    rows = select(tmp_path, settings, [noun_candidate(*noun) for noun in NOUNS])
+
+    # 名詞（10^5.2・5.3・5.6・5.9）の頻度の低い順に、最も近い形容詞を選ぶ。large は big の同義語、
+    # delicious は食べ物との結びつきが強く、cold は形容詞として使われる割合が低いので選ばない
+    assert words_with_role(rows, "adjective") == {"big", "green", "happy", "bright"}
+    assert rows["happy"]["category"] == ""
+    assert float(rows["happy"]["usage_share"]) == pytest.approx(0.95)
 
 
 def test_missing_candidates_stop_with_the_category(tmp_path: Path, settings: Settings) -> None:
