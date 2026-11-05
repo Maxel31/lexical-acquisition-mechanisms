@@ -15,7 +15,8 @@
   - 課題2（その run の種類の課題。名詞を足す条件はカテゴリ、形容詞は品詞）: s_Y の正解の対数確率の
     増え方と、答えが s_Y の正解になったか
 出力は outputs/results/sense-addition/<モデル>/attribute_patching.parquet。続けて、属性を判定する
-head を3つの基準で決めて保存する（attribute_judgments）。
+head を3つの基準で決めて保存する（attribute_judgments）。測定（GPU）と判定は、別の処理として記録する
+（判定の基準を変えても、測り直さないように）。
 """
 
 import argparse
@@ -31,6 +32,7 @@ import pyarrow.parquet as parquet
 import torch
 
 from lexical_acquisition_mechanisms import (
+    attribute_judgments,
     attribute_probes,
     evaluation_finalization,
     pretrained_model_checks,
@@ -39,7 +41,6 @@ from lexical_acquisition_mechanisms import (
     word_finalization,
 )
 from lexical_acquisition_mechanisms.attribute_directions import attribute_basis, random_basis
-from lexical_acquisition_mechanisms.attribute_judgments import write_attribute_judgments
 from lexical_acquisition_mechanisms.attribute_probes import (
     ATTRIBUTES,
     adopted_heads,
@@ -117,39 +118,59 @@ def test_attribute_directions(settings: Settings, arguments: argparse.Namespace)
         word_finalization.OUTPUT_PATH: word_finalization.COMMAND,
     }
     patching_path, *judgment_paths = output_paths(model)
-    step = Step(
+    # GPU での測定と、その結果からの判定を、別の処理として記録する（判定の基準を変えても、
+    # 測り直さないように）
+    measurement = Step(
         command,
         inputs={
             **inputs,
-            probe_accuracy_path: probes_command,
-            transfer_path: probes_command,
             pretrained_model_checks.TASK_ACCURACY_PATH: pretrained_model_checks.COMMAND,
         },
-        outputs=list(output_paths(model)),
+        outputs=[patching_path],
         settings={
             "checkpoints": checkpoint_states(list(tested.values())),
             "seed": settings.words.seed,
             "tested_pairs": TESTED_PAIRS,
         },
     )
-
-    def compute() -> None:
-        rows = write_attribute_patching(
+    run_unless_unchanged(
+        measurement,
+        lambda: write_attribute_patching(
             tested,
             lambda source: LanguageModel.load(source, batch_size=BATCH_SIZE),
             tuple(inputs),
             patching_path,
             settings.words.seed,
             tasks,
-        )
-        write_attribute_judgments(
-            rows,
+        ),
+        arguments.recompute,
+    )
+    judgment = Step(
+        command,
+        inputs={
+            patching_path: command,
+            probe_accuracy_path: probes_command,
+            transfer_path: probes_command,
+            probes_path: probes_command,
+        },
+        outputs=list(judgment_paths),
+        settings={
+            "seed": settings.words.seed,
+            "significance_level": attribute_judgments.SIGNIFICANCE_LEVEL,
+            "effective_kinds": attribute_judgments.EFFECTIVE_KINDS,
+            "ineffective_kinds": attribute_judgments.INEFFECTIVE_KINDS,
+        },
+    )
+    run_unless_unchanged(
+        judgment,
+        lambda: attribute_judgments.write_attribute_judgments(
+            parquet.read_table(patching_path).to_pylist(),
             (probe_accuracy_path, transfer_path, probes_path),
             tuple(judgment_paths),
             settings.words.seed,
-        )
-
-    run_unless_unchanged(step, compute, arguments.recompute)
+        ),
+        arguments.recompute,
+    )
 
 
 def write_attribute_patching(
