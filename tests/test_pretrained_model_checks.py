@@ -201,6 +201,11 @@ def test_commands_stop_on_tasks_that_the_model_cannot_solve(tmp_path: Path) -> N
     require_usable_tasks("tiny", ["sense"], "command", path)
     with pytest.raises(CommandStopped, match="category"):
         require_usable_tasks("tiny", ["sense", "category"], "command", path)
+    # 表にないモデルと、表がないときは、check-with-pretrained-models から実行するように示す
+    for model, table in (("absent", path), ("tiny", tmp_path / "missing.csv")):
+        with pytest.raises(CommandStopped, match="正解率がありません") as stopped:
+            require_usable_tasks(model, ["sense"], "command", table)
+        assert stopped.value.rerun_from == "evaluation-data check-with-pretrained-models"
 
 
 def test_record_has_the_significance_level(monkeypatch: pytest.MonkeyPatch) -> None:
