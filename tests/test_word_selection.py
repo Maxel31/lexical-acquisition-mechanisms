@@ -119,7 +119,7 @@ def settings(
     monkeypatch.setattr(word_selection, "UNKNOWN_WORDS_PER_GROUP", 1)
     monkeypatch.setattr(word_selection, "NATURAL_NOUNS_PER_CATEGORY", 3)
     monkeypatch.setattr(word_selection, "NATURAL_ADJECTIVES", 2)
-    monkeypatch.setattr(word_selection, "PART_OF_SPEECH_NOUNS_PER_CATEGORY", 1)
+    monkeypatch.setattr(word_selection, "PART_OF_SPEECH_NOUNS", 2)
     settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
     words = settings.words.model_copy(update={"categories": settings.words.categories[:2]})
     return settings.model_copy(update={"models": {"tiny": tiny_model_source}, "words": words})
@@ -224,16 +224,30 @@ def test_natural_words_are_the_remaining_words_of_each_token_count(
     assert {"meatball", "tortellini", "dog", "catfish", "chinchilla"} <= natural_nouns
     assert len(natural_nouns & {"pasta", "soup"}) == 1
     assert words_with_role(rows, "natural-adjective") == {"quiet", "delicious"}
-    # 品詞のプローブには、1トークンの名詞（各カテゴリ1語）と、自然な形容詞を使う
+    # 品詞のプローブには、1トークンの名詞（カテゴリから順に1語ずつ）と、自然な形容詞を使う
     probe_words = {word for word, row in rows.items() if row["part_of_speech_probe"] == "True"}
     assert probe_words == (natural_nouns & {"pasta", "soup"}) | {"dog", "quiet", "delicious"}
+
+
+def test_part_of_speech_nouns_are_added_from_categories_with_spare_one_token_nouns(
+    tmp_path: Path, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 1トークンの自然な名詞は各カテゴリ1語なので、3語目は、1トークンの候補が残る食べ物から足す
+    monkeypatch.setattr(word_selection, "PART_OF_SPEECH_NOUNS", 3)
+
+    rows = select(tmp_path, settings, [noun_candidate(*noun) for noun in NOUNS])
+
+    natural_nouns = words_with_role(rows, "natural-noun")
+    assert {"pasta", "soup"} <= natural_nouns
+    probe_words = {word for word, row in rows.items() if row["part_of_speech_probe"] == "True"}
+    assert probe_words == {"pasta", "soup", "dog", "quiet", "delicious"}
 
 
 def test_too_few_one_token_natural_nouns_stop(
     tmp_path: Path, settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # 各カテゴリの1トークンの自然な名詞は1語しかない（品詞のプローブには2語要る）
-    monkeypatch.setattr(word_selection, "PART_OF_SPEECH_NOUNS_PER_CATEGORY", 2)
+    # 1トークンの名詞の候補は、足しても品詞のプローブに要る数に届かない
+    monkeypatch.setattr(word_selection, "PART_OF_SPEECH_NOUNS", 10)
 
     with pytest.raises(CommandStopped, match="1トークンの自然な名詞（品詞のプローブ用）"):
         select(tmp_path, settings, [noun_candidate(*noun) for noun in NOUNS])
