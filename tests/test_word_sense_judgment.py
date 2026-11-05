@@ -297,3 +297,21 @@ def test_candidates_are_combined_into_one_chunk_with_large_lists() -> None:
     assert combined.column("token_ids").num_chunks == 1
     assert combined.schema.field("token_ids").type == arrow.large_list(arrow.int32())
     assert combined.cast(table.schema).equals(table.combine_chunks())
+
+
+def test_the_warning_counts_the_expected_passes(
+    tmp_path: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # 学習用の候補 9 件は、必要な数 3 件の 2.5 倍（7.5 件）以上だが、usage_share が 0.5 なので、合格
+    # する見込みは 4.5 件で届かない。評価用（10 件 × 0.5 = 5 件。必要な数 1 件の 2.5 倍は 2.5 件）は
+    # 届く
+    words = {"pasta": SelectedWord("pasta", "noun", token_count=1, usage_share=0.5)}
+    remaining = {("pasta", "training"): list(range(9)), ("pasta", "evaluation"): list(range(10))}
+
+    word_sense_judgment._check_candidates(
+        settings, words, remaining, shortage_paths(tmp_path, list(words.values()))
+    )
+
+    out = capsys.readouterr().out
+    assert "pasta（training 9 / 3 件）" in out
+    assert "pasta（evaluation" not in out
