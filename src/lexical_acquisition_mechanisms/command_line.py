@@ -22,6 +22,7 @@ from lexical_acquisition_mechanisms import (
     passage_finalization,
     passage_review,
     passage_split,
+    run_settings,
     similarity_ratings,
     training_data,
     unknown_word_candidates,
@@ -172,6 +173,13 @@ def all_actions() -> list[Action]:
             "run ごとの学習データを作る: 割り当てのとおりに用例の語を置き換え、基データに差し込む",
             training_data.build_training_data,
             training_data.add_arguments,
+        ),
+        Action(
+            "training",
+            "write-run-settings",
+            "run ごとの学習の設定ファイルを outputs/runs/<実験>/<モデル>/ に書き出す",
+            run_settings.write_run_settings,
+            run_settings.add_arguments,
         ),
     ]
 
