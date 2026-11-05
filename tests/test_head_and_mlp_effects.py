@@ -196,10 +196,17 @@ def test_resumed_measurement_gives_the_same_outputs(
         return load(source)
 
     resumed = measure("resumed", count_loads, results)
-
     assert len(loaded) == 1
-    assert parquet.read_table(resumed[0]).equals(parquet.read_table(straight[0]))
-    for name in ("target_position", "after_target_positions"):
-        np.testing.assert_array_equal(np.load(resumed[1])[name], np.load(straight[1])[name])
-    for path, other in zip(resumed[2:], straight[2:], strict=True):
-        assert path.read_text() == other.read_text()
+    # 全ての run を測り終えた後に実行し直したとき（全て残した結果から読み、モデルを読まない）
+    loaded.clear()
+    finished = measure("finished", count_loads, results)
+    assert loaded == []
+
+    for outputs in (resumed, finished):
+        assert parquet.read_table(outputs[0]).equals(parquet.read_table(straight[0]))
+        with np.load(outputs[1]) as arrays, np.load(straight[1]) as expected:
+            assert sorted(arrays.files) == sorted(expected.files)
+            for name in expected.files:
+                np.testing.assert_array_equal(arrays[name], expected[name])
+        for path, other in zip(outputs[2:], straight[2:], strict=True):
+            assert path.read_text() == other.read_text()
