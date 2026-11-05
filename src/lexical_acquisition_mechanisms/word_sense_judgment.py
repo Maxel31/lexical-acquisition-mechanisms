@@ -6,9 +6,10 @@
 - 用例は、全ての出現が合格したときに合格とする。
 - 語と分け方（学習用・評価用）の組ごとに、鍵の小さい候補から、合格した用例が必要な数に届くまで
   判定する。合格する割合を見込んで少しずつ問い合わせ、足りなければ続きを問い合わせる。
-- 実行し直したとき（例: K を変えたとき）、前回と同じ指示文と LLM なら、前回判定した候補は前回の結果
-  （答えが得られずに不合格にしたものを含む）を使い、問い合わせない。答えの得られなかった問い合わせは
-  保存されないので、問い合わせ直すと結果が変わり、学習に使った用例とずれうるため。
+- 実行し直したとき（例: K を変えたとき）、前回と同じ指示文と LLM で、語の語義の説明も同じなら、
+  前回判定した候補は前回の結果（答えが得られずに不合格にしたものを含む）を使い、問い合わせない。
+  答えの得られなかった問い合わせは保存されないので、問い合わせ直すと結果が変わり、学習に使った用例と
+  ずれうるため。--recompute を付けたときは使わない。
 - 出現の位置がない候補は、問い合わせずに不合格にする。
 - 問い合わせる前に、組ごとの候補の数を確かめる。合格する必要がある数に届かない語があれば止まる
   （passage_shortage）。必要な数 × passages.collection_factor に届かない語は、表示して続ける。
@@ -68,6 +69,8 @@ MINIMUM_PASS_RATE = 0.2
 MINIMUM_REQUESTS = 20
 # judgments.parquet の、判定に使った指示文と LLM を書くメタデータの鍵
 JUDGMENT_SETTINGS_KEY = b"judgment_settings"
+# judgments.parquet の、判定に使った語ごとの語義の説明を書くメタデータの鍵
+JUDGMENT_DEFINITIONS_KEY = b"judgment_definitions"
 
 
 @dataclass
@@ -116,6 +119,7 @@ def judge_word_sense(settings: Settings, arguments: argparse.Namespace) -> None:
             passage_split.SPLIT_PATH,
             (passage_collection.SUMMARY_PATH, word_selection.EXCLUDED_WORDS_PATH),
             (JUDGMENTS_PATH, SUMMARY_PATH),
+            reuse=not arguments.recompute,
         ),
         arguments.recompute,
     )
@@ -129,8 +133,12 @@ def build_judgments(
     split_path: Path,
     shortage_paths: tuple[Path, Path],
     output_paths: tuple[Path, Path],
+    reuse: bool = True,
 ) -> None:
-    """shortage_paths は、collect の語ごとの数（collection_summary.csv）と、外す語の CSV。"""
+    """shortage_paths は、collect の語ごとの数（collection_summary.csv）と、外す語の CSV。
+
+    reuse なら、前回の判定の結果を使う（指示文・LLM・語の語義の説明が同じ候補だけ）。
+    """
     judgments_path, summary_path = output_paths
     words = {word.word: word for word in read_rows(words_path, SelectedWord)}
     tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
@@ -150,7 +158,8 @@ def build_judgments(
     signature = json.dumps(
         prompt_record_settings(settings.llm, list(prompts.values())), sort_keys=True
     )
-    previous = _previous_judgments(judgments_path, signature)
+    definitions = {word.word: word.definition for word in words.values()}
+    previous = _previous_judgments(judgments_path, signature, definitions) if reuse else {}
     while batch := _next_batch(remaining, needed, judged, passed, words):
         candidates = table.take([index for _, index in batch]).to_pylist()
         requests = []
@@ -182,7 +191,11 @@ def build_judgments(
     results = results.append_column("passed", arrow.array(accepted_values, arrow.bool_()))
     reasons = arrow.array(reason_lists, arrow.list_(arrow.string()))
     results = results.append_column("reasons", reasons)
-    metadata = {**(results.schema.metadata or {}), JUDGMENT_SETTINGS_KEY: signature.encode()}
+    metadata = {
+        **(results.schema.metadata or {}),
+        JUDGMENT_SETTINGS_KEY: signature.encode(),
+        JUDGMENT_DEFINITIONS_KEY: json.dumps(definitions, sort_keys=True).encode(),
+    }
     parquet.write_table(results.replace_schema_metadata(metadata), judgments_path)
     summaries = [
         JudgmentSummary(
@@ -223,16 +236,26 @@ def _candidate_key(candidate: Mapping[str, Any]) -> tuple[str, int, int, int]:
 
 
 def _previous_judgments(
-    path: Path, signature: str
+    path: Path, signature: str, definitions: Mapping[str, str]
 ) -> dict[tuple[str, int, int, int], tuple[bool, list[str]]]:
-    """前回の判定の結果（候補ごとの合否と理由）。指示文か LLM が違えば、使わない（空）。"""
+    """前回の判定の結果（候補ごとの合否と理由）。
+
+    指示文か LLM が違えば、使わない（空）。語の語義の説明（definitions）が前回と違う語の候補も
+    使わない。
+    """
     if not path.exists():
         return {}
     table = parquet.read_table(path)
-    if (table.schema.metadata or {}).get(JUDGMENT_SETTINGS_KEY) != signature.encode():
+    metadata = table.schema.metadata or {}
+    if metadata.get(JUDGMENT_SETTINGS_KEY) != signature.encode():
         return {}
+    judged_with = json.loads(metadata.get(JUDGMENT_DEFINITIONS_KEY, b"{}"))
     rows = table.select(["word", "shard", "row", "start", "passed", "reasons"]).to_pylist()
-    return {_candidate_key(row): (row["passed"], row["reasons"]) for row in rows}
+    return {
+        _candidate_key(row): (row["passed"], row["reasons"])
+        for row in rows
+        if row["word"] in judged_with and judged_with[row["word"]] == definitions.get(row["word"])
+    }
 
 
 def _indices_by_group(table: arrow.Table) -> dict[tuple[str, str], list[int]]:
