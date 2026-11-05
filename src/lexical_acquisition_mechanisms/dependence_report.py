@@ -31,6 +31,7 @@ from lexical_acquisition_mechanisms.bootstrap_statistics import (
     weighted_means,
 )
 from lexical_acquisition_mechanisms.category_dependence import ABLATIONS, EXPERIMENT
+from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows
 from lexical_acquisition_mechanisms.dependence_regression import (
     THRESHOLDS,
@@ -65,6 +66,12 @@ def report_inputs(model: str) -> tuple[Path, Path, Path, Path]:
 
 def make_report(settings: Settings, arguments: argparse.Namespace) -> None:
     models = [model for model in settings.models if report_inputs(model)[1].exists()]
+    if not models:
+        first = next(iter(settings.models))
+        raise CommandStopped(
+            "fit-regression を終えたモデルがないので、図と表を作りません。",
+            rerun_from=f"{EXPERIMENT} fit-regression --model {first}",
+        )
     inputs = {}
     for model in models:
         data, regression, states, comparison = report_inputs(model)

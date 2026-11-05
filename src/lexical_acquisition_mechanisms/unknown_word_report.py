@@ -24,6 +24,7 @@ from lexical_acquisition_mechanisms.acquisition_order import (
     AcquisitionCurvePoint,
     AcquisitionOrder,
 )
+from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.settings import Settings
@@ -36,6 +37,12 @@ def make_report(settings: Settings, arguments: argparse.Namespace) -> None:
     models = [
         model for model in settings.models if acquisition_order.output_paths(model)[2].exists()
     ]
+    if not models:
+        first = next(iter(settings.models))
+        raise CommandStopped(
+            "analyze-acquisition-order を終えたモデルがないので、図と表を作りません。",
+            rerun_from=f"unknown-word-acquisition analyze-acquisition-order --model {first}",
+        )
     inputs = {}
     for model in models:
         for path in acquisition_order.output_paths(model)[1:]:
