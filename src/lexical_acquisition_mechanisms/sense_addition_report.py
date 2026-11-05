@@ -27,6 +27,7 @@ from lexical_acquisition_mechanisms import (
     significant_heads_and_mlps,
 )
 from lexical_acquisition_mechanisms.attribute_judgments import AttributeJudgingHead
+from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.component_adoption import ComponentClass
 from lexical_acquisition_mechanisms.component_patching import MLP
 from lexical_acquisition_mechanisms.csv_tables import read_rows
@@ -66,6 +67,12 @@ def report_inputs(model: str) -> tuple[Path, Path, Path, Path, Path]:
 
 def make_report(settings: Settings, arguments: argparse.Namespace) -> None:
     models = [model for model in settings.models if report_inputs(model)[3].exists()]
+    if not models:
+        first = next(iter(settings.models))
+        raise CommandStopped(
+            "test-attribute-directions を終えたモデルがないので、図と表を作りません。",
+            rerun_from=f"sense-addition test-attribute-directions --model {first}",
+        )
     inputs = {}
     for model in models:
         accuracy, effects, classes, judging, token_counts = report_inputs(model)
