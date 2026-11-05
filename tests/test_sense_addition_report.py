@@ -3,7 +3,10 @@
 import csv
 from pathlib import Path
 
-from lexical_acquisition_mechanisms.attribute_judgments import AttributeJudgingHead
+from lexical_acquisition_mechanisms.attribute_judgments import (
+    AttributeDirectionTest,
+    AttributeJudgingHead,
+)
 from lexical_acquisition_mechanisms.component_adoption import ComponentClass
 from lexical_acquisition_mechanisms.csv_tables import write_rows
 from lexical_acquisition_mechanisms.sense_accuracy import SenseAccuracy
@@ -56,14 +59,38 @@ def test_figures_and_tables_are_written(tmp_path: Path) -> None:
         for count in (1, 2)
     ]
     judging = [AttributeJudgingHead(0, 1, "category", 0.8, 0.7, 0.9, True, True, True, True)]
-    paths = tuple(
-        tmp_path / name
-        for name in ("accuracy.csv", "effects.csv", "classes.csv", "judging.csv", "counts.csv")
-    )
+    tests = [
+        AttributeDirectionTest(
+            0,
+            1,
+            "category",
+            "other-category-4",
+            "category",
+            20,
+            0.4,
+            0.1,
+            0.05,
+            0.3,
+            0.1,
+            0.0,
+            0.01,
+            0.002,
+            True,
+        )
+    ]
+    names = ("accuracy.csv", "effects.csv", "classes.csv", "judging.csv", "counts.csv")
+    paths = tuple(tmp_path / name for name in (*names, "tests.csv"))
     for path, row_type, rows in zip(
         paths,
-        (SenseAccuracy, ComponentEffect, ComponentClass, AttributeJudgingHead, TokenCountEffect),
-        (accuracy, effects, classes, judging, by_token_count),
+        (
+            SenseAccuracy,
+            ComponentEffect,
+            ComponentClass,
+            AttributeJudgingHead,
+            TokenCountEffect,
+            AttributeDirectionTest,
+        ),
+        (accuracy, effects, classes, judging, by_token_count, tests),
         strict=True,
     ):
         write_rows(path, row_type, rows)
@@ -80,6 +107,12 @@ def test_figures_and_tables_are_written(tmp_path: Path) -> None:
     ]
     with (figures / "sense_accuracy.csv").open(encoding="utf-8") as file:
         assert len(list(csv.DictReader(file))) == len(accuracy)
+    # 手順3の基準のもとになる、効果と p 値の表
+    with (figures / "attribute_direction_tests.csv").open(encoding="utf-8") as file:
+        table = list(csv.DictReader(file))
+    assert [
+        (row["model"], row["attribute_change"], row["random_head_p_value"]) for row in table
+    ] == [("tiny", "0.4", "0.01")]
     # アブレーションの表: 種類 × N（効く head は、有意な head 1 の2層分）・× トークン数・分類
     for name, count in (
         ("ablation_number_of_senses.csv", 9),
