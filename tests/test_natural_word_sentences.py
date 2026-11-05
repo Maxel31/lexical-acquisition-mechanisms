@@ -4,7 +4,9 @@ from pathlib import Path
 
 import pyarrow as arrow
 import pyarrow.parquet as parquet
+import pytest
 
+from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.natural_word_sentences import (
     NaturalWordSentence,
@@ -17,12 +19,14 @@ from lexical_acquisition_mechanisms.word_selection import SelectedWord
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-# 鍵の順。使えるのは1つ目だけ（2つ目は用例の端で切れた文、3つ目は短い文、4つ目は小文字で始まる文）
+# 鍵の順。使えるのは1つ目だけ（2つ目は用例の端で切れた文、3つ目は短い文、4つ目は小文字で始まる文、
+# 5つ目は用例の末尾で終わる文）
 TEXTS = [
     "It was late. We ate hot soup for dinner tonight. Then we left.",
     "ate some soup for dinner. Then we slept.",
     "Short. A soup. End.",
     "It rained. we had soup at home today together. Done.",
+    "Then we ate. We had cold soup with bread at noon.",
 ]
 
 
@@ -61,13 +65,16 @@ def test_one_whole_sentence_is_taken_from_each_passage(
     parquet.write_table(arrow.Table.from_pylist(rows, schema=schema), tmp_path / "passages.parquet")
     outputs = (tmp_path / "sentences.csv", tmp_path / "counts.csv")
 
-    build_natural_word_sentences(
-        settings, tmp_path / "words.csv", tmp_path / "passages.parquet", outputs
-    )
+    # 2文に届かないので止まる（文と数は書く）
+    with pytest.raises(CommandStopped, match="2 文に届かなかった自然な語") as stopped:
+        build_natural_word_sentences(
+            settings, tmp_path / "words.csv", tmp_path / "passages.parquet", outputs
+        )
 
+    assert stopped.value.rerun_from == "passages collect"
     (sentence,) = read_rows(outputs[0], NaturalWordSentence)
     assert sentence.sentence == "We ate hot soup for dinner tonight."
     assert sentence.sentence[sentence.word_start :].startswith("soup")
     assert sentence.category == "food"
     (count,) = read_rows(outputs[1], NaturalWordSentenceCount)
-    assert (count.passages, count.sentences) == (4, 1)
+    assert (count.passages, count.sentences) == (5, 1)
