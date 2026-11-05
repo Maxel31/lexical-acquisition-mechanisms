@@ -58,3 +58,10 @@ def test_figures_and_tables_are_written(tmp_path: Path) -> None:
         summary = {row["measure"]: row for row in csv.DictReader(file)}
     assert float(summary["spearman"]["mean"]) == pytest.approx(0.4)
     assert float(summary["spearman"]["lower"]) <= 0.4 <= float(summary["spearman"]["upper"])
+
+
+    # 区間は、ほかのモデルの結果があるかどうかで変わらない
+    write_report(["other", "tiny"], tmp_path / "both", 0, lambda model: paths)
+    with (tmp_path / "both" / "head_map_comparison_summary.csv").open(encoding="utf-8") as file:
+        rows = [row for row in csv.DictReader(file) if row["model"] == "tiny"]
+    assert {row["measure"]: row for row in rows}["spearman"] == summary["spearman"]

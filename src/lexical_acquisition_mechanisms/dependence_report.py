@@ -15,6 +15,7 @@ fit-regression まで終えたモデルごとに、outputs/figures/dependence-on
 import argparse
 import csv
 import dataclasses
+import zlib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -94,8 +95,9 @@ def write_report(
     tables: dict[str, list[dict[str, object]]] = {
         name: [] for name in ("data", "terms", "states", "maps")
     }
-    random_numbers = np.random.default_rng(seed)
     for model in models:
+        # モデルごとに乱数を分ける（ほかのモデルの結果の有無で、区間が変わらないように）
+        random_numbers = np.random.default_rng([seed, zlib.crc32(model.encode())])
         data_path, regression_path, states_path, comparison_path = paths_of(model)
         data = parquet.read_table(data_path).to_pylist()
         states = read_rows(states_path, StateComparison)
