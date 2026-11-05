@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pyarrow as arrow
 import pyarrow.parquet as parquet
 
@@ -126,37 +127,43 @@ def build_judgments(
     judgments_path, summary_path = output_paths
     words = {word.word: word for word in read_rows(words_path, SelectedWord)}
     tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
-    remaining: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    for candidate in sorted(parquet.read_table(split_path).to_pylist(), key=lambda c: c["key"]):
-        remaining.setdefault((candidate["word"], candidate["split"]), []).append(candidate)
+    # 候補は多い（数百万件）ので、判定する候補だけを、その都度 Python の値にする
+    table = parquet.read_table(split_path)
+    remaining = _indices_by_group(table)
     needed = {
         group: needed_passing_passages(words[group[0]].role, group[1], settings)
         for group in remaining
     }
     judged: Counter[tuple[str, str]] = Counter()
     passed: Counter[tuple[str, str]] = Counter()
-    results: list[dict[str, Any]] = []
+    judged_indices: list[int] = []
+    accepted_values: list[bool] = []
+    reason_lists: list[list[str]] = []
     while batch := _next_batch(remaining, needed, judged, passed, words):
+        candidates = table.take([index for _, index in batch]).to_pylist()
         requests = []
         owners = []
-        for index, (_, candidate) in enumerate(batch):
+        for number, candidate in enumerate(candidates):
             word = words[candidate["word"]]
             for position in candidate["occurrence_positions"]:
                 requests.append(_request(word, candidate, position, prompts, tokenizer))
-                owners.append(index)
+                owners.append(number)
         verdicts: list[list[dict[str, Any] | None]] = [[] for _ in batch]
         for owner, answer in zip(owners, client.ask_all(requests), strict=True):
             verdicts[owner].append(answer)
-        for (group, candidate), answers in zip(batch, verdicts, strict=True):
+        for (group, index), answers in zip(batch, verdicts, strict=True):
             accepted = all(answer is not None and answer["intended"] for answer in answers)
             judged[group] += 1
             passed[group] += accepted
-            reasons = [answer["reason"] if answer else "判定できなかった" for answer in answers]
-            results.append({**candidate, "passed": accepted, "reasons": reasons})
-    schema = parquet.read_schema(split_path)
-    schema = schema.append(arrow.field("passed", arrow.bool_()))
-    schema = schema.append(arrow.field("reasons", arrow.list_(arrow.string())))
-    parquet.write_table(arrow.Table.from_pylist(results, schema=schema), judgments_path)
+            judged_indices.append(index)
+            accepted_values.append(accepted)
+            reason_lists.append(
+                [answer["reason"] if answer else "判定できなかった" for answer in answers]
+            )
+    results = table.take(judged_indices)
+    results = results.append_column("passed", arrow.array(accepted_values, arrow.bool_()))
+    reasons = arrow.array(reason_lists, arrow.list_(arrow.string()))
+    parquet.write_table(results.append_column("reasons", reasons), judgments_path)
     summaries = [
         JudgmentSummary(
             word,
@@ -171,25 +178,37 @@ def build_judgments(
     write_rows(summary_path, JudgmentSummary, summaries)
 
 
+def _indices_by_group(table: arrow.Table) -> dict[tuple[str, str], list[int]]:
+    """語と分け方の組ごとの、候補の行の番号（鍵の小さい順）。"""
+    words = np.array(table.column("word").to_pylist())
+    splits = np.array(table.column("split").to_pylist())
+    keys = table.column("key").to_numpy()
+    groups = {}
+    for word, split in sorted(set(zip(words, splits, strict=True))):
+        indices = np.flatnonzero((words == word) & (splits == split))
+        groups[(str(word), str(split))] = indices[np.argsort(keys[indices])].tolist()
+    return groups
+
+
 def _next_batch(
-    remaining: dict[tuple[str, str], list[dict[str, Any]]],
+    remaining: dict[tuple[str, str], list[int]],
     needed: Mapping[tuple[str, str], int],
     judged: Mapping[tuple[str, str], int],
     passed: Mapping[tuple[str, str], int],
     words: Mapping[str, SelectedWord],
-) -> list[tuple[tuple[str, str], dict[str, Any]]]:
-    """組ごとに、合格の不足を埋めるのに見込まれる数の候補を、鍵の小さい順に取り出す。"""
+) -> list[tuple[tuple[str, str], int]]:
+    """組ごとに、合格の不足を埋めるのに見込まれる数の候補（行の番号）を、鍵の小さい順に取り出す。"""
     batch = []
-    for group, candidates in remaining.items():
+    for group, indices in remaining.items():
         deficit = needed[group] - passed[group]
-        if deficit <= 0 or not candidates:
+        if deficit <= 0 or not indices:
             continue
         rate = passed[group] / judged[group] if judged[group] else words[group[0]].usage_share
         count = max(
             MINIMUM_REQUESTS, math.ceil(deficit * REQUEST_MARGIN / max(rate, MINIMUM_PASS_RATE))
         )
-        batch += [(group, candidate) for candidate in candidates[:count]]
-        del candidates[:count]
+        batch += [(group, index) for index in indices[:count]]
+        del indices[:count]
     return batch
 
 
