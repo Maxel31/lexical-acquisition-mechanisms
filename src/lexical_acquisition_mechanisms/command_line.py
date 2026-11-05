@@ -240,6 +240,7 @@ def all_actions() -> list[Action]:
             "evaluation-data",
             "check-with-pretrained-models",
             "公開されている OLMo 2 の3モデルで、最小対の手がかりが語義を決めているかを確かめ、"
+            "自然な語での課題の正解率と、ターゲット語の言い換えの語が選ばれるかを出す。"
             "確認に通った最小対から一部を、確認用の data/evaluation/minimal_pairs_review.csv に"
             "書き出す",
             pretrained_model_checks.check_with_pretrained_models,

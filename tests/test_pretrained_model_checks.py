@@ -163,6 +163,8 @@ def test_evaluation_data_is_checked(tmp_path: Path, tiny_model_source: ModelSour
     assert (accuracy["sense"].accuracy, accuracy["sense"].usable) == (0.0, False)
     (paraphrase,) = read_rows(paths.paraphrase_checks, ParaphraseCheck)
     assert (paraphrase.sentences, paraphrase.paraphrase_share) == (2, 1.0)
+    # 2文とも選んでも、偶然（0.5）でも 1/4 の確率で起きるので、偶然の水準を超えるとは言えない
+    assert (paraphrase.p_value, paraphrase.above_chance) == (pytest.approx(0.25), False)
 
 
 def test_sense_pairs_without_checked_minimal_pairs_stop(

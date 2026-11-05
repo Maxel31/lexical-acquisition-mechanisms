@@ -125,11 +125,17 @@ def paraphrase_choices(
     examples: Sequence[tuple[TaskItem, str]],
     number_of_examples: int,
     seed: int,
+    indices: Sequence[int] | None = None,
 ) -> np.ndarray:
-    """候補ごとに、ターゲット語の手がかりの文の課題1で、言い換えの語を選んだか。"""
+    """候補ごとに、ターゲット語の手がかりの文の課題1で、言い換えの語を選んだか。
+
+    indices は、候補の、全ての候補の中での番号（例と選択肢の並びを決める乱数に使う。一部の候補だけ
+    解かせても、同じ候補には同じ問題になるように）。
+    """
     templates = []
     choices = []
-    for index, candidate in enumerate(candidates):
+    numbers = range(len(candidates)) if indices is None else indices
+    for index, candidate in zip(numbers, candidates, strict=True):
         random_numbers = random.Random(f"{seed}:{index}")
         options = [paraphrases[candidate.target], candidate.donor]
         random_numbers.shuffle(options)

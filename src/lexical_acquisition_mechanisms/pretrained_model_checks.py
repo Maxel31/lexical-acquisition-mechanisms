@@ -9,7 +9,9 @@ evaluation.minimal_pairs_per_sense_pair 組まで残し（data/evaluation/checke
 足したモデルで使う文なので）。確認に通った最小対が足りない語義の組は表示し、1つもない組があれば、
 書き出した後に止まる（その語義が、後の全ての分析から黙って消えないように）。
 自然な語での課題の正解率（task_accuracy.csv）と、ターゲット語の言い換えの語の確認
-（target_paraphrase_checks.csv）も書く（task_accuracy）。
+（target_paraphrase_checks.csv。元の語義を示す文で、言い換えの語を donor より選ぶ割合が、偶然の
+水準 0.5 を超えるか。超えない組は表示する）も書く（task_accuracy）。言い換えの語の確認は、その
+モデルで手がかりの条件を満たした候補だけで解かせる（残すのは、全てのモデルで満たした候補なので）。
 """
 
 import argparse
@@ -30,7 +32,9 @@ from lexical_acquisition_mechanisms.minimal_pairs import BLANK, MinimalPairCandi
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings
 from lexical_acquisition_mechanisms.task_accuracy import (
+    SIGNIFICANCE_LEVEL,
     TaskAccuracy,
+    binomial_p_value,
     natural_task_accuracy,
     paraphrase_choices,
 )
@@ -101,6 +105,9 @@ class ParaphraseCheck:
     # 確認に通った最小対のターゲット語の手がかりの文の数と、そのうち言い換えの語を選んだ割合
     sentences: int
     paraphrase_share: float
+    # 割合が偶然の水準（donor との2択なので 0.5）を超えるかの、片側の二項検定
+    p_value: float
+    above_chance: bool
 
 
 @dataclass(frozen=True)
@@ -164,17 +171,22 @@ def check_evaluation_data(
     chose_paraphrase = {}
     for name, source in settings.models.items():
         model = load_model(source)
-        effects = np.minimum(effects, cue_effects(model, candidates, words))
+        model_effects = cue_effects(model, candidates, words)
+        effects = np.minimum(effects, model_effects)
         accuracy += natural_task_accuracy(model, name, questions)
-        chose_paraphrase[name] = paraphrase_choices(
+        checked = np.flatnonzero((model_effects > 0).all(axis=1))
+        choices = np.zeros(len(candidates), dtype=bool)
+        choices[checked] = paraphrase_choices(
             model,
-            candidates,
+            [candidates[index] for index in checked],
             target_ids,
             paraphrases,
             examples,
             settings.evaluation.number_of_task_examples,
             settings.words.seed,
+            indices=checked.tolist(),
         )
+        chose_paraphrase[name] = choices
         del model
         gc.collect()
         torch.cuda.empty_cache()
@@ -216,11 +228,28 @@ def check_evaluation_data(
                 for index in group
                 if candidates[index].target == target
             ]
-            share = float(np.mean(choices[indices])) if indices else 0.0
+            chosen = int(np.sum(choices[indices]))
+            share = chosen / len(indices) if indices else 0.0
+            p_value = binomial_p_value(chosen, len(indices), 0.5)
             checks.append(
-                ParaphraseCheck(name, target, paraphrases.get(target, ""), len(indices), share)
+                ParaphraseCheck(
+                    name,
+                    target,
+                    paraphrases.get(target, ""),
+                    len(indices),
+                    share,
+                    p_value,
+                    p_value < SIGNIFICANCE_LEVEL,
+                )
             )
     write_rows(paths.paraphrase_checks, ParaphraseCheck, checks)
+    weak = [f"{check.target}（{check.model}）" for check in checks if not check.above_chance]
+    if weak:
+        print(
+            f"元の語義を示す文で、言い換えの語が偶然の水準を超えて選ばれない組があります"
+            f"（{len(weak)} 組: {weak[:10]}）。{paths.paraphrase_checks} を見て、言い換えの語を"
+            "替えてください。"
+        )
     short = [
         f"{target}/{donor}"
         for (target, donor), group in kept.items()
