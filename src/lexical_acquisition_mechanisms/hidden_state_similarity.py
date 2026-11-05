@@ -21,7 +21,7 @@ import numpy as np
 import torch
 
 from lexical_acquisition_mechanisms import neutral_contexts, similarity_ratings, word_selection
-from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
+from lexical_acquisition_mechanisms.csv_tables import read_rows, write_review_rows, write_rows
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.neutral_contexts import NeutralContext
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
@@ -172,7 +172,7 @@ def build_hidden_state_similarity(
         for word in words
         if word.role in REVIEWED_ROLES
     ]
-    write_rows(review_path, ReviewRow, review)
+    write_review_rows(review_path, ReviewRow, review, ("word", "role", "category", "synset"))
 
 
 def _middle_layer_states(

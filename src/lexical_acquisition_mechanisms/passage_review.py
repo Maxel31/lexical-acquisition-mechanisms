@@ -16,7 +16,7 @@ import pyarrow.compute as compute
 import pyarrow.parquet as parquet
 
 from lexical_acquisition_mechanisms import word_finalization, word_sense_judgment
-from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
+from lexical_acquisition_mechanisms.csv_tables import read_rows, write_review_rows
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.settings import Settings
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
@@ -94,7 +94,7 @@ def build_review(
             )
             for judgment in sample
         ]
-    write_rows(review_path, PassageReviewRow, rows)
+    write_review_rows(review_path, PassageReviewRow, rows, ("word", "shard", "row", "start"))
 
 
 def marked_passage(
