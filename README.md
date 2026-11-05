@@ -158,7 +158,7 @@ uv run lexical-acquisition-mechanisms evaluation-data check-with-pretrained-mode
 **手作業**:
 
 1. 前のコマンドが出す、自然な語での課題の正解率を見て、問題の前に見せる例の数（暫定: 3）を決め、`settings.yaml` の `evaluation.number_of_task_examples` に書く（変えたら、`evaluation-data build-task-questions` から実行し直す）。正解率が偶然の水準を超えない課題は、そのモデルでは使われない。
-   - `data/evaluation/target_paraphrase_checks.csv` で、元の語義を示す文で言い換えの語が選ばれているか（`above_chance`）も見る。選ばれない語は、`llm_prompts/list-paraphrases.md` を直して `evaluation-data build-task-questions` から実行し直す（言い換えの語が替わる）。
+   - `data/evaluation/target_paraphrase_checks.csv` で、元の語義を示す文で言い換えの語が選ばれているか（`above_chance`）も見る。選ばれない語は、`llm_prompts/list-paraphrases.md`（候補を挙げる）か `llm_prompts/choose-paraphrase.md`（候補から選ぶ）を直して `evaluation-data build-task-questions` から実行し直す（言い換えの語が替わる）。
 2. `data/evaluation/minimal_pairs_review.csv` の `approved` 列に、それぞれの文でターゲット語の語義がその行の語義に決まれば 1、そうでなければ 0 を記入する。
 
 ```bash
