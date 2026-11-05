@@ -25,6 +25,7 @@ import numpy as np
 
 from lexical_acquisition_mechanisms.attribute_directions import attribute_basis
 from lexical_acquisition_mechanisms.attribute_probes import (
+    CUES,
     AttributeProbeAccuracy,
     AttributeProbeTransfer,
     read_attribute_probes,
@@ -72,7 +73,9 @@ class AttributeJudgingHead:
     head: int
     attribute: str
     held_out_accuracy: float
-    transfer_accuracy: float
+    # (b) の、donor の語義を示す文と、元の語義を示す文での正解率
+    donor_cue_accuracy: float
+    target_cue_accuracy: float
     encoding: bool
     causal: bool
     specificity: bool
@@ -147,13 +150,16 @@ def judging_heads(
 ) -> list[AttributeJudgingHead]:
     """採用した head × 属性ごとの、3つの基準と、属性を判定する head か。"""
     held_out = {(row.layer, row.head, row.attribute): row for row in accuracy if not row.baseline}
-    transferred = {(row.layer, row.head, row.attribute, row.run): row for row in transfer}
+    transferred = {(row.layer, row.head, row.attribute, row.run, row.cue): row for row in transfer}
     exceeds = {(test.layer, test.head, test.attribute, test.run, test.task): test for test in tests}
     results = []
     for (layer, head, attribute), probe_accuracy in sorted(held_out.items()):
         relevant = RELEVANT_RUNS[attribute]
-        moved = transferred.get((layer, head, attribute, relevant))
-        encoding = probe_accuracy.significant and moved is not None and moved.significant
+        moved = [transferred.get((layer, head, attribute, relevant, cue)) for cue in CUES]
+        # 手がかりが示す語義の属性を当てる: どちらの手がかりの文でも、偶然の水準を超える
+        encoding = probe_accuracy.significant and all(
+            row is not None and row.significant for row in moved
+        )
         test = exceeds.get((layer, head, attribute, relevant, attribute))
         causal = test is not None and test.exceeds_baselines
         # 課題1で、比較の基準より効く種類
@@ -172,7 +178,7 @@ def judging_heads(
                 head,
                 attribute,
                 probe_accuracy.held_out_accuracy,
-                moved.accuracy if moved is not None else float("nan"),
+                *(row.accuracy if row is not None else float("nan") for row in moved),
                 encoding,
                 causal,
                 specificity,

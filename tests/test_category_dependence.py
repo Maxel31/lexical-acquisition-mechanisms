@@ -24,10 +24,10 @@ NAMES += ("assignments.csv", "words.csv")
 
 def write_inputs(tmp_path: Path, tokenizer: WordTokenizer, judging: bool) -> list[Path]:
     rows = [
-        AttributeJudgingHead(0, 1, "category", 0.8, 0.7, True, True, True, judging),
+        AttributeJudgingHead(0, 1, "category", 0.8, 0.7, 0.9, True, True, True, judging),
         # 品詞の head と、基準を満たさない head は使わない
-        AttributeJudgingHead(0, 2, "part-of-speech", 0.8, 0.7, True, True, True, True),
-        AttributeJudgingHead(1, 0, "category", 0.8, 0.7, True, False, True, False),
+        AttributeJudgingHead(0, 2, "part-of-speech", 0.8, 0.7, 0.9, True, True, True, True),
+        AttributeJudgingHead(1, 0, "category", 0.8, 0.7, 0.9, True, False, True, False),
     ]
     write_rows(tmp_path / "judging.csv", AttributeJudgingHead, rows)
     random_numbers = np.random.default_rng(0)
