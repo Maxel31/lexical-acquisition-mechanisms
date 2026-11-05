@@ -47,6 +47,8 @@ from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.patching_checks import (
+    CHECKED_COMPONENTS,
+    CHECKED_PAIRS,
     PatchingCheck,
     PatchingCheckSummary,
     check_estimates,
@@ -108,6 +110,9 @@ def measure_head_and_mlp_effects(settings: Settings, arguments: argparse.Namespa
         settings={
             "checkpoints": checkpoint_states(list(checkpoints.values())),
             "seed": settings.words.seed,
+            # 近似を実際の入れ替えで確かめる、構成要素の数（上位と無作為のそれぞれ）と組の数
+            "checked_components": CHECKED_COMPONENTS,
+            "checked_pairs": CHECKED_PAIRS,
         },
     )
     run_unless_unchanged(
