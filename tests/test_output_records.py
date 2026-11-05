@@ -10,6 +10,7 @@ from lexical_acquisition_mechanisms import output_records
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.output_records import (
     Step,
+    edited_file_settings,
     hash_path,
     record_path_of,
     run_unless_unchanged,
@@ -238,3 +239,17 @@ def test_code_version_counts_new_source_files_but_not_settings(
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "new_module.py").write_text("", encoding="utf-8")
     assert output_records._code_version().endswith("（コミットしていない変更あり）")
+
+
+def test_files_people_fill_in_are_recorded_by_their_content(tmp_path: Path) -> None:
+    # 確認用の CSV を、別の名前で保存した（記録はない）
+    review = tmp_path / "review_filled.csv"
+    review.write_text("word,approved\npasta,1\n", encoding="utf-8")
+    recorded = edited_file_settings(review, "words measure-hidden-state-similarity")
+    review.write_text("word,approved\npasta,0\n", encoding="utf-8")
+
+    assert recorded["path"] == str(review)
+    assert edited_file_settings(review, "")["hash"] != recorded["hash"]
+    with pytest.raises(CommandStopped, match="がありません") as stopped:
+        edited_file_settings(tmp_path / "missing.csv", "words measure-hidden-state-similarity")
+    assert stopped.value.rerun_from == "words measure-hidden-state-similarity"

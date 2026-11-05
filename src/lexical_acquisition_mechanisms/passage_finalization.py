@@ -26,12 +26,18 @@ from lexical_acquisition_mechanisms import (
 )
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
-from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
+from lexical_acquisition_mechanisms.output_records import (
+    Step,
+    edited_file_settings,
+    run_unless_unchanged,
+)
 from lexical_acquisition_mechanisms.passage_review import PassageReviewRow
 from lexical_acquisition_mechanisms.settings import Settings
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 
-COMMAND = "passages finalize"
+ACTION = "passages finalize"
+# 実行し直すときに示すコマンド（確認用の CSV は、書き出された場所のもの）
+COMMAND = f"{ACTION} --review-csv {passage_review.REVIEW_PATH}"
 PASSAGES_PATH = Path("data/passages/passages.parquet")
 SUMMARY_PATH = Path("data/passages/passage_summary.csv")
 
@@ -58,15 +64,15 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 def finalize_passages(settings: Settings, arguments: argparse.Namespace) -> None:
     review_path: Path = arguments.review_csv
     step = Step(
-        COMMAND,
+        f"{ACTION} --review-csv {review_path}",
         inputs={
             word_finalization.OUTPUT_PATH: word_finalization.COMMAND,
             passage_collection.SUMMARY_PATH: passage_collection.COMMAND,
             word_sense_judgment.JUDGMENTS_PATH: word_sense_judgment.COMMAND,
-            review_path: passage_review.COMMAND,
         },
         outputs=[PASSAGES_PATH, SUMMARY_PATH],
         settings={
+            "review_csv": edited_file_settings(review_path, passage_review.COMMAND),
             "passages": settings.passages.model_dump(
                 include={"evaluation_passages_per_word", "minimum_judgment_precision"}
             ),
@@ -115,7 +121,7 @@ def build_passages(
             shortages, "判定に合格した用例", collection_summary_path, excluded_words_path
         )
     review = read_rows(review_path, PassageReviewRow)
-    rerun = f"{COMMAND} --review-csv {review_path}"
+    rerun = f"{ACTION} --review-csv {review_path}"
     reviewed = {word.word for word in words if word.role in passage_review.REVIEWED_ROLES}
     if {row.word for row in review} != reviewed:
         raise CommandStopped(

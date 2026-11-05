@@ -15,11 +15,17 @@ from lexical_acquisition_mechanisms import hidden_state_similarity, word_selecti
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.hidden_state_similarity import REVIEWED_ROLES, ReviewRow
-from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
+from lexical_acquisition_mechanisms.output_records import (
+    Step,
+    edited_file_settings,
+    run_unless_unchanged,
+)
 from lexical_acquisition_mechanisms.settings import Settings
 from lexical_acquisition_mechanisms.word_selection import ExcludedWord, SelectedWord
 
-COMMAND = "words finalize"
+ACTION = "words finalize"
+# 実行し直すときに示すコマンド（確認用の CSV は、書き出された場所のもの）
+COMMAND = f"{ACTION} --review-csv {hidden_state_similarity.REVIEW_PATH}"
 OUTPUT_PATH = Path("data/words/words.csv")
 
 
@@ -35,12 +41,10 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 def finalize_words(settings: Settings, arguments: argparse.Namespace) -> None:
     review_path: Path = arguments.review_csv
     step = Step(
-        COMMAND,
-        inputs={
-            word_selection.OUTPUT_PATH: word_selection.COMMAND,
-            review_path: hidden_state_similarity.COMMAND,
-        },
+        f"{ACTION} --review-csv {review_path}",
+        inputs={word_selection.OUTPUT_PATH: word_selection.COMMAND},
         outputs=[OUTPUT_PATH],
+        settings={"review_csv": edited_file_settings(review_path, hidden_state_similarity.COMMAND)},
     )
     run_unless_unchanged(
         step,
@@ -71,7 +75,7 @@ def build_final_words(
         raise CommandStopped(
             f"{review_path} の approved 列が 1・0 でない行が {len(unfilled)} 行あります"
             f"（例: {', '.join(unfilled[:5])}）。記入してください。",
-            rerun_from=f"{COMMAND} --review-csv {review_path}",
+            rerun_from=f"{ACTION} --review-csv {review_path}",
         )
     rejected = [row for row in review if row.approved.strip() == "0"]
     if rejected:

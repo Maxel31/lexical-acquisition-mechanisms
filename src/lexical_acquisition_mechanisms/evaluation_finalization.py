@@ -30,7 +30,11 @@ from lexical_acquisition_mechanisms import (
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.minimal_pairs import BLANK
-from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
+from lexical_acquisition_mechanisms.output_records import (
+    Step,
+    edited_file_settings,
+    run_unless_unchanged,
+)
 from lexical_acquisition_mechanisms.pretrained_model_checks import (
     CheckedMinimalPair,
     MinimalPairReviewRow,
@@ -46,7 +50,9 @@ from lexical_acquisition_mechanisms.task_prompts import (
 from lexical_acquisition_mechanisms.task_questions import Paraphrase, TaskExample
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 
-COMMAND = "evaluation-data finalize"
+ACTION = "evaluation-data finalize"
+# 実行し直すときに示すコマンド（確認用の CSV は、書き出された場所のもの）
+COMMAND = f"{ACTION} --review-csv {pretrained_model_checks.REVIEW_PATH}"
 OUTPUT_DIRECTORY = Path("data/evaluation")
 MINIMAL_PAIRS_PATH = OUTPUT_DIRECTORY / "minimal_pairs.csv"
 QUESTIONS_PATH = OUTPUT_DIRECTORY / "sense_addition_questions.parquet"
@@ -67,15 +73,15 @@ def finalize_evaluation_data(settings: Settings, arguments: argparse.Namespace) 
         word_finalization.OUTPUT_PATH: word_finalization.COMMAND,
         sense_addition_assignments.ASSIGNMENTS_PATH: sense_addition_assignments.COMMAND,
         pretrained_model_checks.CHECKED_PAIRS_PATH: pretrained_model_checks.COMMAND,
-        review_path: pretrained_model_checks.COMMAND,
         task_questions.EXAMPLES_PATH: task_questions.COMMAND,
         task_questions.PARAPHRASES_PATH: task_questions.COMMAND,
     }
     step = Step(
-        COMMAND,
+        f"{ACTION} --review-csv {review_path}",
         inputs=inputs,
         outputs=[MINIMAL_PAIRS_PATH, QUESTIONS_PATH],
         settings={
+            "review_csv": edited_file_settings(review_path, pretrained_model_checks.COMMAND),
             "number_of_task_examples": settings.evaluation.number_of_task_examples,
             "categories": [category.name for category in settings.words.categories],
             "seed": settings.words.seed,
@@ -95,11 +101,11 @@ def write_final_evaluation_data(
     review_path: Path,
     output_paths: tuple[Path, Path],
 ) -> None:
-    words_path, assignments_path, checked_path, _, examples_path, paraphrases_path = input_paths
+    words_path, assignments_path, checked_path, examples_path, paraphrases_path = input_paths
     words = {word.word: word for word in read_rows(words_path, SelectedWord)}
     checked = read_rows(checked_path, CheckedMinimalPair)
     review = read_rows(review_path, MinimalPairReviewRow)
-    rerun = f"{COMMAND} --review-csv {review_path}"
+    rerun = f"{ACTION} --review-csv {review_path}"
     # 2文の組ごとに照合する（donor の文が同じで、ターゲット語の文が違う組もある）
     filled = {
         (

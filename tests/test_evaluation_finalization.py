@@ -80,7 +80,6 @@ def finalize(
             "words.csv",
             "assignments.csv",
             "checked.csv",
-            "review.csv",
             "examples.csv",
             "paraphrases.csv",
         )
