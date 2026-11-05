@@ -167,7 +167,7 @@ uv run lexical-acquisition-mechanisms evaluation-data check-with-pretrained-mode
 **Manual steps**:
 
 1. From the task accuracy on natural words that the previous command reports, decide the number of examples shown before each question (provisional: 3), and write it to `evaluation.number_of_task_examples` in `settings.yaml` (if you change it, rerun from `evaluation-data build-task-questions`). A task whose accuracy does not exceed chance is not used for that model.
-   - In `data/evaluation/target_paraphrase_checks.csv`, also check that the paraphrase is chosen in the sentences that indicate the original sense (`above_chance`). For a word whose paraphrase is not chosen, revise `llm_prompts/list-paraphrases.md` and rerun from `evaluation-data build-task-questions` (the paraphrase changes).
+   - In `data/evaluation/target_paraphrase_checks.csv`, also check that the paraphrase is chosen in the sentences that indicate the original sense (`above_chance`). For a word whose paraphrase is not chosen, revise `llm_prompts/list-paraphrases.md` (lists candidates) or `llm_prompts/choose-paraphrase.md` (chooses among them) and rerun from `evaluation-data build-task-questions` (the paraphrase changes).
 2. In the `approved` column of `data/evaluation/minimal_pairs_review.csv`, enter 1 if in each sentence the target word's sense is fixed to the sense in its row, otherwise 0.
 
 ```bash

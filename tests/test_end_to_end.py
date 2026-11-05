@@ -122,6 +122,9 @@ def test_all_commands_run_to_the_end(
         for request in requests:
             if request.prompt.name == "list-paraphrases":
                 answers.append({"paraphrases": world.paraphrases})
+            elif request.prompt.name == "choose-paraphrase":
+                first = request.values["candidates"].split(", ")[0]
+                answers.append({"reason": "", "choice": first})
             elif request.prompt.name == "generate-minimal-pairs":
                 pairs = []
                 for number in range(int(request.values["number"])):
@@ -139,8 +142,8 @@ def test_all_commands_run_to_the_end(
         return answers
 
     monkeypatch.setattr(LlmClient, "ask_all", answer)
-    # 作った語の synset は WordNet にないので、上位語はないものとする
-    monkeypatch.setattr(task_questions, "hypernym_words", lambda synset: set())
+    # 作った語の synset は WordNet にないので、語義を指せる語はないものとする
+    monkeypatch.setattr(task_questions, "sense_words", lambda synset: set())
     # 無作為な重みでは、最小対の手がかりが効かず、課題の正解率も偶然の水準を超えないので、
     # 全ての候補を通し、全ての課題を使う
     monkeypatch.setattr(

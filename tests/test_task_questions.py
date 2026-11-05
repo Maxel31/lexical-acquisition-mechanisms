@@ -10,23 +10,27 @@ from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.llm_client import LlmClient, PromptTemplate
 from lexical_acquisition_mechanisms.natural_word_sentences import NaturalWordSentence
 from lexical_acquisition_mechanisms.neutral_contexts import NeutralContext
+from lexical_acquisition_mechanisms.sense_addition_assignments import SenseAdditionAssignment
 from lexical_acquisition_mechanisms.settings import ModelSource, load_settings
 from lexical_acquisition_mechanisms.task_questions import (
+    CHOICE_PROMPT,
     PROMPT,
     Paraphrase,
     TaskExample,
+    unusable_words,
     write_task_questions,
 )
 from lexical_acquisition_mechanisms.unknown_word_assignments import UnknownWordAssignment
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-# 言い換えの候補（語そのもの・大文字・2語・管理対象の語・カテゴリ名・上位語は使わない）
+# 言い換えの候補（語そのもの・大文字・2語・管理対象の語・カテゴリ名・カテゴリの根の語・donor の
+# 語義を指せる語は使わない）
 PARAPHRASES = {
     "soup": ["soup", "Meal", "two words", "pasta", "broth"],
     "cat": ["kitty"],
-    "dog": ["animal", "canine", "stallion", "puppy"],
-    "car": ["vehicle", "automobile"],
+    "dog": ["animal", "creature", "canine", "puppy"],
+    "car": ["vehicle", "motortruck", "automobile"],
 }
 
 
@@ -34,6 +38,10 @@ def answer_like_the_llm(request: httpx.Request) -> httpx.Response:
     content = json.loads(request.content)["messages"][0]["content"]
     word = content.split('"')[1]
     answer = {"paraphrases": PARAPHRASES.get(word, ["thing"])}
+    # 選ぶ問い合わせには、最初の候補を答える
+    candidates = [line for line in content.splitlines() if line.startswith("Candidates: ")]
+    if candidates:
+        answer = {"reason": "", "choice": candidates[0].removeprefix("Candidates: ").split(", ")[0]}
     choice = {"message": {"content": json.dumps(answer)}, "finish_reason": "stop"}
     return httpx.Response(200, json={"choices": [choice]})
 
@@ -77,7 +85,7 @@ def test_examples_and_natural_word_questions(
         ),
         SelectedWord("pasta", "noun", category="food", token_count=1),
         SelectedWord("tiger", "noun", category="animal", token_count=1),
-        SelectedWord("truck", "noun", category="vehicle", token_count=1),
+        SelectedWord("truck", "noun", category="vehicle", token_count=1, synset="truck.n.01"),
         SelectedWord("shirt", "noun", category="clothing", token_count=1),
     ]
     write_rows(tmp_path / "words.csv", SelectedWord, words)
@@ -97,6 +105,10 @@ def test_examples_and_natural_word_questions(
     write_rows(tmp_path / "assignments.csv", UnknownWordAssignment, [assignment])
     contexts = [NeutralContext(0, ""), NeutralContext(1, "Do you know about the")]
     write_rows(tmp_path / "contexts.csv", NeutralContext, contexts)
+    donor = SenseAdditionAssignment(
+        "same-category-1", "car", "vehicle", 1, "truck", "noun", "vehicle", 1
+    )
+    write_rows(tmp_path / "donors.csv", SenseAdditionAssignment, [donor])
     outputs = (
         tmp_path / "paraphrases.csv",
         tmp_path / "examples.csv",
@@ -106,13 +118,17 @@ def test_examples_and_natural_word_questions(
 
     write_task_questions(
         settings,
-        PromptTemplate.load(PROMPT, REPOSITORY_ROOT / "llm_prompts"),
+        (
+            PromptTemplate.load(PROMPT, REPOSITORY_ROOT / "llm_prompts"),
+            PromptTemplate.load(CHOICE_PROMPT, REPOSITORY_ROOT / "llm_prompts"),
+        ),
         client,
         (
             tmp_path / "words.csv",
             tmp_path / "sentences.csv",
             tmp_path / "assignments.csv",
             tmp_path / "contexts.csv",
+            tmp_path / "donors.csv",
         ),
         outputs,
     )
@@ -121,10 +137,12 @@ def test_examples_and_natural_word_questions(
     assert paraphrases == {
         "soup": "broth",
         "cat": "kitty",
-        "dog": "puppy",
+        # animal（カテゴリ名）と creature（カテゴリの根の語）は使わず、低い上位語の canine は使う
+        "dog": "canine",
         "bread": "thing",
         "horse": "thing",
         "cheese": "thing",
+        # donor（truck）の同義語の motortruck は使わない
         "car": "automobile",
     }
     examples = read_rows(outputs[1], TaskExample)
@@ -163,3 +181,19 @@ def test_examples_and_natural_word_questions(
         .startswith("Sentence: Do you know about the {word}.\n")
     )
     assert unknown[0]["prompt_template"].split("\n\n")[-1].startswith("Sentence: {word}.\n")
+
+
+def test_unusable_words_keep_lower_hypernyms_not_shared_with_donors() -> None:
+    settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
+    words = {
+        "pew": SelectedWord("pew", "target", category="furniture", synset="pew.n.01"),
+        "sofa": SelectedWord("sofa", "noun", category="furniture", synset="sofa.n.01"),
+        "brisk": SelectedWord("brisk", "adjective"),
+    }
+
+    unusable = unusable_words(words["pew"], settings.words.categories, ["sofa", "brisk"], words)
+
+    # 語そのもの・カテゴリ名・カテゴリの根（furnishing.n.02）・donor の同義語と上位語
+    assert {"pew", "food", "furniture", "furnishing", "couch", "seat"} <= unusable
+    # donor と共通しない低い上位語は使える
+    assert "bench" not in unusable

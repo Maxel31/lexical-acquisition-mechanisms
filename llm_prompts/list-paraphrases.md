@@ -1,7 +1,6 @@
-Give common English words that can replace the word "$word" in the sentence below and mean nearly the same.
+Give common English words that can name what the word "$word" means in the sentence below.
 
 Meaning of "$word": $definition
 Sentence: $sentence
 
-Each word must be a single common word in lowercase letters that means the same thing as "$word" (a synonym). Do not give a more general word or a category name (such as "food", "animal" or "vehicle"), and do not give "$word" itself.
-List $number such words, the best first.
+List $number words, the closest first: exact synonyms first, then words for a broader kind that clearly includes this meaning (for example "bench" for "pew", or "candy" for "licorice"). Every word must be a single common word in lowercase letters. Do not give a word for a different thing, even a similar one, a very broad word (such as "food", "animal", "vehicle", "furniture" or "thing"), or "$word" itself.
