@@ -6,7 +6,8 @@
   （例: She cooked the ___ / She parked the ___）。
 - 形容詞を足す組: 手がかりは、空欄を形容詞か名詞に決める語（例: It was so ___ / It was the ___）。
 次の候補は使わない。
-- 空欄（前が空白の、ちょうど3本の下線 ___）がちょうど1つでない、または2文で語の数が違う
+- 空欄（前が空白で、後に英数字が続かない、ちょうど3本の下線 ___）がちょうど1つでない、または
+  2文で語の数が違う（___s のように語の形を変える空欄も使わない）
 - 違う語が、ちょうど1つで、空欄より前にあるものでない
 - 空欄の外に、donor・ターゲット語・ほかの管理対象の語（別の形も）がある（手がかり以外から語義が
   分からないように）
@@ -49,8 +50,9 @@ COMMAND = "evaluation-data generate-minimal-pairs"
 OUTPUT_PATH = Path("data/evaluation/minimal_pair_candidates.csv")
 PROMPT = "generate-minimal-pairs"
 BLANK = "___"
-# 空欄: 前が空白で、ちょうど3本の下線（文の先頭なら、問題文では "Sentence:" の後の空白の後）
-BLANK_PATTERN = re.compile(r"(?<=\s)___(?!_)")
+# 空欄: 前が空白で、ちょうど3本の下線（文の先頭なら、問題文では "Sentence:" の後の空白の後）。
+# 後に英数字が続く空欄（___s など）は、語の形を変えるので使わない
+BLANK_PATTERN = re.compile(r"(?<=\s)___(?![_\w])")
 CUE_INSTRUCTIONS = {
     "noun": (
         "The cue is a word (such as a verb) that fits one of the two kinds of things and not the"
