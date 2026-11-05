@@ -56,7 +56,8 @@ With four free GPUs, add `CUDA_VISIBLE_DEVICES=0,1,2,3` and `--data-parallel-siz
 # and the ~10M tokens right after it (the validation data)
 uv run lexical-acquisition-mechanisms base-data download
 
-# Make word candidates: the LLM lists nouns and adjectives, and judges how they are used in the Pile
+# Make word candidates: the LLM lists nouns and adjectives (nouns also come from the words under each
+# category in WordNet, whose category the LLM checks), and judges how they are used in the Pile
 # (the share of uses in the sense or part of speech); unknown words are made from strings that never
 # appear in OLMo 2's pretraining data or the Pile
 uv run lexical-acquisition-mechanisms words generate-noun-candidates                # LLM
