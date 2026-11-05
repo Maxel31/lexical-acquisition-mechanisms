@@ -23,6 +23,7 @@ from lexical_acquisition_mechanisms import (
     dependence_regression,
     evaluation_finalization,
     head_and_mlp_effects,
+    head_map_comparison,
     hidden_state_similarity,
     minimal_pairs,
     natural_word_sentences,
@@ -334,6 +335,14 @@ def all_actions() -> list[Action]:
             "依存度を、意味と語としての統合の指標などで説明する回帰を当てはめる",
             dependence_regression.fit_regression,
             dependence_regression.add_arguments,
+        ),
+        Action(
+            "dependence-on-category-judging-heads",
+            "compare-head-maps",
+            "同じ名詞の意味を未知語に付けた場合と既知語に足した場合とで、head ごとの効果の並びを"
+            "比べる",
+            head_map_comparison.compare_head_maps,
+            head_map_comparison.add_arguments,
         ),
     ]
 
