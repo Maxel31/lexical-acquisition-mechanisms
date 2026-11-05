@@ -147,3 +147,33 @@ def test_orders_of_donors_do_not_follow_their_frequency(
     adjectives = [int(row.donor.split("-")[1]) for row in assignments if row.run == "adjective-1"]
     # 頻度の下位18語（平均 8.5）ではなく、全体の平均（35.5）に近い
     assert 25 < sum(adjectives) / len(adjectives) < 45
+
+
+def test_frequency_of_first_donors_is_the_same_for_every_token_count(
+    assignments: list[SenseAdditionAssignment],
+) -> None:
+    # トークン数のアブレーションに頻度が交絡しないように、1番目の donor の頻度（名詞は枠の中の
+    # 順位、形容詞は番号）の平均は、ターゲット語のトークン数によらない
+    def mean_by_token_count(run: str, frequency) -> dict[int, float]:
+        values = defaultdict(list)
+        for row in assignments:
+            # 枠 (food, 1トークン) は、CLOSE_PAIR を避けるために並べ替えるので、名詞では比べない
+            if row.run == run and not (run.startswith("same") and row.target_category == "food"):
+                values[row.target_token_count].append(frequency(row))
+        return {count: sum(numbers) / len(numbers) for count, numbers in values.items()}
+
+    def slot_rank(row: SenseAdditionAssignment) -> int:
+        slot = sorted(
+            (
+                other.donor
+                for other in assignments
+                if other.run == "same-category-4" and other.target == row.target
+            ),
+            key=lambda donor: int(donor.rsplit("-", 1)[1]),
+        )
+        return slot.index(row.donor)
+
+    nouns = mean_by_token_count("same-category-1", slot_rank)
+    adjectives = mean_by_token_count("adjective-1", lambda row: int(row.donor.split("-")[1]))
+    assert len(set(nouns.values())) == 1
+    assert len(set(adjectives.values())) == 1
