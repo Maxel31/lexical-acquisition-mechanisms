@@ -12,6 +12,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from lexical_acquisition_mechanisms import (
+    acquisition_order,
     adjective_candidates,
     assignments,
     base_data,
@@ -253,6 +254,14 @@ def all_actions() -> list[Action]:
             "層ごとに測る",
             unknown_word_indicators.measure_indicators,
             unknown_word_indicators.add_arguments,
+        ),
+        Action(
+            "unknown-word-acquisition",
+            "analyze-acquisition-order",
+            "指標を、差し込み0回の未知語が 0、既知の語が 1 になるように正規化し、"
+            "3つの指標が獲得される順番を検定する",
+            acquisition_order.analyze_acquisition_order,
+            acquisition_order.add_arguments,
         ),
     ]
 
