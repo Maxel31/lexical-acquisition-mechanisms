@@ -30,7 +30,7 @@ PARAPHRASES = {
     "soup": ["soup", "Meal", "two words", "pasta", "broth"],
     "cat": ["kitty"],
     "dog": ["animal", "creature", "canine", "puppy"],
-    "car": ["vehicle", "motortruck", "automobile"],
+    "car": ["vehicle", "container", "automobile"],
 }
 
 
@@ -142,7 +142,7 @@ def test_examples_and_natural_word_questions(
         "bread": "thing",
         "horse": "thing",
         "cheese": "thing",
-        # donor（truck）の同義語の motortruck は使わない
+        # donor（truck）の上位語の container（truck → wheeled_vehicle → container）は使わない
         "car": "automobile",
     }
     examples = read_rows(outputs[1], TaskExample)
