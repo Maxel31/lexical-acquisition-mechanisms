@@ -136,5 +136,7 @@ def test_two_token_words_are_the_baseline_without_one_token_words(
 
     terms = {row.term for row in fit_mixed_model("random-head", rows)}
 
-    assert "three_tokens" in terms and "two_tokens" not in terms
+    # 3トークンの係数は2トークンとの差なので、名前も変える
+    assert "three_tokens_versus_two_tokens" in terms
+    assert not {"two_tokens", "three_tokens"} & terms
     assert "2トークンの語を基準" in capsys.readouterr().out
