@@ -193,24 +193,32 @@ def _read_fingerprint(path: Path) -> dict[str, Any] | None:
 
 
 def code_version() -> str:
-    """今のコードの版（git のコミット。コミットしていない変更があれば、その旨を付ける）。"""
+    """今のコードの版（git のコミット。コミットしていない変更があれば、その旨と要約を付ける）。"""
     return _code_version()
 
 
 def _code_version() -> str:
-    """git のコミット。コミットしていないコードの変更があれば、その旨を付ける。
+    """git のコミット。コミットしていないコードの変更があれば、その旨と変更の要約を付ける。
 
     settings.yaml の変更は設定として別に記録するので、コードの変更に数えない。src/ と
-    llm_prompts/ の、まだ git に加えていない新しいファイルは、コードの変更に数える。
+    llm_prompts/ の、まだ git に加えていない新しいファイルは、コードの変更に数える。要約は、変更の
+    中身（git diff と、新しいファイルの中身）のハッシュで、コミットしないまま2回直したときに、
+    同じ版とみなさないためのもの。
     """
     try:
         commit = _run_git("rev-parse", "HEAD")
-        changes = _run_git(
-            "status", "--porcelain", "--untracked-files=no", "--", ".", ":(exclude)settings.yaml"
-        ) or _run_git("status", "--porcelain", "--untracked-files=all", "--", "src", "llm_prompts")
+        changed = _run_git("diff", "HEAD", "--", ".", ":(exclude)settings.yaml")
+        untracked = _run_git(
+            "ls-files", "--others", "--exclude-standard", "--", "src", "llm_prompts"
+        ).splitlines()
+        if not changed and not untracked:
+            return commit
+        digest = hashlib.sha256(changed.encode())
+        for name in sorted(untracked):
+            digest.update(name.encode() + b"\0" + Path(name).read_bytes())
     except (OSError, subprocess.SubprocessError):
         return "不明"
-    return commit + ("（コミットしていない変更あり）" if changes else "")
+    return f"{commit}（コミットしていない変更あり: {digest.hexdigest()[:16]}）"
 
 
 def _run_git(*arguments: str) -> str:
