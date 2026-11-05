@@ -5,7 +5,7 @@ passages judge-word-sense（判定に回す候補の数を、判定の前に）�
 - Pile の出現を全て残しても足りない語は、data/words/excluded_words.csv に足す（words select から
   選び直すと、代わりの語が選ばれる）。
 - 残した出現が残す数に届いた語（Pile にはさらに出現がありうる）は外さず、
-  passages.collection_factor を大きくして passages collect からやり直すように示す。
+  passages.occurrence_margin を大きくして passages collect からやり直すように示す。
 """
 
 from collections.abc import Mapping, Sequence
@@ -100,7 +100,7 @@ def stop_for_shortage(
     if more_in_pile:
         messages.append(
             f"{what}が足りない語のうち、Pile にさらに出現がありうる語は外していません"
-            f"（{listed(more_in_pile)}）。settings.yaml の passages.collection_factor を大きくして"
+            f"（{listed(more_in_pile)}）。settings.yaml の passages.occurrence_margin を大きくして"
             f"ください（外すときは、{excluded_words_path} に足して words select から）。"
         )
     raise CommandStopped(

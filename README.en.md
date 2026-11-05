@@ -118,7 +118,7 @@ uv run lexical-acquisition-mechanisms passages sample-for-review
 uv run lexical-acquisition-mechanisms passages finalize --review-csv data/passages/review.csv
 ```
 
-**Manual step** (if `passages judge-word-sense` or `passages finalize` stopped because some words lack passages): rerun as shown. If words were excluded, rerun from `words select` (other words are chosen in their place); otherwise, increase `passages.collection_factor` in `settings.yaml` and rerun from `passages collect`.
+**Manual step** (if `passages judge-word-sense` or `passages finalize` stopped because some words lack passages): rerun as shown. If words were excluded, rerun from `words select` (other words are chosen in their place); otherwise, increase `passages.occurrence_margin` (how many more occurrences collection keeps) in `settings.yaml` and rerun from `passages collect`.
 
 **Manual step** (if it stopped because the precision is too low for some words): revise the LLM's instructions (`llm_prompts/`), and rerun from `passages judge-word-sense`.
 

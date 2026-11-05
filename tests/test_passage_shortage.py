@@ -52,7 +52,7 @@ def test_only_words_without_more_occurrences_are_excluded(
             shortages, "候補", tmp_path / "collection_summary.csv", tmp_path / "excluded.csv"
         )
 
-    # 外した語があれば、words select から（collection_factor を大きくするのは、その前に）
+    # 外した語があれば、words select から（occurrence_margin を大きくするのは、その前に）
     assert stopped.value.rerun_from == "words select"
     excluded = read_rows(tmp_path / "excluded.csv", ExcludedWord)
     assert [(row.word, row.reason) for row in excluded] == [

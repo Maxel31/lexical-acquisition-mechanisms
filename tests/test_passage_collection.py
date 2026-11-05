@@ -75,6 +75,7 @@ def settings(tiny_model_source: ModelSource) -> Settings:
             "tokens_per_passage": 25,
             "evaluation_passages_per_word": 1,
             "collection_factor": 1.2,
+            "occurrence_margin": 1.5,
         }
     )
     exposure = settings.unknown_word_acquisition.model_copy(
@@ -203,3 +204,7 @@ def test_record_does_not_depend_on_the_judgment_precision(
     collect_passages(settings.model_copy(update={"passages": changed}), arguments)
 
     assert steps[0].settings == steps[1].settings
+    # 残す出現の倍率を変えたら、読み直す
+    margin = settings.passages.model_copy(update={"occurrence_margin": 3})
+    collect_passages(settings.model_copy(update={"passages": margin}), arguments)
+    assert steps[0].settings != steps[2].settings
