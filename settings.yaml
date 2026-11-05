@@ -151,7 +151,7 @@ evaluation:
   minimal_pairs_per_sense_pair: 20
   minimal_pair_candidate_factor: 2
   # 中立文脈（語の意味を示さない文の書き出し。直後に語を置く）の候補。前から順に、条件に合うものを使う。
-  # 前の20種は設計書の付録Eの候補、後の10種は、足りないときに使う同じ形の文
+  # 前の20種は設計書の付録Eの候補、後の30種は、足りないときに使う同じ形の文
   neutral_context_candidates:
     - Do you know about the
     - I heard something about the
@@ -183,6 +183,26 @@ evaluation:
     - There is a lot to say about the
     - I wanted to ask about the
     - We need to talk about the
+    - I came across something about the
+    - There was a lot of talk about the
+    - We had a long conversation about the
+    - He mentioned something about the
+    - She wrote about the
+    - They kept talking about the
+    - I keep thinking about the
+    - Tell me more about the
+    - I saw a report about the
+    - There is a new book about the
+    - Nobody knew much about the
+    - We learned something new about the
+    - I asked my teacher about the
+    - They had some questions about the
+    - I found a page about the
+    - Have you read anything about the
+    - She gave a talk about the
+    - There was a long discussion about the
+    - I remember hearing about the
+    - We wrote a report on the
   # 使う中立文脈の数（文脈なしを除く）
   number_of_neutral_contexts: 20
   # 中立文脈の条件: 自然な名詞の対数確率のカテゴリごとの平均（全カテゴリの平均との差）が、
