@@ -86,10 +86,11 @@ class WordsSettings(SettingsSection):
     """実験で操作する語と、自然な語の選び方。"""
 
     categories: list[CategorySettings] = Field(min_length=2)
-    # LLM に語を挙げさせるときの、挙げる語の種類
-    # （名詞はカテゴリごと、形容詞は全体で、種類ごとに1回ずつ挙げさせる）
+    # LLM に語を挙げさせるときの、挙げる語の種類と頭文字の組（例: "a, b"）
+    # （名詞はカテゴリごと、形容詞は全体で、種類 × 頭文字の組ごとに1回ずつ挙げさせる）
     listing_kinds: list[str] = Field(min_length=1)
-    # 1回に挙げさせる名詞と形容詞の数
+    listing_letter_groups: list[str] = Field(min_length=1)
+    # 1回に挙げさせる名詞と形容詞の数（答えの形で、これより多くは挙げさせない）
     nouns_per_listing: int = Field(gt=0)
     adjectives_per_listing: int = Field(gt=0)
     # 頻度と使われ方を見積もるときに読む、Pile の先頭の断片の数（全部で1,650個）

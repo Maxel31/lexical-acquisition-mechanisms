@@ -13,6 +13,7 @@ from lexical_acquisition_mechanisms.llm_client import (
     LlmRequest,
     PromptTemplate,
     prompt_record_settings,
+    with_maximum_items,
 )
 from lexical_acquisition_mechanisms.settings import LlmSettings
 
@@ -219,3 +220,21 @@ def test_prompt_template_fills_values_and_loads_from_a_directory(tmp_path: Path)
     assert prompt.render({"first": "car", "second": "truck"}) == "Rate car and truck."
     with pytest.raises(KeyError):
         prompt.render({"first": "car"})
+
+
+def test_lists_in_answers_are_capped_by_the_schema() -> None:
+    schema = {
+        "type": "object",
+        "properties": {"nouns": {"type": "array", "items": {"type": "string"}}},
+        "required": ["nouns"],
+    }
+
+    capped = with_maximum_items(schema, "nouns", 25)
+
+    assert capped["properties"]["nouns"] == {
+        "type": "array",
+        "items": {"type": "string"},
+        "maxItems": 25,
+    }
+    # 元の形は変えない
+    assert "maxItems" not in schema["properties"]["nouns"]

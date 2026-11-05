@@ -52,12 +52,23 @@ words:
     - name: building
       description: buildings
       wordnet_roots: [building.n.01]
-  # LLM に語を挙げさせるときの、挙げる語の種類（種類ごとに1回）と、1回に挙げさせる数
+  # LLM に語を挙げさせるときの、挙げる語の種類と頭文字の組（種類 × 頭文字の組ごとに1回）と、
+  # 1回に挙げさせる数（一度に多く挙げさせると、温度0では同じ語の繰り返しに入り、長さの上限で
+  # 切れるので、頭文字で分けて少しずつ挙げさせる）
   listing_kinds:
     - very common, everyday
     - less common but well-known
-  nouns_per_listing: 200
-  adjectives_per_listing: 400
+  listing_letter_groups:
+    - a, b
+    - c
+    - d, e, f
+    - g, h, i, j, k
+    - l, m, n, o
+    - p, q, r
+    - s
+    - t, u, v, w, x, y, z
+  nouns_per_listing: 25
+  adjectives_per_listing: 50
   # 頻度と使われ方を見積もるときに読む、Pile の先頭の断片の数（全1,650個のうち約3%）
   pile_sample_shards: 50
   # 使われ方を LLM が判定する、語ごとの見本の数
