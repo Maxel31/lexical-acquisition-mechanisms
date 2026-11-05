@@ -18,6 +18,7 @@ from lexical_acquisition_mechanisms import (
     neutral_contexts,
     noun_candidates,
     passage_collection,
+    passage_finalization,
     passage_review,
     passage_split,
     similarity_ratings,
@@ -146,6 +147,14 @@ def all_actions() -> list[Action]:
             "名詞・形容詞・ターゲット語ごとに、合格した用例を20件抜き出し、"
             "確認用の data/passages/review.csv を書き出す",
             passage_review.sample_for_review,
+        ),
+        Action(
+            "passages",
+            "finalize",
+            "語ごとに LLM の判定の精度（合格とした候補のうち、人も 1 とした割合）を出し、"
+            "合格した候補を、学習用・評価用の用例として書き出す",
+            passage_finalization.finalize_passages,
+            passage_finalization.add_arguments,
         ),
     ]
 
