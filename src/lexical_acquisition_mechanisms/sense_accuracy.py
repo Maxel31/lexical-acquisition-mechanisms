@@ -27,12 +27,12 @@ from lexical_acquisition_mechanisms import (
     sense_addition_assignments,
     word_finalization,
 )
+from lexical_acquisition_mechanisms.bootstrap_statistics import SIGNIFICANCE_LEVEL
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings
 from lexical_acquisition_mechanisms.task_accuracy import (
-    SIGNIFICANCE_LEVEL,
     answer_questions,
     binomial_p_value,
 )

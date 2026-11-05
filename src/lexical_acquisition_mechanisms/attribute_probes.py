@@ -40,6 +40,7 @@ from lexical_acquisition_mechanisms import (
     task_questions,
     word_finalization,
 )
+from lexical_acquisition_mechanisms.bootstrap_statistics import SIGNIFICANCE_LEVEL
 from lexical_acquisition_mechanisms.component_adoption import ComponentClass
 from lexical_acquisition_mechanisms.component_patching import MLP
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
@@ -47,7 +48,6 @@ from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.logistic_probes import LogisticProbe, train_logistic_probe
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings
-from lexical_acquisition_mechanisms.task_accuracy import SIGNIFICANCE_LEVEL
 from lexical_acquisition_mechanisms.task_prompts import (
     PARTS_OF_SPEECH,
     encode_prompt_with_word_spans,

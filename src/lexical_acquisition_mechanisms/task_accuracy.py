@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from lexical_acquisition_mechanisms.bootstrap_statistics import SIGNIFICANCE_LEVEL
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.minimal_pairs import BLANK, MinimalPairCandidate
 from lexical_acquisition_mechanisms.task_prompts import (
@@ -26,8 +27,6 @@ from lexical_acquisition_mechanisms.task_prompts import (
     encode_prompt,
     prompt_template,
 )
-
-SIGNIFICANCE_LEVEL = 0.05
 
 
 @dataclass

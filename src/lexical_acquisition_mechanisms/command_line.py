@@ -300,7 +300,8 @@ def all_actions() -> list[Action]:
         Action(
             "sense-addition",
             "select-significant-heads-and-mlps",
-            "効果の信頼区間を出し、有意な head と MLP を選ぶ",
+            "効果の信頼区間を出し、採用の基準を満たす head と MLP を選んで、どの種類の語義を"
+            "足したときに効くかで分類する",
             significant_heads_and_mlps.select_significant_heads_and_mlps,
             significant_heads_and_mlps.add_arguments,
         ),
@@ -314,7 +315,8 @@ def all_actions() -> list[Action]:
         Action(
             "sense-addition",
             "test-attribute-directions",
-            "head の出力のうち属性を表す方向の成分を入れ替えて、属性を判定する head を確かめる",
+            "head の出力のうち属性を表す方向の成分を入れ替えて、属性を判定する head を特定し、"
+            "保存する",
             attribute_direction_patching.test_attribute_directions,
             attribute_direction_patching.add_arguments,
         ),

@@ -30,10 +30,13 @@ from lexical_acquisition_mechanisms.attribute_probes import (
     AttributeProbeTransfer,
     read_attribute_probes,
 )
-from lexical_acquisition_mechanisms.bootstrap_statistics import mean_and_error, positive_p_values
+from lexical_acquisition_mechanisms.bootstrap_statistics import (
+    SIGNIFICANCE_LEVEL,
+    mean_and_error,
+    positive_p_values,
+)
 from lexical_acquisition_mechanisms.component_adoption import LARGEST
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
-from lexical_acquisition_mechanisms.task_accuracy import SIGNIFICANCE_LEVEL
 
 # 属性ごとの、属性が違う条件の run と、効くべき種類・効かないべき種類
 RELEVANT_RUNS = {"category": f"other-category-{LARGEST}", "part-of-speech": f"adjective-{LARGEST}"}

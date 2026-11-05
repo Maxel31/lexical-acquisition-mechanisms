@@ -10,6 +10,9 @@ from collections.abc import Sequence
 import numpy as np
 
 BOOTSTRAP_SAMPLES = 1000
+# 全ての分析で共通の、検定の有意水準と、多重比較の補正（Benjamini–Hochberg）で抑える偽発見率
+SIGNIFICANCE_LEVEL = 0.05
+FALSE_DISCOVERY_RATE = 0.05
 
 
 def bootstrap_weights(
