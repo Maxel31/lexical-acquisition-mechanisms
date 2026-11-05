@@ -92,7 +92,9 @@ uv run lexical-acquisition-mechanisms words finalize --review-csv data/words/rev
 #### 1-2. Passages
 
 ```bash
-# Cut passage candidates that contain the selected words from the Pile
+# Cut passage candidates that contain the selected words from the Pile (if shard downloads stop
+# progressing, stop it and run it again with HF_HUB_DISABLE_XET=1 in front; it continues after
+# the shards it has read)
 uv run lexical-acquisition-mechanisms passages collect
 
 # Remove near-identical candidates, and split the rest into training and evaluation
