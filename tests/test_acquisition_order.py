@@ -8,6 +8,7 @@ import pyarrow.parquet as parquet
 import pytest
 
 from lexical_acquisition_mechanisms.acquisition_order import (
+    AcquisitionCurvePoint,
     AcquisitionOrder,
     normalize,
     write_acquisition_order,
@@ -149,3 +150,31 @@ def test_values_with_a_small_reference_gap_are_not_used(
     integration = [row for row in normalized if row["indicator"] == "integration"]
     assert integration and all(math.isnan(row["normalized"]) for row in integration)
     assert "integration（層 0）で、m1 と m0 の差が下限" in capsys.readouterr().out
+
+
+def test_groups_without_values_of_an_indicator_leave_it_out(tmp_path: Path) -> None:
+    # 1トークンの未知語には形への慣れがないので、1トークンの語だけの集まりでは、形への慣れの曲線も
+    # 順番も、それとの比べ合いも出さない
+    indicators = rows()
+    for row in rows():
+        if row["kind"] == "unknown" and row["indicator"] != "form":
+            indicators.append({**row, "word": row["word"].replace("u", "v"), "token_count": 1})
+        if row["kind"] == "known-noun" and row["indicator"] == "integration":
+            indicators.append({**row, "kind": "noun", "word": "pasta", "token_count": 1})
+    parquet.write_table(arrow.Table.from_pylist(indicators), tmp_path / "indicators.parquet")
+    outputs = (tmp_path / "normalized.parquet", tmp_path / "curves.csv", tmp_path / "order.csv")
+
+    write_acquisition_order(tmp_path / "indicators.parquet", outputs, seed=0)
+
+    orders = [
+        row for row in read_rows(outputs[2], AcquisitionOrder) if row.group == "token-count-1"
+    ]
+    assert sorted(row.indicator for row in orders) == ["integration", "meaning"]
+    assert all("form" not in row.earlier_than + row.p_values for row in orders)
+    curves = read_rows(outputs[1], AcquisitionCurvePoint)
+    assert {row.indicator for row in curves if row.group == "token-count-1"} == {
+        "integration",
+        "meaning",
+    }
+    # 2トークンの語の集まりと全体には、形への慣れがある
+    assert {row.indicator for row in read_rows(outputs[2], AcquisitionOrder)} >= {"form"}
