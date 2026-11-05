@@ -19,7 +19,24 @@ from lexical_acquisition_mechanisms.word_selection import SelectedWord
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
 
 NAMES = ("judging.csv", "directions.npz", "classes.csv", "probes.npz", "questions.parquet")
-NAMES += ("assignments.csv", "words.csv")
+NAMES += ("assignments.csv", "words.csv", "natural.parquet")
+
+
+def write_natural_questions(path: Path, tokenizer: WordTokenizer, sentences: list[str]) -> None:
+    """自然な語（cake）の課題2のカテゴリの問題（無効化で置き換える平均を求める問題）。"""
+    rows = [
+        {
+            "word": "cake",
+            "task": "category",
+            "prompt_template": prompt_template(
+                [], TaskItem("category", sentence, ("food", "vehicle"), "food")
+            ),
+            "word_token_ids": tokenizer.word_token_ids("cake"),
+            "answer": "food",
+        }
+        for sentence in sentences
+    ]
+    parquet.write_table(arrow.Table.from_pylist(rows), path)
 
 
 def write_inputs(tmp_path: Path, tokenizer: WordTokenizer, judging: bool) -> list[Path]:
@@ -73,6 +90,7 @@ def write_inputs(tmp_path: Path, tokenizer: WordTokenizer, judging: bool) -> lis
         for word, role in (("blicket", "unknown"), ("pasta", "noun"))
     ]
     write_rows(tmp_path / "words.csv", SelectedWord, words)
+    write_natural_questions(tmp_path / "natural.parquet", tokenizer, ["I ate the {word}."])
     return [tmp_path / name for name in NAMES]
 
 
@@ -102,6 +120,17 @@ def test_dependence_is_measured_for_each_ablation(
         assert "dependence" not in row and "usable" not in row
     # 無効化で、対数確率が実際に変わる
     assert any(row["known_drop"] != 0 and row["unknown_drop"] != 0 for row in rows)
+    # 置き換える平均は、その run の重みで、自然な語の問題から求める（問題を替えると変わる）
+    write_natural_questions(inputs[-1], tokenizer, ["The {word} was here.", "We saw a {word}."])
+    write_dependence(
+        {"run-1": Path(tiny_model_source.repository)},
+        lambda source: LanguageModel.load(source, device="cpu"),
+        inputs,
+        tmp_path / "other.parquet",
+        0,
+    )
+    other = parquet.read_table(tmp_path / "other.parquet").to_pylist()
+    assert other[0]["known_drop"] != rows[0]["known_drop"]
 
 
 def test_nothing_is_measured_without_category_judging_heads(

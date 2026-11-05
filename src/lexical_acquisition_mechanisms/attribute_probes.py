@@ -195,7 +195,9 @@ def write_attribute_probes(
             held_out_words = _held_out_words(rows, seed)
             held_out = np.array([row["word"] in held_out_words for row in rows])
             labels = np.array([names[attribute].index(row["answer"]) for row in rows])
-            features = _head_outputs(model, rows, [row["word_token_ids"] for row in rows], heads)
+            features = word_head_outputs(
+                model, rows, [row["word_token_ids"] for row in rows], heads
+            )
             for number, (layer, head) in enumerate(heads):
                 probe = train_logistic_probe(
                     features[~held_out, number], labels[~held_out], len(names[attribute]), seed
@@ -273,7 +275,7 @@ def write_probe_transfer(
             [int(token) for token in words[question["target"]].token_ids.split()]
             for question in chosen
         ]
-        features = _head_outputs(model, chosen, word_ids, heads)
+        features = word_head_outputs(model, chosen, word_ids, heads)
         # 次の run の重みを読む前に、この重みを GPU から消す
         del model
         _free_memory()
@@ -356,7 +358,7 @@ def baseline_heads(
     return chosen
 
 
-def _head_outputs(
+def word_head_outputs(
     model: LanguageModel,
     rows: Sequence[dict[str, object]],
     word_ids: Sequence[Sequence[int]],

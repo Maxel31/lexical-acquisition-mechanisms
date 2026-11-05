@@ -6,7 +6,9 @@ head（test-attribute-directions の attribute_judging_heads の、属性が cat
 もの。同じモデル）をまとめて無効化し、課題2のカテゴリの問題（中立文脈の21条件）で、正解のカテゴリ
 （その run で割り当てた名詞のカテゴリ）の対数確率がどれだけ下がるかを測る。
 - 無効化（ablation が category-direction）: 文の中の語の最後のトークンでの各 head の出力の、
-  カテゴリの方向の成分を、自然な語での平均の成分に置き換える（x − P x + P μ）
+  カテゴリの方向の成分を、自然な語での平均の成分に置き換える（x − P x + P μ）。平均 μ は、その
+  run の重みで、自然な語の課題2のカテゴリの問題（プローブの学習に使った問題）の、語の最後の
+  トークンでの head の出力の平均（無効化する重みと同じ重みで求める）
 - 比較の基準: 同じ層の無作為な head（train-attribute-probes で選んだもの）のカテゴリの方向
   （random-head）と、同じ head の同じ次元数の無作為な方向（random-direction。
   test-attribute-directions と同じ方向）で、同じ無効化をする
@@ -103,6 +105,7 @@ def measure_dependence(settings: Settings, arguments: argparse.Namespace) -> Non
         task_questions.UNKNOWN_WORD_QUESTIONS_PATH: task_questions.COMMAND,
         unknown_word_assignments.ASSIGNMENTS_PATH: unknown_word_assignments.COMMAND,
         word_finalization.OUTPUT_PATH: word_finalization.COMMAND,
+        task_questions.NATURAL_QUESTIONS_PATH: task_questions.COMMAND,
     }
     step = Step(
         command,
@@ -137,7 +140,7 @@ def write_dependence(
     seed: int,
 ) -> None:
     judging_path, directions_path, classes_path, probes_path, *rest = input_paths
-    questions_path, assignments_path, words_path = rest
+    questions_path, assignments_path, words_path, natural_path = rest
     heads = sorted(
         (row.layer, row.head)
         for row in read_rows(judging_path, AttributeJudgingHead)
@@ -150,10 +153,14 @@ def write_dependence(
         adopted = adopted_heads(classes_path)
         questions = parquet.read_table(questions_path).to_pylist()
         words = {word.word: word for word in read_rows(words_path, SelectedWord)}
+        natural = [
+            row for row in parquet.read_table(natural_path).to_pylist() if row["task"] == "category"
+        ]
         for run, checkpoint in checkpoints.items():
             model = load_model(ModelSource(repository=str(checkpoint)))
             baselines = baseline_heads(adopted, model.model.config.num_attention_heads, seed)
-            ablations = _ablations(heads, baselines, directions, probes, seed)
+            means = _natural_means(model, natural, [*heads, *baselines.values()])
+            ablations = _ablations(heads, baselines, directions, probes, means, seed)
             run_questions = [
                 question
                 for question in questions
@@ -180,23 +187,42 @@ def write_dependence(
     parquet.write_table(arrow.Table.from_pylist(rows), output)
 
 
+def _natural_means(
+    model: LanguageModel,
+    natural: Sequence[dict[str, object]],
+    heads: Sequence[tuple[int, int]],
+) -> dict[tuple[int, int], np.ndarray]:
+    """head ごとの、自然な語のカテゴリの問題での、語の最後のトークンでの出力の平均。
+
+    形は (1, 次元)。
+    """
+    chosen = sorted(set(heads))
+    word_ids = [row["word_token_ids"] for row in natural]
+    outputs = attribute_probes.word_head_outputs(model, natural, word_ids, chosen)
+    return {
+        head: outputs[:, number].mean(axis=0, keepdims=True) for number, head in enumerate(chosen)
+    }
+
+
 def _ablations(
     heads: Sequence[tuple[int, int]],
     baselines: dict[tuple[int, int], tuple[int, int]],
     directions: Mapping[str, np.ndarray],
     probes: dict[tuple[int, int, str], LogisticProbe],
+    means: dict[tuple[int, int], np.ndarray],
     seed: int,
 ) -> dict[str, tuple[SubspacePatch, ...]]:
-    """無効化の種類ごとの、まとめて行う入れ替え（置き換える値は、自然な語での平均）。"""
+    """無効化の種類ごとの、まとめて行う入れ替え（置き換える値は、その run の重みでの自然な語での
+    平均）。"""
     chosen: dict[str, list[SubspacePatch]] = {name: [] for name in ABLATIONS}
     for layer, head in heads:
         basis = directions[f"{layer}-{head}-category-basis"]
-        mean = directions[f"{layer}-{head}-category-mean"][None, :]
+        mean = means[layer, head]
         chosen[ABLATIONS[0]].append(SubspacePatch(layer, head, basis, mean))
         other = baselines.get((layer, head))
         if other is not None and (*other, "category") in probes:
             probe = probes[(*other, "category")]
-            patch = SubspacePatch(*other, attribute_basis(probe), probe.mean[None, :])
+            patch = SubspacePatch(*other, attribute_basis(probe), means[other])
             chosen[ABLATIONS[1]].append(patch)
         # test-attribute-directions と同じ無作為な方向
         random_numbers = np.random.default_rng([seed, layer, head, ATTRIBUTES.index("category")])
