@@ -60,8 +60,15 @@ def require_usable_tasks(
 ) -> None:
     """モデルで使えない課題（偶然の水準を超えない課題）があれば止まる。
 
-    設計書: 偶然の水準を有意に超えないモデルサイズでは、その課題を使わない。
+    設計書: 偶然の水準を有意に超えないモデルサイズでは、その課題を使わない。正解率の表がない、または
+    表にそのモデルの行がないときは、check-with-pretrained-models から実行するように示して止まる。
     """
+    if not path.exists() or model not in {row.model for row in read_rows(path, TaskAccuracy)}:
+        raise CommandStopped(
+            f"モデル {model} の、自然な語での課題の正解率がありません（{path}）。"
+            "settings.yaml の models にそのモデルがあることを確かめて、実行してください。",
+            rerun_from=COMMAND,
+        )
     unusable = [task for task in tasks if task not in usable_tasks(model, path)]
     if unusable:
         raise CommandStopped(
