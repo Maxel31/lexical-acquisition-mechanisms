@@ -4,8 +4,9 @@ passages collect の後半。
 
 1. 前後の文字列の端の、途中で切れた語を除き、出現の前・出現（先頭スペース付きの形）・後に分けて
    トークン化する（分けても、まとめてトークン化したのと同じトークン列になる）。
-2. 出現を含む位置に、用例の長さの窓を、無作為に置く。窓の始まりと、窓の次のトークンは、語の途中に
-   しない（英字で始まるトークンにしない）。窓に入らなければ（文書が短い）、使わない。
+2. 出現を含む位置に、用例の長さの窓を、無作為に置く。窓の始まりと終わりは、語の途中にしない
+   （前のトークンが英字で終わり、後のトークンが英字で始まる所で切らない）。窓に入らなければ
+   （文書が短い）、使わない。
 3. 次の窓は使わない。
    - 語の標準の形でない形（例: "Pasta"、" pastas"）を含む（置き換えた後のトークン列をそろえるため）
    - ほかの管理対象の語を、どの形でも含む（1つの文章で操作するのは1語だけにするため）
@@ -19,11 +20,9 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
-
 from lexical_acquisition_mechanisms.pile_word_usages import WORD_PATTERN, occurrence_key
 from lexical_acquisition_mechanisms.settings import ModelSource
-from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
+from lexical_acquisition_mechanisms.word_tokenizer import WordBoundaries, WordTokenizer
 
 # 窓の位置を決める鍵の seed に足す数（出現を選んだ鍵と別の数にするため）
 WINDOW_SEED_OFFSET = 1
@@ -80,7 +79,7 @@ def _initialize_worker(source: ModelSource, settings: WindowSettings) -> None:
     tokenizer = WordTokenizer.from_model(source)
     _worker.update(
         tokenizer=tokenizer,
-        continues_word=tokenizer.word_continuation_flags(),
+        boundaries=tokenizer.word_boundaries(),
         settings=settings,
     )
 
@@ -92,7 +91,7 @@ def _cut_chunk(occurrences: Iterable[dict[str, Any]]) -> list[PassageWindow | st
 def cut_window(
     occurrence: dict[str, Any],
     tokenizer: WordTokenizer,
-    continues_word: np.ndarray,
+    boundaries: WordBoundaries,
     settings: WindowSettings,
 ) -> PassageWindow | str:
     """1つの出現から窓を切り出す。使わないときは、その理由を返す。"""
@@ -110,8 +109,8 @@ def cut_window(
     starts = [
         start
         for start in range(lowest, highest + 1)
-        if not continues_word[token_ids[start]]
-        and (start + length == len(token_ids) or not continues_word[token_ids[start + length]])
+        if not boundaries.inside_word(token_ids, start)
+        and not boundaries.inside_word(token_ids, start + length)
     ]
     if not starts:
         return "文書が短いか、語の区切りで切れない"
@@ -137,10 +136,7 @@ def cut_window(
         position - start
         for position in range(start, start + length - len(word_ids) + 1)
         if token_ids[position : position + len(word_ids)] == word_ids
-        and (
-            position + len(word_ids) == len(token_ids)
-            or not continues_word[token_ids[position + len(word_ids)]]
-        )
+        and not boundaries.inside_word(token_ids, position + len(word_ids))
     ]
     if len(positions) != standard_forms:
         return "語の出現とトークンの区切りが合わない"

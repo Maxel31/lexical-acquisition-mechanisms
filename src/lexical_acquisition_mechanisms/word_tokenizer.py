@@ -10,11 +10,32 @@
 """
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import numpy as np
 from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizerBase
 
 from lexical_acquisition_mechanisms.settings import ModelSource
+
+
+@dataclass(frozen=True)
+class WordBoundaries:
+    """トークン番号ごとの、英字で始まるか・英字で終わるか。
+
+    2つのトークンの間は、前のトークンが英字で終わり、後のトークンが英字で始まるときだけ、語の途中に
+    なる（例: " cat" と "fish" の間。改行の後の "The" や、文書の先頭の "We" の前は、語の途中では
+    ない）。使われていないトークン番号は、どちらも偽にする。
+    """
+
+    starts_with_letter: np.ndarray
+    ends_with_letter: np.ndarray
+
+    def inside_word(self, token_ids: Sequence[int], index: int) -> bool:
+        """token_ids[index - 1] と token_ids[index] の間が、語の途中か（列の両端は途中でない）。"""
+        return 0 < index < len(token_ids) and bool(
+            self.ends_with_letter[token_ids[index - 1]]
+            and self.starts_with_letter[token_ids[index]]
+        )
 
 
 class WordTokenizer:
@@ -109,17 +130,15 @@ class WordTokenizer:
             pieces.append(self._tokenizer.decode(known_ids))
         return "".join(pieces)
 
-    def word_continuation_flags(self) -> np.ndarray:
-        """トークン番号ごとに、そのトークンが英字で始まる（直前の語の続きになる）か。
-
-        例: "fish" は True（" cat" の後なら " catfish" になる）、" fish" や "." は False。
-        使われていないトークン番号は False にする。
-        """
-        flags = np.zeros(self.number_of_embedding_rows, dtype=bool)
+    def word_boundaries(self) -> WordBoundaries:
+        """トークン番号ごとの、英字で始まるか・英字で終わるか。"""
+        starts = np.zeros(self.number_of_embedding_rows, dtype=bool)
+        ends = np.zeros(self.number_of_embedding_rows, dtype=bool)
         for token_id in range(len(self._tokenizer)):
             text = self._tokenizer.decode([token_id])
-            flags[token_id] = bool(text) and text[0].isascii() and text[0].isalpha()
-        return flags
+            starts[token_id] = bool(text) and text[0].isascii() and text[0].isalpha()
+            ends[token_id] = bool(text) and text[-1].isascii() and text[-1].isalpha()
+        return WordBoundaries(starts, ends)
 
     def unused_token_ids(self, count: int) -> list[int]:
         """埋め込みにはあるが、トークナイザが使っていないトークン番号を、小さい順に返す。"""

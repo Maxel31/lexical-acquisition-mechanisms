@@ -180,7 +180,7 @@ def build_selected_words(settings: Settings, tables: SelectionInputs, output_pat
     counts = base_data.count_word_occurrences(
         np.load(tables.base_sequences, mmap_mode="r"),
         {row.word: [int(token) for token in row.token_ids.split()] for row in rows},
-        tokenizer.word_continuation_flags(),
+        tokenizer.word_boundaries().starts_with_letter,
     )
     for row in rows:
         row.base_data_count = counts[row.word]
