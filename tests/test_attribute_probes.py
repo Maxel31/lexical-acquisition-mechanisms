@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pyarrow as arrow
 import pyarrow.parquet as parquet
+import pytest
 
 from lexical_acquisition_mechanisms.attribute_probes import (
     AttributeProbeAccuracy,
@@ -120,7 +121,6 @@ def test_probes_are_trained_on_natural_words_and_applied_to_minimal_pairs(
         ["food", "vehicle"],
         (tmp_path / "questions.parquet", tmp_path / "accuracy.csv", tmp_path / "words.csv"),
         tmp_path / "transfer.csv",
-        0,
     )
 
     # MLP は除き、head（0, 1）と、比較の基準の同じ層の head。2クラスとも、5語のうち1語（2文）を
@@ -148,10 +148,8 @@ def test_word_level_p_values_count_words_as_units() -> None:
     correct = np.repeat([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0], 10)
     words = [f"word-{index // 10}" for index in range(80)]
 
-    by_word = word_level_p_value(correct, words, 0.5, np.random.default_rng(0))
-    by_question = word_level_p_value(
-        correct, [str(index) for index in range(80)], 0.5, np.random.default_rng(0)
-    )
+    by_word = word_level_p_value(correct, words, 0.5)
+    by_question = word_level_p_value(correct, [str(index) for index in range(80)], 0.5)
 
     assert by_question < 0.001 < by_word
 
@@ -160,7 +158,7 @@ def test_word_level_p_values_need_enough_words() -> None:
     def p_value(correct_by_word: list[float], chance: float) -> float:
         correct = np.repeat(correct_by_word, 10)
         words = [f"word-{index // 10}" for index in range(len(correct))]
-        return word_level_p_value(correct, words, chance, np.random.default_rng(0))
+        return word_level_p_value(correct, words, chance)
 
     # 全ての語で正しくても、語を単位にした二項検定（chance の語の数乗）で有意にならない数の語では、
     # 検定しない: 1/6 なら1語、1/2 なら4語まで
@@ -168,10 +166,10 @@ def test_word_level_p_values_need_enough_words() -> None:
     assert p_value([1.0] * 4, 1 / 2) == 1.0
     assert p_value([1.0] * 2, 1 / 6) < 0.05
     assert p_value([1.0] * 5, 1 / 2) < 0.05
-    # 語が少ないときは t 分布で検定する（5語のうち4語・6語のうち5語が正しいだけでは、偶然の水準
-    # 1/2 を超えない）
+    # 語ごとの正解率の t 検定（乱数を使わない）。6語のうち5語が正しい: 平均の差 1/3、標準誤差
+    # sqrt(1/6 / 6)、t = 2.0、自由度 5 で p = 0.051
     assert p_value([1.0, 1.0, 1.0, 1.0, 0.0], 1 / 2) > 0.05
-    assert p_value([1.0, 1.0, 1.0, 1.0, 1.0, 0.0], 1 / 2) > 0.05
+    assert p_value([1.0, 1.0, 1.0, 1.0, 1.0, 0.0], 1 / 2) == pytest.approx(0.0510, abs=1e-4)
 
 
 def test_baseline_heads_are_other_heads_of_the_same_layer() -> None:
