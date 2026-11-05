@@ -58,11 +58,12 @@ def test_only_the_standard_form_is_counted(tmp_path: Path) -> None:
 
     # 数えるのは " pasta"（直後が英字でない）: 1つ目の断片に3回、2つ目に2回
     assert usages["pasta"].count == 5
-    # 1つ目の文書の2回は近いので、1件の用例に数える
-    assert usages["pasta"].passage_count == 4
+    # 用例に数えるのは、2つ目の断片の2回だけ。1つ目の断片の出現は、近くに "Pasta"・" pastas" がある
+    assert usages["pasta"].passage_count == 2
     assert usages["car"].count == 1
     assert usages["lamp"].count == 0
-    assert len(usages["pasta"].examples) == 5
+    # 見本は、用例に数えた出現から選ぶ
+    assert len(usages["pasta"].examples) == 2
 
 
 def test_examples_do_not_depend_on_other_words_or_processes(tmp_path: Path) -> None:
@@ -75,12 +76,20 @@ def test_examples_do_not_depend_on_other_words_or_processes(tmp_path: Path) -> N
     assert keys == sorted(keys)
 
 
-def test_example_keeps_the_context_with_single_spaces(tmp_path: Path) -> None:
-    usages = sample(tmp_path, ["pasta"], examples=10)
+def test_example_keeps_the_context_with_single_spaces() -> None:
+    documents = [PileDocument(0, 0, "I ate pasta.\nThe pasta-like dough was good.")]
 
-    # 見本ごとに、その出現だけを [[ ]] で囲む
-    assert "I ate [[pasta]]. The pasta-like dough. Pasta is good." in usages["pasta"].example_texts
-    assert "I ate pasta. The [[pasta]]-like dough. Pasta is good." in usages["pasta"].example_texts
+    usages = scan_documents(
+        iter(documents),
+        frozenset({"pasta"}),
+        examples_per_word=10,
+        seed=0,
+        characters_per_passage=100,
+        maximum_passages_per_document=3,
+    )
+
+    # 見本ごとに、その出現だけを [[ ]] で囲む（近い2回目は、用例に数えないので見本にしない）
+    assert usages["pasta"].example_texts == ["I ate [[pasta]]. The pasta-like dough was good."]
 
 
 def test_passages_are_counted_apart_and_up_to_the_limit_per_document() -> None:
