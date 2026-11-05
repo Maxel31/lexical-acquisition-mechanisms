@@ -60,6 +60,9 @@ from lexical_acquisition_mechanisms.unknown_word_indicators import checkpoint_st
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 
 HELD_OUT_SHARE = 0.2
+# 語を単位にした検定（word_level_p_value）をする、語の数の下限（偶然の水準が 1/2 のとき、全ての語で
+# 正しくても、語を単位にした二項検定の p が 0.05 を下回るのは 5 語から）
+MINIMUM_TEST_WORDS = 5
 BATCH_SIZE = 32
 # 属性ごとの、課題2の問題の種類（task の列の値）
 ATTRIBUTES = ("category", "part-of-speech")
@@ -145,8 +148,9 @@ def train_attribute_probes(settings: Settings, arguments: argparse.Namespace) ->
             "seed": settings.words.seed,
             "held_out_share": HELD_OUT_SHARE,
             "probe_training": TRAINING_SETTINGS,
-            # 符号化と転移の判定の有意水準
+            # 符号化と転移の判定の有意水準と、検定する語の数の下限
             "significance_level": SIGNIFICANCE_LEVEL,
+            "minimum_test_words": MINIMUM_TEST_WORDS,
         },
     )
 
@@ -324,9 +328,10 @@ def word_level_p_value(
     """正解率が偶然の水準を超えるという、片側の p 値。
 
     同じ語の問題の正誤は相関するので、語を単位にした2段のブートストラップ（語の中の問題も再抽出
-    する）の標準誤差による正規近似にする。
+    する）の標準誤差による正規近似にする。語が MINIMUM_TEST_WORDS 語より少ないときは、検定しない
+    （1 を返す。語の中の正誤が全てそろうと標準誤差が 0 になり、p が 0 になってしまうので）。
     """
-    if not len(correct):
+    if len(set(words)) < MINIMUM_TEST_WORDS:
         return 1.0
     differences = (np.asarray(correct, dtype=float) - chance)[:, None]
     mean, error = bootstrap_statistics.mean_and_error(list(words), differences, random_numbers)
