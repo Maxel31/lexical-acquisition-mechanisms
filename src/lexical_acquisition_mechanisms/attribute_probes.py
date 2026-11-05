@@ -45,7 +45,11 @@ from lexical_acquisition_mechanisms.component_adoption import ComponentClass
 from lexical_acquisition_mechanisms.component_patching import MLP
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.language_model import LanguageModel
-from lexical_acquisition_mechanisms.logistic_probes import LogisticProbe, train_logistic_probe
+from lexical_acquisition_mechanisms.logistic_probes import (
+    TRAINING_SETTINGS,
+    LogisticProbe,
+    train_logistic_probe,
+)
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings
 from lexical_acquisition_mechanisms.task_prompts import (
@@ -140,6 +144,7 @@ def train_attribute_probes(settings: Settings, arguments: argparse.Namespace) ->
             "categories": categories,
             "seed": settings.words.seed,
             "held_out_share": HELD_OUT_SHARE,
+            "probe_training": TRAINING_SETTINGS,
         },
     )
 

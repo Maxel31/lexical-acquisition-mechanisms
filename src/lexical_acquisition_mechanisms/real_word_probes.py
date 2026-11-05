@@ -23,7 +23,11 @@ from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.continued_pretraining import initialize_token_embeddings
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.language_model import LanguageModel
-from lexical_acquisition_mechanisms.logistic_probes import LogisticProbe, train_logistic_probe
+from lexical_acquisition_mechanisms.logistic_probes import (
+    TRAINING_SETTINGS,
+    LogisticProbe,
+    train_logistic_probe,
+)
 from lexical_acquisition_mechanisms.neutral_contexts import NeutralContext
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.probe_and_normalization_words import ProbeWord
@@ -75,6 +79,7 @@ def train_real_word_probes(settings: Settings, arguments: argparse.Namespace) ->
             "noise_scale": settings.training.new_token_embedding_initialization.noise_scale,
             "seed": settings.words.seed,
             "untrained_token_seed_offset": UNTRAINED_TOKEN_SEED_OFFSET,
+            "probe_training": TRAINING_SETTINGS,
         },
     )
     run_unless_unchanged(

@@ -9,8 +9,10 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 
+# L2 正則化の強さと、L-BFGS の反復の数（全てのプローブで共通。処理の記録に入れる）
 L2_WEIGHT = 1e-2
 ITERATIONS = 200
+TRAINING_SETTINGS = {"l2_weight": L2_WEIGHT, "iterations": ITERATIONS}
 
 
 @dataclass
