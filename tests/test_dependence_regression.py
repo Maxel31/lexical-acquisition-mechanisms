@@ -56,7 +56,7 @@ def test_regression_recovers_the_effect_of_integration(tmp_path: Path) -> None:
     parquet.write_table(arrow.Table.from_pylist(normalized), tmp_path / "normalized.parquet")
     # 順番の判定に使った層は 5（層 6 の値は使わない）
     orders = [
-        AcquisitionOrder("all", indicator, 5, 10.0, 5.0, 20.0, 1.0, "")
+        AcquisitionOrder("all", indicator, 5, 10.0, 5.0, 20.0, 1.0, "", "")
         for indicator in ("meaning", "integration")
     ]
     write_rows(tmp_path / "order.csv", AcquisitionOrder, orders)
