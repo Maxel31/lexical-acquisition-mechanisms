@@ -9,7 +9,7 @@ import pytest
 
 from lexical_acquisition_mechanisms.csv_tables import read_rows
 from lexical_acquisition_mechanisms.passage_collection import CANDIDATE_SCHEMA
-from lexical_acquisition_mechanisms.passage_split import SplitSummary, build_split
+from lexical_acquisition_mechanisms.passage_split import SplitSummary, build_split, token_rows
 from lexical_acquisition_mechanisms.settings import Settings, load_settings
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -143,3 +143,16 @@ def test_documents_are_split_in_the_same_way_for_every_word(
     # 評価用の文書は、ほぼ 1/10
     evaluation = sum(split == "evaluation" for split in by_word["pasta"].values())
     assert 15 <= evaluation <= 50
+
+
+def test_token_rows_are_taken_chunk_by_chunk() -> None:
+    # かたまりが3つの列から、かたまりをまたいで行を取り出しても、つなげてから取るのと同じ
+    chunks = [[[index, index + 1] for index in range(start, start + 3)] for start in (0, 10, 20)]
+    column = arrow.chunked_array(chunks, type=arrow.list_(arrow.int32()))
+    indices = np.array([1, 2, 3, 7, 8])
+
+    rows = token_rows(column, indices)
+
+    expected = np.array([row for chunk in chunks for row in chunk])[indices]
+    np.testing.assert_array_equal(rows, expected)
+    assert rows.dtype == np.int64

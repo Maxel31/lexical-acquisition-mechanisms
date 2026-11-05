@@ -203,13 +203,34 @@ def _document_splits(
     ]
 
 
+def token_rows(column: arrow.ChunkedArray, indices: np.ndarray) -> np.ndarray:
+    """リストの列（各行の長さが同じ）の、indices（小さい順）の行を2次元の配列にする。
+
+    リストの列の take は、かたまりをつなげてから取るので、列の全体の要素の数が 2^31 を超えると
+    オフセットがあふれる。かたまりごとに取り出す。
+    """
+    if np.any(np.diff(indices) < 0):
+        raise ValueError("indices は小さい順に並べてください。")
+    parts = []
+    start = 0
+    for chunk in column.chunks:
+        stop = start + len(chunk)
+        mine = indices[(indices >= start) & (indices < stop)] - start
+        if len(mine):
+            taken = chunk.take(arrow.array(mine))
+            values = taken.flatten().to_numpy(zero_copy_only=False)
+            parts.append(values.reshape(len(mine), -1).astype(np.int64))
+        start = stop
+    return np.concatenate(parts) if parts else np.zeros((0, 0), dtype=np.int64)
+
+
 def _overlaps_base_data(split: arrow.Table, base_sequences: np.ndarray) -> np.ndarray:
     """評価用の候補のうち、基データと BASE_DATA_OVERLAP_LENGTH トークン続けて同じ並びを含むもの。"""
     overlapping = np.zeros(len(split), dtype=bool)
     evaluation = np.flatnonzero(np.array(split.column("split").to_pylist()) == "evaluation")
     if len(evaluation) == 0:
         return overlapping
-    windows = np.array(split.column("token_ids").take(evaluation).to_pylist(), dtype=np.int64)
+    windows = token_rows(split.column("token_ids"), evaluation)
     window_hashes = _shingle_hashes(windows, BASE_DATA_OVERLAP_LENGTH)
     sorted_hashes = np.unique(window_hashes)
     found = np.zeros(len(sorted_hashes), dtype=bool)

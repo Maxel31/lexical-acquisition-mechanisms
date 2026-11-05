@@ -276,3 +276,21 @@ def test_too_few_candidates_stop_before_asking(tmp_path: Path, settings: Setting
     assert requested == []
     excluded = read_rows(tmp_path / "excluded_words.csv", ExcludedWord)
     assert [(row.word, row.role) for row in excluded] == [("pasta", "noun")]
+
+
+def test_candidates_are_combined_into_one_chunk_with_large_lists() -> None:
+    # 候補が多いと list のオフセットがあふれるので、large_list にして1つのかたまりにつなげる
+    table = arrow.concat_tables(
+        [
+            arrow.table(
+                {"word": ["pasta"], "token_ids": arrow.array([[1, 2]], arrow.list_(arrow.int32()))}
+            )
+        ]
+        * 3
+    )
+
+    combined = word_sense_judgment.contiguous_with_large_lists(table)
+
+    assert combined.column("token_ids").num_chunks == 1
+    assert combined.schema.field("token_ids").type == arrow.large_list(arrow.int32())
+    assert combined.cast(table.schema).equals(table.combine_chunks())
