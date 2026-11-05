@@ -164,7 +164,9 @@ def write_task_questions(
     if missing:
         raise CommandStopped(
             f"言い換えの語が見つからないターゲット語があります（{missing}）。"
-            "llm_prompts/list-paraphrases.md を直すか、ターゲット語を選び直してください。",
+            "llm_prompts/list-paraphrases.md（候補を挙げる）か llm_prompts/choose-paraphrase.md"
+            "（候補から選ぶ。合う語がないと none を選ぶ）を直すか、ターゲット語を選び直して"
+            "ください。",
             rerun_from=COMMAND,
         )
     paraphrase_of = {row.word: row.paraphrase for row in paraphrases if row.paraphrase}
