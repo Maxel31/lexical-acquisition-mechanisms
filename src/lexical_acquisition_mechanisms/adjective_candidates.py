@@ -174,7 +174,11 @@ def build_adjective_candidates(
         candidate.judged_usages = share.judged_usages
         candidate.adjective_usage_share = share.shares["adjective"]
     _rate_associations(kept, settings, association_prompt, client)
-    write_rows(output_path, AdjectiveCandidate, sorted(candidates.values(), key=lambda c: c.word))
+    write_rows(
+        output_path,
+        AdjectiveCandidate,
+        sorted(candidates.values(), key=lambda candidate: candidate.word),
+    )
 
 
 def _check(candidate: AdjectiveCandidate, settings: Settings, tokenizer: WordTokenizer) -> None:
