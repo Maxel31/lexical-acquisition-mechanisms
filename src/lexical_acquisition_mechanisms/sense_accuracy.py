@@ -94,7 +94,11 @@ def measure_sense_accuracy(settings: Settings, arguments: argparse.Namespace) ->
             pretrained_model_checks.TASK_ACCURACY_PATH: pretrained_model_checks.COMMAND,
         },
         outputs=list(result_paths(model)),
-        settings={"checkpoints": checkpoint_states(list(checkpoints.values()))},
+        settings={
+            "checkpoints": checkpoint_states(list(checkpoints.values())),
+            # 使える語義の判定の有意水準
+            "significance_level": SIGNIFICANCE_LEVEL,
+        },
     )
     results = RunResults(step, arguments.recompute)
     run_unless_unchanged(

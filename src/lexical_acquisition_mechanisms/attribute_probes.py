@@ -145,6 +145,8 @@ def train_attribute_probes(settings: Settings, arguments: argparse.Namespace) ->
             "seed": settings.words.seed,
             "held_out_share": HELD_OUT_SHARE,
             "probe_training": TRAINING_SETTINGS,
+            # 符号化と転移の判定の有意水準
+            "significance_level": SIGNIFICANCE_LEVEL,
         },
     )
 

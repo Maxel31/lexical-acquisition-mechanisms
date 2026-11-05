@@ -142,6 +142,8 @@ def check_with_pretrained_models(settings: Settings, arguments: argparse.Namespa
             "number_of_task_examples": settings.evaluation.number_of_task_examples,
             "seed": settings.words.seed,
             "models": {name: source.model_dump() for name, source in settings.models.items()},
+            # 課題が使えるか・言い換えの語が選ばれるかの判定の有意水準
+            "significance_level": SIGNIFICANCE_LEVEL,
         },
     )
     run_unless_unchanged(

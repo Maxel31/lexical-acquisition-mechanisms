@@ -32,6 +32,7 @@ from lexical_acquisition_mechanisms import head_and_mlp_effects, sense_accuracy,
 from lexical_acquisition_mechanisms.bootstrap_statistics import (
     BOOTSTRAP_SAMPLES,
     FALSE_DISCOVERY_RATE,
+    SIGNIFICANCE_LEVEL,
     benjamini_hochberg,
     bootstrap_weights,
     normal_p_values,
@@ -132,6 +133,8 @@ def select_significant_heads_and_mlps(settings: Settings, arguments: argparse.Na
             "categories": categories,
             "bootstrap_samples": BOOTSTRAP_SAMPLES,
             "false_discovery_rate": FALSE_DISCOVERY_RATE,
+            # 採用（component_adoption）の、数の傾きと半分ずつの再現の有意水準
+            "significance_level": SIGNIFICANCE_LEVEL,
         },
     )
     run_unless_unchanged(
