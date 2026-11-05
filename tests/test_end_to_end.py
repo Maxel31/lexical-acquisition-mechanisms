@@ -132,8 +132,9 @@ def test_all_commands_run_to_the_end(
                     cues = CUES[number % len(CUES)], CUES[(number + 1) % len(CUES)]
                     pairs.append(
                         {
-                            "first": f"{subject} {cues[0]} the ___ today.",
-                            "second": f"{subject} {cues[1]} the ___ today.",
+                            "sentence": f"{subject} {cues[0]} the ___ today.",
+                            "first_cue": cues[0],
+                            "second_cue": cues[1],
                         }
                     )
                 answers.append({"pairs": pairs})

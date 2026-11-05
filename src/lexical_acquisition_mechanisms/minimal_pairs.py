@@ -1,7 +1,9 @@
 """最小対の候補を作る（evaluation-data generate-minimal-pairs）。
 
 最小対は、手がかりの1語だけが違い、ターゲット語の語義が変わる2文。ターゲット語と、語義の追加で足す
-語（donor。足す数が最大の run のもの）の組ごとに、LLM に候補を作らせる。
+語（donor。足す数が最大の run のもの）の組ごとに、LLM に候補を作らせる。LLM は、donor の語義を示す
+文（空欄 ___ と、その前の手がかり）と、手がかりを置き換える語を書き、ターゲット語の文は、手がかりを
+置き換えて作る（2文を別々に書かせると、手がかり以外も違う文になりやすいので）。
 - 名詞を足す組（同カテゴリ・別カテゴリ）: 手がかりは、一方のものにだけ合う語
   （例: She cooked the ___ / She parked the ___）。
 - 形容詞を足す組: 手がかりは、空欄を形容詞か名詞に決める語（例: It was so ___ / It was the ___）。
@@ -50,18 +52,23 @@ COMMAND = "evaluation-data generate-minimal-pairs"
 OUTPUT_PATH = Path("data/evaluation/minimal_pair_candidates.csv")
 PROMPT = "generate-minimal-pairs"
 BLANK = "___"
+# 手がかりの語を探すときに、語の前後から除く記号
+PUNCTUATION = ".,;:!?\"'()"
 # 空欄: 前が空白で、ちょうど3本の下線（文の先頭なら、問題文では "Sentence:" の後の空白の後）。
 # 後に英数字が続く空欄（___s など）は、語の形を変えるので使わない
 BLANK_PATTERN = re.compile(r"(?<=\s)___(?![_\w])")
 CUE_INSTRUCTIONS = {
     "noun": (
         "The cue is a word (such as a verb) that fits one of the two kinds of things and not the"
-        " other (for example: She cooked the ___ for dinner. / She parked the ___ for dinner.)."
+        ' other. For example, for "pasta" and "car": {"sentence": "She cooked the ___ for dinner.",'
+        ' "first_cue": "cooked", "second_cue": "parked"}.'
     ),
     "adjective": (
-        "In the first sentence the blank is an adjective, and in the second sentence the blank is"
-        " a noun. The cue is a word that decides this (for example: It was so ___. / It was"
-        " the ___.)."
+        "In the first sentence the blank is an adjective: the first cue word is an adverb such"
+        ' as "so", "very", "too" or "quite", right before the blank. The second cue word is a word'
+        ' such as "the", "a", "his" or "her", which makes the blank a noun. For example, for'
+        ' "quiet" and "car": {"sentence": "It was so ___.", "first_cue": "so", "second_cue":'
+        ' "the"} (the second sentence is "It was the ___.").'
     ),
 }
 SCHEMA = {
@@ -71,8 +78,12 @@ SCHEMA = {
             "type": "array",
             "items": {
                 "type": "object",
-                "properties": {"first": {"type": "string"}, "second": {"type": "string"}},
-                "required": ["first", "second"],
+                "properties": {
+                    "sentence": {"type": "string"},
+                    "first_cue": {"type": "string"},
+                    "second_cue": {"type": "string"},
+                },
+                "required": ["sentence", "first_cue", "second_cue"],
                 "additionalProperties": False,
             },
         }
@@ -181,8 +192,13 @@ def build_minimal_pair_candidates(
     for (row, kind), answer in zip(sense_pairs, answers, strict=True):
         kept: list[MinimalPairCandidate] = []
         for pair in (answer or {"pairs": []})["pairs"]:
-            cues = _cues(pair["first"], pair["second"], row.target, tokenizer, excluded)
-            if cues is None or len(kept) == number:
+            sentences = swapped_cue_sentences(
+                pair["sentence"], pair["first_cue"], pair["second_cue"]
+            )
+            if sentences is None or len(kept) == number:
+                continue
+            cues = _cues(*sentences, row.target, tokenizer, excluded)
+            if cues is None:
                 continue
             candidate = MinimalPairCandidate(
                 row.target,
@@ -191,8 +207,7 @@ def build_minimal_pair_candidates(
                 row.donor,
                 row.donor_role,
                 kind,
-                pair["first"].strip(),
-                pair["second"].strip(),
+                *sentences,
                 *cues,
             )
             # 後の処理は、最小対を donor の文で見分けるので、片方の文だけが同じ候補も使わない
@@ -213,6 +228,22 @@ def build_minimal_pair_candidates(
             rerun_from=COMMAND,
         )
     write_rows(output_path, MinimalPairCandidate, candidates)
+
+
+def swapped_cue_sentences(sentence: str, first_cue: str, second_cue: str) -> tuple[str, str] | None:
+    """LLM の文（donor の語義の文）と、手がかりを置き換えた文。
+
+    手がかりが、文の中に（前後の記号を除いて）ちょうど1回、空欄より前にないときは None。
+    """
+    words = sentence.strip().split()
+    first_cue, second_cue = first_cue.strip(), second_cue.strip()
+    blank = next((index for index, word in enumerate(words) if BLANK in word), None)
+    spots = [index for index, word in enumerate(words) if word.strip(PUNCTUATION) == first_cue]
+    if blank is None or not first_cue or len(spots) != 1 or spots[0] >= blank:
+        return None
+    swapped = list(words)
+    swapped[spots[0]] = words[spots[0]].replace(first_cue, second_cue, 1)
+    return " ".join(words), " ".join(swapped)
 
 
 def _cues(

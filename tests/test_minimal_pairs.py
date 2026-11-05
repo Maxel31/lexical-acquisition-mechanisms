@@ -14,6 +14,7 @@ from lexical_acquisition_mechanisms.minimal_pairs import (
     MinimalPairCandidate,
     build_minimal_pair_candidates,
     candidates_per_sense_pair,
+    swapped_cue_sentences,
 )
 from lexical_acquisition_mechanisms.sense_addition_assignments import SenseAdditionAssignment
 from lexical_acquisition_mechanisms.settings import ModelSource, load_settings
@@ -21,21 +22,23 @@ from lexical_acquisition_mechanisms.word_selection import SelectedWord
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PAIRS = [
-    {"first": "She cooked the ___ for dinner.", "second": "She parked the ___ for dinner."},
-    # 同じ候補、片方の文だけが同じ候補（2つ）、空欄がない、手がかりが空欄の後、語の数が違う
-    {"first": "She cooked the ___ for dinner.", "second": "She parked the ___ for dinner."},
-    {"first": "She cooked the ___ for dinner.", "second": "She washed the ___ for dinner."},
-    {"first": "She boiled the ___ for dinner.", "second": "She parked the ___ for dinner."},
-    {"first": "She cooked dinner.", "second": "She parked dinner."},
-    {"first": "The ___ was cooked.", "second": "The ___ was parked."},
-    {"first": "She cooked the ___ .", "second": "She carefully parked the ___ ."},
-    {"first": "He ate the ___ quickly.", "second": "He drove the ___ quickly."},
+    {"sentence": "She cooked the ___ for dinner.", "first_cue": "cooked", "second_cue": "parked"},
+    # 同じ候補、片方の文だけが同じ候補（2つ）、空欄がない、手がかりが空欄の後、手がかりが文にない、
+    # 語の数が違う
+    {"sentence": "She cooked the ___ for dinner.", "first_cue": "cooked", "second_cue": "parked"},
+    {"sentence": "She cooked the ___ for dinner.", "first_cue": "cooked", "second_cue": "washed"},
+    {"sentence": "She boiled the ___ for dinner.", "first_cue": "boiled", "second_cue": "parked"},
+    {"sentence": "She cooked dinner.", "first_cue": "cooked", "second_cue": "parked"},
+    {"sentence": "The ___ was cooked.", "first_cue": "cooked", "second_cue": "parked"},
+    {"sentence": "She ate the ___.", "first_cue": "cooked", "second_cue": "parked"},
+    {"sentence": "She cooked the ___ .", "first_cue": "cooked", "second_cue": "carefully parked"},
+    {"sentence": "He ate the ___ quickly.", "first_cue": "ate", "second_cue": "drove"},
     # 空欄の外に donor（pasta）・ターゲット語の別の形（cars）がある、空欄の下線が4本、空欄の後に
     # 英字が続く
-    {"first": "She cooked the ___ with pasta.", "second": "She parked the ___ with pasta."},
-    {"first": "She cooked the ___ near cars.", "second": "She parked the ___ near cars."},
-    {"first": "She baked the ____ today.", "second": "She washed the ____ today."},
-    {"first": "She baked the ___s today.", "second": "She washed the ___s today."},
+    {"sentence": "She cooked the ___ with pasta.", "first_cue": "cooked", "second_cue": "parked"},
+    {"sentence": "She cooked the ___ near cars.", "first_cue": "cooked", "second_cue": "parked"},
+    {"sentence": "She baked the ____ today.", "first_cue": "baked", "second_cue": "washed"},
+    {"sentence": "She baked the ___s today.", "first_cue": "baked", "second_cue": "washed"},
 ]
 
 
@@ -44,7 +47,7 @@ def answer_like_the_llm(request: httpx.Request) -> httpx.Response:
     pairs = (
         PAIRS
         if "an adjective" not in content
-        else [{"first": "It was so ___.", "second": "It was the ___."}]
+        else [{"sentence": "It was so ___.", "first_cue": "so", "second_cue": "the"}]
     )
     choice = {"message": {"content": json.dumps({"pairs": pairs})}, "finish_reason": "stop"}
     return httpx.Response(200, json={"choices": [choice]})
@@ -161,7 +164,7 @@ def test_sense_pairs_without_usable_candidates_stop(
 
     def without_blanks(request: httpx.Request) -> httpx.Response:
         # 空欄のない文の組しか返さない
-        pairs = [{"first": "It was so nice.", "second": "It was the nice."}]
+        pairs = [{"sentence": "It was so nice.", "first_cue": "so", "second_cue": "the"}]
         choice = {"message": {"content": json.dumps({"pairs": pairs})}, "finish_reason": "stop"}
         return httpx.Response(200, json={"choices": [choice]})
 
@@ -182,3 +185,18 @@ def test_sense_pairs_without_usable_candidates_stop(
             tmp_path / "candidates.csv",
         )
     assert stopped.value.rerun_from == "evaluation-data generate-minimal-pairs"
+
+
+def test_the_target_sentence_swaps_only_the_cue_word() -> None:
+    assert swapped_cue_sentences("She cooked the ___ for dinner.", "cooked", "parked") == (
+        "She cooked the ___ for dinner.",
+        "She parked the ___ for dinner.",
+    )
+    # 記号の付いた手がかりも置き換える。手がかりが空欄の後・2回・文にないときは使わない
+    assert swapped_cue_sentences("Quickly, ___ arrived.", "Quickly", "Slowly") == (
+        "Quickly, ___ arrived.",
+        "Slowly, ___ arrived.",
+    )
+    assert swapped_cue_sentences("The ___ was so big.", "so", "the") is None
+    assert swapped_cue_sentences("It was so so ___.", "so", "the") is None
+    assert swapped_cue_sentences("It was ___.", "so", "the") is None
