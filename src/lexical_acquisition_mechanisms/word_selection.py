@@ -19,8 +19,9 @@
   無作為に選ぶ。品詞のプローブには、形容詞と同じ1トークンの名詞を、形容詞と同じ60語使う（カテゴリから
   順に1語ずつ。1トークンの自然な名詞が足りなければ、1トークンの候補が残るカテゴリから順に、自然な
   名詞を足す。足したカテゴリの自然な名詞は30語より多くなる）。
-どの語も、Pile の見本で意図した語義（形容詞は、形容詞として）で使われていた割合が高く、Pile で
-取れる用例の見積もり（意図した使われ方の割合を掛けたもの）が必要な数より十分に多い候補から選ぶ。
+どの語も、Pile の見本で意図した語義（形容詞は、形容詞として）で使われていた割合が高く（自然な語は、
+それより低い下限。設計書は自然な語に単義を求めていない）、Pile で取れる用例の見積もり（意図した
+使われ方の割合を掛けたもの）が必要な数より十分に多い候補から選ぶ。
 すでに選んだ語の同義語（WordNet で、その語を見出しとする語義が重なる語）は選ばない。
 頻度は、Pile での標準の形の出現回数の対数で比べる。
 - 名詞は、カテゴリの間で頻度の分布をそろえる。全カテゴリに候補がある頻度の範囲に、12個の目標の値を
@@ -432,14 +433,15 @@ def _select_natural_words(
                 for candidate in listed_nouns
                 if candidate.category == category.name
                 and candidate.token_count == token_count
-                and _usable(candidate, settings, needed)
+                and _usable(candidate, settings, needed, natural=True)
             ]
             random_numbers.shuffle(bucket)
             buckets.append(bucket)
         natural[category.name] = _take_in_turn(buckets, NATURAL_NOUNS_PER_CATEGORY, chosen)
         if len(natural[category.name]) < NATURAL_NOUNS_PER_CATEGORY:
             description = f"カテゴリ {category.name} の自然な名詞"
-            raise _shortage(description, len(natural[category.name]), needed, settings)
+            found = len(natural[category.name])
+            raise _shortage(description, found, needed, settings, natural=True)
         # _take_in_turn が取らずに残した、1トークンの候補
         spare_one_token.append(buckets[0])
     probe_nouns = _take_in_turn(
@@ -454,14 +456,18 @@ def _select_natural_words(
     probe_words = {noun.word for noun in [*probe_nouns, *extra]}
     if len(probe_words) < PART_OF_SPEECH_NOUNS:
         description = "1トークンの自然な名詞（品詞のプローブ用）"
-        raise _shortage(description, len(probe_words), needed, settings)
+        raise _shortage(description, len(probe_words), needed, settings, natural=True)
     rows = []
     for nouns in natural.values():
         for noun in nouns:
             row = _row(noun, "natural-noun", tokenizer)
             row.part_of_speech_probe = noun.word in probe_words
             rows.append(row)
-    usable = [candidate for candidate in listed_adjectives if _usable(candidate, settings, needed)]
+    usable = [
+        candidate
+        for candidate in listed_adjectives
+        if _usable(candidate, settings, needed, natural=True)
+    ]
     random_numbers.shuffle(usable)
     natural_adjectives = _take_in_turn([usable], NATURAL_ADJECTIVES, chosen)
     if len(natural_adjectives) < NATURAL_ADJECTIVES:
@@ -472,6 +478,7 @@ def _select_natural_words(
             settings,
             listing="words.adjectives_per_listing",
             rerun_from=adjective_candidates.COMMAND,
+            natural=True,
         )
     for adjective in natural_adjectives:
         row = _row(adjective, "natural-adjective", tokenizer)
@@ -497,14 +504,21 @@ def _take_in_turn[Candidate: (NounCandidate, AdjectiveCandidate)](
 
 
 def _usable(
-    candidate: NounCandidate | AdjectiveCandidate, settings: Settings, needed_passages: int
+    candidate: NounCandidate | AdjectiveCandidate,
+    settings: Settings,
+    needed_passages: int,
+    natural: bool = False,
 ) -> bool:
+    """候補が使えるか。natural なら、自然な語の割合の下限で判断する。"""
     selection = settings.word_selection
     share = _share(candidate)
+    minimum_share = (
+        selection.minimum_natural_word_usage_share if natural else selection.minimum_usage_share
+    )
     return (
         not candidate.rejected_reason
         and candidate.judged_usages >= selection.minimum_judged_usages
-        and _meaning_share(candidate) >= selection.minimum_usage_share
+        and _meaning_share(candidate) >= minimum_share
         and candidate.estimated_pile_passages * share >= selection.passage_margin * needed_passages
     )
 
@@ -552,12 +566,16 @@ def _shortage(
     settings: Settings,
     listing: str = "words.nouns_per_listing",
     rerun_from: str = noun_candidates.COMMAND,
+    natural: bool = False,
 ) -> CommandStopped:
     selection = settings.word_selection
+    minimum_share = (
+        selection.minimum_natural_word_usage_share if natural else selection.minimum_usage_share
+    )
     return CommandStopped(
         f"{description}で、条件を満たす候補が足りません（{found} 語）。"
         f"条件: 意図した語義（形容詞は、形容詞として）で使われる割合が"
-        f" {selection.minimum_usage_share} 以上（名詞は比喩・慣用句を含む）、"
+        f" {minimum_share} 以上（名詞は比喩・慣用句を含む）、"
         f"Pile で取れる用例の見積もり（字義どおりの使われ方の割合を掛けた数）が"
         f" {selection.passage_margin * needed_passages:,.0f} 件以上。"
         f"{listing} か words.listing_kinds を増やすか、word_selection の条件を緩めてください。",

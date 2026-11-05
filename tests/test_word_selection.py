@@ -51,7 +51,7 @@ ADJECTIVES = [
     ("bright", 6.0, 0.95, 3),
     ("green", 5.5, 0.95, 3),
     ("delicious", 5.9, 0.95, 6),
-    ("cold", 5.3, 0.6, 2),
+    ("cold", 5.3, 0.5, 2),
 ]
 # 未知語の候補（語, 綴りの近さ, near の元の語, トークン数, トークン番号, 出現回数）
 UNKNOWN_WORDS = [
@@ -227,6 +227,18 @@ def test_natural_words_are_the_remaining_words_of_each_token_count(
     # 品詞のプローブには、1トークンの名詞（カテゴリから順に1語ずつ）と、自然な形容詞を使う
     probe_words = {word for word, row in rows.items() if row["part_of_speech_probe"] == "True"}
     assert probe_words == (natural_nouns & {"pasta", "soup"}) | {"dog", "quiet", "delicious"}
+
+
+def test_natural_words_use_their_own_lower_usage_share(tmp_path: Path, settings: Settings) -> None:
+    # meatball と catfish は「ほぼ単義」の下限（0.85）に届かないが、自然な語の下限（0.6）は満たす
+    nouns = [
+        noun_candidate(*noun, share=0.7 if noun[0] in {"meatball", "catfish"} else 0.95)
+        for noun in NOUNS
+    ]
+
+    rows = select(tmp_path, settings, nouns)
+
+    assert {"meatball", "catfish"} <= words_with_role(rows, "natural-noun")
 
 
 def test_part_of_speech_nouns_are_added_from_categories_with_spare_one_token_nouns(
