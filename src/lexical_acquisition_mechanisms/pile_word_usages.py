@@ -57,7 +57,7 @@ def sample_word_usages(
         words=frozenset(words),
         examples_per_word=examples_per_word,
         seed=seed,
-        characters_per_passage=passages.tokens_per_passage * CHARACTERS_PER_TOKEN,
+        characters_per_passage=characters_per_passage(passages),
         maximum_passages_per_document=passages.maximum_passages_per_document,
     )
     totals = {word: WordUsages() for word in words}
@@ -90,22 +90,16 @@ def scan_documents(
     heaps: dict[str, list[tuple[float, str]]] = {}
     for document in documents:
         text = document.text
-        # 語ごとの、この文書で数えた用例の数と、最後に数えた用例の出現の位置
-        passages_in_document: dict[str, tuple[int, int]] = {}
-        for match in WORD_PATTERN.finditer(text):
+        occurrences = standard_form_occurrences(
+            text, words, characters_per_passage, maximum_passages_per_document
+        )
+        for match, counted in occurrences:
             word = match.group()
             start = match.start()
-            if word not in words or start == 0 or text[start - 1] != " ":
-                continue
             counts[word] = counts.get(word, 0) + 1
-            number, last_start = passages_in_document.get(word, (0, -characters_per_passage))
-            if (
-                number < maximum_passages_per_document
-                and start - last_start >= characters_per_passage
-            ):
+            if counted:
                 passage_counts[word] = passage_counts.get(word, 0) + 1
-                passages_in_document[word] = (number + 1, start)
-            key = _key(seed, document.shard, document.row, start)
+            key = occurrence_key(seed, document.shard, document.row, start)
             heap = heaps.setdefault(word, [])
             if len(heap) < examples_per_word:
                 heapq.heappush(heap, (-key, _context(text, start, match.end())))
@@ -121,7 +115,39 @@ def scan_documents(
     }
 
 
-def _key(seed: int, shard: int, row: int, start: int) -> float:
+def standard_form_occurrences(
+    text: str,
+    words: Collection[str],
+    characters_per_passage: int,
+    maximum_passages_per_document: int,
+) -> Iterator[tuple[re.Match[str], bool]]:
+    """文書の中の、語の標準の形の出現と、それを用例として数えるか。
+
+    用例として数えるのは、前に数えた出現から characters_per_passage 文字以上離れていて、
+    文書で数えた数が上限より少ない出現。
+    """
+    # 語ごとの、この文書で数えた用例の数と、最後に数えた用例の出現の位置
+    passages_in_document: dict[str, tuple[int, int]] = {}
+    for match in WORD_PATTERN.finditer(text):
+        word = match.group()
+        start = match.start()
+        if word not in words or start == 0 or text[start - 1] != " ":
+            continue
+        number, last_start = passages_in_document.get(word, (0, -characters_per_passage))
+        counted = (
+            number < maximum_passages_per_document and start - last_start >= characters_per_passage
+        )
+        if counted:
+            passages_in_document[word] = (number + 1, start)
+        yield match, counted
+
+
+def characters_per_passage(passages: PassageSettings) -> int:
+    """用例1つ分の、おおよその文字数。"""
+    return passages.tokens_per_passage * CHARACTERS_PER_TOKEN
+
+
+def occurrence_key(seed: int, shard: int, row: int, start: int) -> float:
     """出現の位置と seed から決まる、0 以上 1 未満の数。"""
     digest = hashlib.blake2b(f"{seed}:{shard}:{row}:{start}".encode(), digest_size=8).digest()
     return int.from_bytes(digest, "big") / 2**64

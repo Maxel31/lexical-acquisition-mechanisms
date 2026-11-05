@@ -96,6 +96,8 @@ passages:
   maximum_passages_per_document: 3
   # 語ごとの評価用の用例の数
   evaluation_passages_per_word: 500
+  # 切り出しの段階で残す候補の数（判定に合格する必要がある数の何倍か。判定で落ちる分を見込む）
+  collection_factor: 2.5
 
 # 未知語の獲得
 unknown_word_acquisition:

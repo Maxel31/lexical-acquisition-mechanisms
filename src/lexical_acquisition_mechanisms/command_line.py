@@ -17,6 +17,7 @@ from lexical_acquisition_mechanisms import (
     hidden_state_similarity,
     neutral_contexts,
     noun_candidates,
+    passage_collection,
     similarity_ratings,
     unknown_word_candidates,
     word_finalization,
@@ -117,6 +118,12 @@ def all_actions() -> list[Action]:
             "（0 の語は外し、words select で代わりの語を選ぶ）",
             word_finalization.finalize_words,
             word_finalization.add_arguments,
+        ),
+        Action(
+            "passages",
+            "collect",
+            "Pile から、選んだ語を含む用例の候補を切り出す",
+            passage_collection.collect_passages,
         ),
     ]
 
