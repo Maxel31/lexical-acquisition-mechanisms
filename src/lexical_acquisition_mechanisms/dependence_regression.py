@@ -9,7 +9,9 @@ m̂（analyze-acquisition-order。意味と統合は、順番の判定に使っ�
 トークン数と綴りの近さは、0・1 の列にする: two_tokens・three_tokens（1トークンが基準）と near
 （near なら 1。far と、綴りの近さのない1トークンの未知語は 0。2・3トークンの中での near と far
 の差）。
-値が1種類しかない列（例: 使える組に1トークンの語がない）は、式から外す。露出0回の未知語も含める。
+値が1種類しかない列（例: 使える組が全て2トークンの語）は、式から外す。使える組に1トークンの語が
+ないと、two_tokens + three_tokens が切片と同じ列になるので、two_tokens を外す（2トークンが基準に
+なる）。露出0回の未知語も含める。
 当てはめに使える組が MINIMUM_ROWS に満たない種類と、当てはめられなかった種類は、表示して飛ばす。
 頑健性: 意味と統合の m̂ を閾値（THRESHOLDS）で区切った状態（both・meaning-only・integration-only・
 neither）ごとの依存度の平均と、未知語と run を単位にした2段のブートストラップの 95% の区間。
@@ -192,6 +194,11 @@ def fit_mixed_model(ablation: str, rows: Sequence[dict[str, object]]) -> list[Re
         return []
     frame = pandas.DataFrame(rows)
     terms = [name for name in FIXED_EFFECTS if frame[name].nunique() > 1]
+    if {"two_tokens", "three_tokens"} <= set(terms) and not (
+        frame["two_tokens"] + frame["three_tokens"] == 0
+    ).any():
+        print(f"{ablation}: 1トークンの語の組がないので、2トークンの語を基準にします。")
+        terms.remove("two_tokens")
     model = formulas.mixedlm(
         "dependence ~ " + " + ".join(terms),
         frame,

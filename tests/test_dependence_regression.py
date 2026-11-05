@@ -112,3 +112,29 @@ def test_constant_columns_are_left_out_and_small_tables_are_skipped(
     assert not {"two_tokens", "three_tokens"} & terms
     assert fit_mixed_model("random-direction", rows[:10]) == []
     assert "10 組しかない" in capsys.readouterr().out
+
+
+def test_two_token_words_are_the_baseline_without_one_token_words(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # 使える組に1トークンの語がないと、two_tokens + three_tokens が切片と同じ列になる
+    random_numbers = np.random.default_rng(2)
+    rows = [
+        {
+            "dependence": float(random_numbers.normal()) + 0.5 * (index % 2),
+            "meaning": float(random_numbers.uniform()),
+            "integration": float(random_numbers.uniform()),
+            "two_tokens": 1 - index % 2,
+            "three_tokens": index % 2,
+            "near": (index // 2) % 2,
+            "unknown_word": f"word-{index % 10}",
+            "noun": f"noun-{index % 7}",
+            "run": f"run-{index % 4}",
+        }
+        for index in range(60)
+    ]
+
+    terms = {row.term for row in fit_mixed_model("random-head", rows)}
+
+    assert "three_tokens" in terms and "two_tokens" not in terms
+    assert "2トークンの語を基準" in capsys.readouterr().out
