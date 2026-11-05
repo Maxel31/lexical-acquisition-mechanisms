@@ -1,0 +1,124 @@
+"""語義の追加の図と表のテスト（作った結果の表で）。"""
+
+import csv
+from pathlib import Path
+
+from lexical_acquisition_mechanisms.attribute_judgments import (
+    AttributeDirectionTest,
+    AttributeJudgingHead,
+)
+from lexical_acquisition_mechanisms.component_adoption import ComponentClass
+from lexical_acquisition_mechanisms.csv_tables import write_rows
+from lexical_acquisition_mechanisms.sense_accuracy import SenseAccuracy
+from lexical_acquisition_mechanisms.sense_addition_report import write_report
+from lexical_acquisition_mechanisms.significant_heads_and_mlps import (
+    ComponentEffect,
+    TokenCountEffect,
+)
+
+KINDS = ("same-category", "other-category", "adjective")
+
+
+def test_figures_and_tables_are_written(tmp_path: Path) -> None:
+    accuracy = [
+        SenseAccuracy(kind, number, "car", sense, 20, 0.9, 0.5, 0.4, 0.5, 0.001, True)
+        for kind in KINDS
+        for number in (1, 2, 4)
+        for sense in ("pasta", "original")
+    ]
+    effects = [
+        ComponentEffect(
+            kind,
+            number,
+            scope,
+            layer,
+            head,
+            0.2,
+            0.1,
+            0.1,
+            0.05 * layer,
+            0.0,
+            0.2,
+            0.01,
+            0.02,
+            head == 1,
+            20,
+            3,
+        )
+        for kind in KINDS
+        for number in (1, 2, 4)
+        for scope in ("target_position", "after_target_positions")
+        for layer in (0, 1)
+        for head in (0, 1, -1)
+    ]
+    classes = [ComponentClass(0, 1, "none", "adopted", "adopted", "category")]
+    by_token_count = [
+        TokenCountEffect(**vars(row), token_count=count)
+        for row in effects
+        if row.scope == "target_position"
+        for count in (1, 2)
+    ]
+    judging = [AttributeJudgingHead(0, 1, "category", 0.8, 0.7, 0.9, True, True, True, True)]
+    tests = [
+        AttributeDirectionTest(
+            0,
+            1,
+            "category",
+            "other-category-4",
+            "category",
+            20,
+            0.4,
+            0.1,
+            0.05,
+            0.3,
+            0.1,
+            0.0,
+            0.01,
+            0.002,
+            True,
+        )
+    ]
+    names = ("accuracy.csv", "effects.csv", "classes.csv", "judging.csv", "counts.csv")
+    paths = tuple(tmp_path / name for name in (*names, "tests.csv"))
+    for path, row_type, rows in zip(
+        paths,
+        (
+            SenseAccuracy,
+            ComponentEffect,
+            ComponentClass,
+            AttributeJudgingHead,
+            TokenCountEffect,
+            AttributeDirectionTest,
+        ),
+        (accuracy, effects, classes, judging, by_token_count, tests),
+        strict=True,
+    ):
+        write_rows(path, row_type, rows)
+
+    write_report(["tiny"], tmp_path / "figures", lambda model: paths)
+
+    figures = tmp_path / "figures"
+    assert (figures / "sense-accuracy-tiny.png").stat().st_size > 0
+    assert (figures / "head-maps-tiny.png").stat().st_size > 0
+    with (figures / "attribute_judging_heads.csv").open(encoding="utf-8") as file:
+        table = list(csv.DictReader(file))
+    assert [(row["model"], row["component_class"], row["judging"]) for row in table] == [
+        ("tiny", "category", "True")
+    ]
+    with (figures / "sense_accuracy.csv").open(encoding="utf-8") as file:
+        assert len(list(csv.DictReader(file))) == len(accuracy)
+    # 手順3の基準のもとになる、効果と p 値の表
+    with (figures / "attribute_direction_tests.csv").open(encoding="utf-8") as file:
+        table = list(csv.DictReader(file))
+    assert [
+        (row["model"], row["attribute_change"], row["random_head_p_value"]) for row in table
+    ] == [("tiny", "0.4", "0.01")]
+    # アブレーションの表: 種類 × N（効く head は、有意な head 1 の2層分）・× トークン数・分類
+    for name, count in (
+        ("ablation_number_of_senses.csv", 9),
+        ("ablation_token_count.csv", 18),
+        ("ablation_model_size.csv", 1),
+    ):
+        with (figures / name).open(encoding="utf-8") as file:
+            table = list(csv.DictReader(file))
+        assert len(table) == count and table[0]["model"] == "tiny"

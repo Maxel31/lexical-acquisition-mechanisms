@@ -1,0 +1,117 @@
+"""有意な head と MLP を選ぶ処理のテスト（作った効果の値で）。"""
+
+from pathlib import Path
+
+import numpy as np
+import pyarrow as arrow
+import pyarrow.parquet as parquet
+import pytest
+
+from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
+from lexical_acquisition_mechanisms.sense_accuracy import SenseAccuracy
+from lexical_acquisition_mechanisms.significant_heads_and_mlps import (
+    ComponentEffect,
+    TokenCountEffect,
+    write_results,
+)
+from lexical_acquisition_mechanisms.word_selection import SelectedWord
+
+
+def test_control_effects_are_subtracted_and_tested(tmp_path: Path) -> None:
+    random_numbers = np.random.default_rng(0)
+    rows = []
+    values = []
+    pairs = [
+        (target, f"sentence {number}") for target in ("car", "lamp", "cup") for number in (1, 2)
+    ]
+    # 手順1で使えない語義の最小対（ターゲット語 bowl）と、対照の組がない最小対は除く
+    pairs += [("bowl", "sentence 1"), ("car", "no control")]
+    for target, sentence in pairs:
+        for direction in ("donor-to-target", "target-to-donor"):
+            for run in ("other-category-1", "noun-control"):
+                if run == "noun-control" and sentence == "no control":
+                    continue
+                rows.append(
+                    {
+                        "run": run,
+                        "kind": "other-category",
+                        "number_of_senses": 1,
+                        "target": target,
+                        "donor": "pasta",
+                        "donor_sentence": sentence,
+                        "direction": direction,
+                        "total_effect": 2.0,
+                    }
+                )
+                # 構成要素0は対照より 0.8 大きい。1は差がない（ばらつきだけ）。2は対照と同じ値
+                noise = random_numbers.normal(0, 0.01, 2)
+                first = (1.0 if run == "other-category-1" else 0.2) + noise[0]
+                values.append([first, noise[1], 0.5])
+    parquet.write_table(arrow.Table.from_pylist(rows), tmp_path / "pairs.parquet")
+    effects = np.array(values, dtype=np.float32)
+    np.savez(
+        tmp_path / "effects.npz",
+        target_position=effects,
+        after_target_positions=effects,
+        layers=np.array([0, 0, 1]),
+        heads=np.array([0, -1, 0]),
+    )
+
+    # car は1トークン、lamp と cup は2トークン
+    targets = [
+        SelectedWord(target, "target", category="food", token_count=count)
+        for target, count in (("car", 1), ("lamp", 2), ("cup", 2))
+    ]
+    write_rows(tmp_path / "words.csv", SelectedWord, targets)
+    # bowl は、元の語義が手順1で使えない
+    accuracy = [
+        SenseAccuracy("other-category", 1, target, sense, 2, 1.0, 0.0, 1.0, 0.5, 0.01, usable)
+        for target in ("car", "lamp", "cup", "bowl")
+        for sense, usable in (("pasta", True), ("original", target != "bowl"))
+    ]
+    write_rows(tmp_path / "accuracy.csv", SenseAccuracy, accuracy)
+
+    write_results(
+        (
+            tmp_path / "pairs.parquet",
+            tmp_path / "effects.npz",
+            tmp_path / "accuracy.csv",
+            tmp_path / "words.csv",
+        ),
+        (
+            tmp_path / "effects.csv",
+            tmp_path / "selection.csv",
+            tmp_path / "classes.csv",
+            tmp_path / "by_token_count.csv",
+        ),
+        ["food"],
+        0,
+    )
+
+    results = [
+        row
+        for row in read_rows(tmp_path / "effects.csv", ComponentEffect)
+        if row.scope == "target_position"
+    ]
+    assert [(row.layer, row.head) for row in results] == [(0, 0), (0, -1), (1, 0)]
+    first, second, third = results
+    assert (first.minimal_pairs, first.targets) == (6, 3)
+    assert first.effect == pytest.approx(0.8, abs=0.02)
+    assert first.normalized_effect == pytest.approx(0.4, abs=0.01)
+    assert first.lower < first.effect < first.upper
+    assert first.significant and not second.significant
+    assert (third.effect, third.p_value, third.significant) == (0.0, 1.0, False)
+    # トークン数ごとの地図（ターゲット語の位置だけ。3トークンのターゲット語はない）
+    by_count = read_rows(tmp_path / "by_token_count.csv", TokenCountEffect)
+    assert {row.scope for row in by_count} == {"target_position"}
+    first_of_count = {row.token_count: row for row in by_count if (row.layer, row.head) == (0, 0)}
+    assert sorted(first_of_count) == [1, 2]
+    assert [
+        (first_of_count[count].minimal_pairs, first_of_count[count].targets) for count in (1, 2)
+    ] == [
+        (2, 1),
+        (4, 2),
+    ]
+    assert first_of_count[2].effect == pytest.approx(0.8, abs=0.02)
+    # N が最大（4）の条件がないので、採用の基準は当てない
+    assert (tmp_path / "selection.csv").read_text().count("\n") == 1
