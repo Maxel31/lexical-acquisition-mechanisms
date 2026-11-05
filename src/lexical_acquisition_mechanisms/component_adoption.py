@@ -24,6 +24,8 @@ import numpy as np
 
 from lexical_acquisition_mechanisms.bootstrap_statistics import (
     BOOTSTRAP_SAMPLES,
+    FALSE_DISCOVERY_RATE,
+    SIGNIFICANCE_LEVEL,
     benjamini_hochberg,
     bootstrap_weights,
     mean_and_error,
@@ -35,8 +37,6 @@ from lexical_acquisition_mechanisms.sense_addition_assignments import KINDS, NUM
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 
 LARGEST = max(NUMBERS_OF_SENSES)
-SIGNIFICANCE_LEVEL = 0.05
-FALSE_DISCOVERY_RATE = 0.05
 
 
 @dataclass

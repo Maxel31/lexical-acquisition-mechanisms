@@ -31,6 +31,7 @@ import pyarrow.parquet as parquet
 from lexical_acquisition_mechanisms import head_and_mlp_effects, sense_accuracy, word_finalization
 from lexical_acquisition_mechanisms.bootstrap_statistics import (
     BOOTSTRAP_SAMPLES,
+    FALSE_DISCOVERY_RATE,
     benjamini_hochberg,
     bootstrap_weights,
     normal_p_values,
@@ -49,7 +50,6 @@ from lexical_acquisition_mechanisms.settings import Settings
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 
 SCOPES = ("target_position", "after_target_positions")
-FALSE_DISCOVERY_RATE = 0.05
 TOKEN_COUNTS = (1, 2, 3)
 
 
