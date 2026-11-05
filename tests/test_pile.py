@@ -2,7 +2,9 @@
 
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 
+import httpx
 import pyarrow as arrow
 import pyarrow.parquet as parquet
 import pytest
@@ -61,3 +63,37 @@ def test_scan_results_come_in_shard_order(
 
     assert [len(result) for result in results] == [3, 2]
     assert results[1][0] == (0, 0, "I ate pasta.")
+
+
+class BrokenStream(httpx.SyncByteStream):
+    """途中まで送って、接続が切れる。"""
+
+    def __init__(self, content: bytes) -> None:
+        self._content = content
+
+    def __iter__(self) -> Iterator[bytes]:
+        yield self._content
+        raise httpx.ReadError("接続が切れた")
+
+
+def test_a_broken_download_continues_from_the_received_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    content = bytes(range(256)) * 40
+    monkeypatch.setattr(
+        pile, "get_hf_file_metadata", lambda url: SimpleNamespace(size=len(content))
+    )
+    ranges = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        ranges.append(request.headers.get("Range"))
+        if "Range" not in request.headers:
+            return httpx.Response(200, stream=BrokenStream(content[:3000]))
+        start = int(request.headers["Range"].removeprefix("bytes=").removesuffix("-"))
+        return httpx.Response(206, content=content[start:])
+
+    client = httpx.Client(transport=httpx.MockTransport(handle))
+    path = pile.download_shard("data/train-00000-of-01650.parquet", tmp_path, client)
+
+    assert path.read_bytes() == content
+    assert ranges == [None, "bytes=3000-"]
