@@ -46,3 +46,19 @@ def test_gradients_have_the_type_of_the_logits() -> None:
 
     assert cross_entropy.dtype == torch.float32
     assert logits.grad.dtype == torch.bfloat16
+
+
+def test_float32_logits_are_not_overwritten() -> None:
+    # float32 の logits は .float() で写されないので、逆伝播が保存した logits を書き換えないこと
+    generator = torch.Generator().manual_seed(0)
+    logits = torch.randn(1, 4, 7, generator=generator, dtype=torch.float32, requires_grad=True)
+    input_ids = torch.tensor([[1, 2, 3, 4]])
+    before = logits.detach().clone()
+    expected_logits = logits.detach().clone().requires_grad_()
+
+    cross_entropy, _ = next_token_losses(logits, input_ids)
+    cross_entropy[:, :-1].sum().backward()
+    reference(expected_logits, input_ids, 0.0).backward()
+
+    assert torch.equal(logits.detach(), before)
+    assert torch.allclose(logits.grad, expected_logits.grad, atol=1e-6)

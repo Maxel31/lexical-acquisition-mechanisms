@@ -56,7 +56,9 @@ class _NextTokenLosses(torch.autograd.Function):
         gradient = torch.empty_like(logits)
         for start in range(0, len(logits), CHUNK_POSITIONS):
             chunk = slice(start, start + CHUNK_POSITIONS)
-            values = logits[chunk].float()
+            # logits が float32 のとき .float() は写しを作らないので、保存した logits を書き換えない
+            # ように写す
+            values = logits[chunk].to(torch.float32, copy=True)
             values.sub_(log_partition[chunk, None]).exp_().mul_(softmax_scale[chunk, None])
             values.scatter_add_(-1, targets[chunk, None], -cross_entropy_gradient[chunk, None])
             gradient[chunk] = values.to(gradient.dtype)
