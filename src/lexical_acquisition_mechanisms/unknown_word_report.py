@@ -2,8 +2,8 @@
 
 analyze-acquisition-order を終えたモデルごとに、outputs/figures/unknown-word-acquisition/ に
 次を書く。
-- curves-<モデル>.png: 3つの指標の、露出回数に対する正規化した値（未知語での平均）。語の集まり
-  （全体・トークン数ごと・綴りの近さごと）ごとの線。統合と意味は、順番の判定に使った層の値
+- curves-<モデル>.png: 3つの指標の、露出回数に対する正規化した値（混合効果モデルの曲線）。語の
+  集まり（全体・トークン数ごと・綴りの近さごと）ごとの線。統合と意味は、順番の判定に使った層の値
 - layers-<モデル>-<指標>.png: 統合と意味の、層 × 露出回数の正規化した値（全体）
 - acquisition_order.csv: 全てのモデルの、0.5 に達する露出回数と順番の表（モデルの列を足す）
 """
@@ -19,6 +19,7 @@ import numpy as np
 
 from lexical_acquisition_mechanisms import acquisition_order
 from lexical_acquisition_mechanisms.acquisition_order import (
+    GROUPS,
     INDICATORS,
     AcquisitionCurvePoint,
     AcquisitionOrder,
@@ -29,7 +30,6 @@ from lexical_acquisition_mechanisms.settings import Settings
 
 COMMAND = "unknown-word-acquisition make-report"
 FIGURES_DIRECTORY = Path("outputs/figures/unknown-word-acquisition")
-GROUPS = ("all", "token-count-1", "token-count-2", "token-count-3", "near", "far")
 
 
 def make_report(settings: Settings, arguments: argparse.Namespace) -> None:
@@ -76,7 +76,7 @@ def _plot_curves(
     for axis, indicator in zip(axes, INDICATORS, strict=True):
         for group in GROUPS:
             points = sorted(
-                (point.exposure, point.mean_normalized)
+                (point.exposure, point.normalized)
                 for point in curves
                 if point.group == group
                 and point.indicator == indicator
@@ -106,7 +106,7 @@ def _plot_layers(
     exposures = sorted({point.exposure for point in points})
     values = np.full((len(layers), len(exposures)), np.nan)
     for point in points:
-        values[layers.index(point.layer), exposures.index(point.exposure)] = point.mean_normalized
+        values[layers.index(point.layer), exposures.index(point.exposure)] = point.normalized
     figure, axis = pyplot.subplots(figsize=(6, 5))
     image = axis.imshow(values, aspect="auto", origin="lower", cmap="viridis")
     axis.set_xticks(range(len(exposures)), [str(exposure) for exposure in exposures], rotation=45)

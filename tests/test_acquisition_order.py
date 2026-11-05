@@ -109,6 +109,7 @@ def test_indicators_reach_half_in_order(tmp_path: Path) -> None:
     # 形への慣れは、露出 0 と 10 の間（log10(1 + 露出回数) の直線で 0.5 に達する所）
     assert orders["form"].half_exposure == pytest.approx(10 ** (math.log10(11) * 0.5 / 0.6) - 1)
     assert "meaning: 1.000" in orders["form"].earlier_than
+    assert "meaning: 0.000" in orders["form"].p_values
     assert orders["form"].reached_share == 1.0
 
 
