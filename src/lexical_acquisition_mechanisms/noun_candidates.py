@@ -21,6 +21,7 @@ from lexical_acquisition_mechanisms.llm_client import (
     PromptTemplate,
     prompt_record_settings,
     require_answers,
+    with_maximum_items,
 )
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.pile_word_usages import WordUsages, sample_word_usages
@@ -119,12 +120,14 @@ def build_noun_candidates(
                 "category": category.name,
                 "description": category.description,
                 "kind": kind,
+                "letters": letters,
             },
-            LISTING_SCHEMA,
-            maximum_tokens=40 * words.nouns_per_listing,
+            with_maximum_items(LISTING_SCHEMA, "nouns", words.nouns_per_listing),
+            maximum_tokens=60 * words.nouns_per_listing,
         )
         for category in words.categories
         for kind in words.listing_kinds
+        for letters in words.listing_letter_groups
     ]
     answers = client.ask_all(requests)
     require_answers(answers, "名詞の一覧", COMMAND)

@@ -61,6 +61,7 @@ def settings(tiny_model_source: ModelSource, wordnet_directory: Path) -> Setting
     words = settings.words.model_copy(
         update={
             "listing_kinds": ["common"],
+            "listing_letter_groups": ["a, b"],
             "adjectives_per_listing": 4,
             "pile_sample_shards": 1,
             "usage_examples_per_word": 5,

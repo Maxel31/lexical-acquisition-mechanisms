@@ -1,6 +1,6 @@
 You are helping to build word lists for a linguistics experiment.
 
-List $number different English nouns that name $description (category: $category).
+List $number different English nouns that name $description (category: $category), each starting with one of these letters: $letters.
 List $kind nouns.
 
 Every noun must:

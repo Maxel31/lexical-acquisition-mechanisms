@@ -22,6 +22,7 @@ from lexical_acquisition_mechanisms.llm_client import (
     PromptTemplate,
     prompt_record_settings,
     require_answers,
+    with_maximum_items,
 )
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.pile_word_usages import WordUsages, sample_word_usages
@@ -126,12 +127,14 @@ def build_adjective_candidates(
             {
                 "number": str(words.adjectives_per_listing),
                 "kind": kind,
+                "letters": letters,
                 "categories": category_list,
             },
-            LISTING_SCHEMA,
-            maximum_tokens=40 * words.adjectives_per_listing,
+            with_maximum_items(LISTING_SCHEMA, "adjectives", words.adjectives_per_listing),
+            maximum_tokens=60 * words.adjectives_per_listing,
         )
         for kind in words.listing_kinds
+        for letters in words.listing_letter_groups
     ]
     candidates: dict[str, AdjectiveCandidate] = {}
     answers = client.ask_all(requests)

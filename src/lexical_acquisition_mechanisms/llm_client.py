@@ -91,6 +91,13 @@ class LlmRequest:
         }
 
 
+def with_maximum_items(schema: Mapping[str, Any], key: str, number: int) -> dict[str, Any]:
+    """答えの形の、一覧の項目 key の長さの上限を number にしたもの（長すぎる答えを形で止める）。"""
+    properties = dict(schema["properties"])
+    properties[key] = {**properties[key], "maxItems": number}
+    return {**schema, "properties": properties}
+
+
 def require_answers(answers: Sequence[dict[str, Any] | None], what: str, rerun_from: str) -> None:
     """全ての問い合わせに答えがあることを確かめる（なければ止まる）。
 
