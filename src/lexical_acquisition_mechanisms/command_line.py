@@ -37,6 +37,7 @@ from lexical_acquisition_mechanisms import (
     pretrained_model_checks,
     probe_and_normalization_words,
     real_word_probes,
+    results_collection,
     run_settings,
     sense_accuracy,
     sense_addition_report,
@@ -350,6 +351,13 @@ def all_actions() -> list[Action]:
             "make-report",
             "図と表を outputs/figures/dependence-on-category-judging-heads/ に作る",
             dependence_report.make_report,
+        ),
+        Action(
+            "results",
+            "collect",
+            "全結果を1つの表 outputs/results/all_results.parquet にまとめ、図を outputs/figures/ に"
+            "作る",
+            results_collection.collect_results,
         ),
     ]
 
