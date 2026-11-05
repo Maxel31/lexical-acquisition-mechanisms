@@ -13,6 +13,7 @@ from lexical_acquisition_mechanisms.minimal_pairs import (
     PROMPT,
     MinimalPairCandidate,
     build_minimal_pair_candidates,
+    candidates_per_sense_pair,
 )
 from lexical_acquisition_mechanisms.sense_addition_assignments import SenseAdditionAssignment
 from lexical_acquisition_mechanisms.settings import ModelSource, load_settings
@@ -123,3 +124,13 @@ def test_missing_answers_stop_instead_of_dropping_sense_pairs(
             tmp_path / "assignments.csv",
             tmp_path / "candidates.csv",
         )
+
+
+def test_candidates_follow_the_number_of_minimal_pairs() -> None:
+    # 最小対の数を増やすと、LLM に作らせる候補も増える（README の手作業のとおりに作り直せる）
+    settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
+    evaluation = settings.evaluation.model_copy(
+        update={"minimal_pairs_per_sense_pair": 30, "minimal_pair_candidate_factor": 1.5}
+    )
+
+    assert candidates_per_sense_pair(settings.model_copy(update={"evaluation": evaluation})) == 45
