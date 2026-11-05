@@ -213,7 +213,7 @@ uv run lexical-acquisition-mechanisms unknown-word-acquisition train-real-word-p
    - The loss on the inserted passages goes down
    - The loss does not jump suddenly or become NaN (not a number)
 2. Check that the probe also works on words it was not trained on.
-3. Decide the learning rate, batch size, warmup and the initial embeddings of one-token unknown words (unknown words given new token IDs), and write them under `training` in `settings.yaml` (`learning_rate_by_model`, `batch_size_in_tokens`, `warmup_fraction`, `new_token_embedding_initialization`). Decide the learning rate as a method that gives the values for 1B and 13B in the same way (provisional: the final learning rate of each model's pretraining stage 1). If you change a value, redo step 2.
+3. Decide the learning rate, batch size, warmup and the initial embeddings of one-token unknown words (unknown words given new token IDs), and write them under `training` in `settings.yaml` (`learning_rate_by_model`, `batch_size_in_tokens`, `warmup_fraction`, `new_token_embedding_initialization`). Decide the learning rate as a method that gives the values for 1B and 13B in the same way (provisional: the final learning rate of each model's pretraining stage 1). If you change a value, redo step 2 with `--recompute` added to the training commands (without it, training stops because weights trained with the old settings exist).
 
 ### 3. Unknown-word acquisition (7B)
 

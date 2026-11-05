@@ -56,6 +56,9 @@ from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.settings import Settings, SettingsError, load_settings
 
 COMMAND_NAME = "lexical-acquisition-mechanisms"
+PACKAGE_NAME = "lexical_acquisition_mechanisms"
+# torchrun から実行するコマンド
+TORCHRUN_COMMANDS = ("training run",)
 
 # README の段階と、--help に出す説明
 STAGE_DESCRIPTIONS = {
@@ -426,7 +429,10 @@ def main(
 
 def _report_stop(message: str, rerun_from: str) -> None:
     print(f"止まりました: {message}", file=sys.stderr)
-    print(
-        f"直したら、次のコマンドから実行し直してください: uv run {COMMAND_NAME} {rerun_from}",
-        file=sys.stderr,
-    )
+    # 学習は、GPU ごとにプロセスを起動する torchrun から実行する（1つのプロセスでは、大きいモデルが
+    # 1枚の GPU に載らない）
+    if rerun_from.startswith(TORCHRUN_COMMANDS):
+        start = f'uv run torchrun --nproc-per-node "$NUMBER_OF_GPUS" -m {PACKAGE_NAME}'
+    else:
+        start = f"uv run {COMMAND_NAME}"
+    print(f"直したら、次のコマンドから実行し直してください: {start} {rerun_from}", file=sys.stderr)

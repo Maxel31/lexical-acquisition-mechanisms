@@ -201,7 +201,7 @@ uv run lexical-acquisition-mechanisms unknown-word-acquisition train-real-word-p
    - 差し込んだ用例の損失が下がっている
    - 損失が急に跳ね上がったり、NaN（数値でない値）になったりしていない
 2. プローブが、学習に使わなかった語でも当てられるかを確かめる。
-3. 学習率・バッチサイズ・ウォームアップ・1トークンの未知語（新しいトークン番号を割り当てた未知語）の埋め込みの初期値を決め、`settings.yaml` の `training`（`learning_rate_by_model`・`batch_size_in_tokens`・`warmup_fraction`・`new_token_embedding_initialization`）に書く。学習率は、1B・13B の値も同じ方法で求められるように、求め方として決める（暫定: 各モデルの事前学習のステージ1の最後の学習率）。値を変えたら、手順2をやり直す。
+3. 学習率・バッチサイズ・ウォームアップ・1トークンの未知語（新しいトークン番号を割り当てた未知語）の埋め込みの初期値を決め、`settings.yaml` の `training`（`learning_rate_by_model`・`batch_size_in_tokens`・`warmup_fraction`・`new_token_embedding_initialization`）に書く。学習率は、1B・13B の値も同じ方法で求められるように、求め方として決める（暫定: 各モデルの事前学習のステージ1の最後の学習率）。値を変えたら、学習のコマンドに `--recompute` を付けて、手順2をやり直す（付けないと、前の設定で学習した重みがあるので止まる）。
 
 ### 3. 未知語の獲得（7B）
 
