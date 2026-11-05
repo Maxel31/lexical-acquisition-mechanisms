@@ -65,7 +65,7 @@ def settings(tiny_model_source: ModelSource, wordnet_directory: Path) -> Setting
     settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
     words = settings.words.model_copy(
         update={
-            "noun_listing_kinds": ["common"],
+            "listing_kinds": ["common"],
             "nouns_per_listing": 5,
             "pile_sample_shards": 2,
             "usage_examples_per_word": 3,
