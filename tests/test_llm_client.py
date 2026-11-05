@@ -1,6 +1,8 @@
 """LLM への問い合わせのテスト。サーバの代わりに、決まった答えを返す部品を使う。"""
 
 import json
+import sqlite3
+import threading
 from pathlib import Path
 
 import httpx
@@ -238,3 +240,21 @@ def test_lists_in_answers_are_capped_by_the_schema() -> None:
     }
     # 元の形は変えない
     assert "maxItems" not in schema["properties"]["nouns"]
+
+
+def test_a_client_waits_while_another_command_writes_to_the_database(tmp_path: Path) -> None:
+    # ほかのコマンドが書き込みの途中でも、"database is locked" で止まらず、待ってから書く
+    server = StubServer()
+    make_client(tmp_path, server).ask_all(requests_for("car"))
+    holder = sqlite3.connect(tmp_path / "answers.sqlite3", check_same_thread=False)
+    holder.execute("BEGIN IMMEDIATE")
+    holder.execute("DELETE FROM answers WHERE prompt_name = 'nothing'")
+    # sqlite の既定の待ち時間（5 秒）より長く書き込みを続ける
+    releaser = threading.Timer(6.0, holder.commit)
+    releaser.start()
+
+    answers = make_client(tmp_path, server).ask_all(requests_for("pasta"))
+
+    releaser.join()
+    holder.close()
+    assert answers[0]["passed"] is True

@@ -32,6 +32,10 @@ PROMPT_DIRECTORY = Path("llm_prompts")
 ANSWERS_PATH = Path("data/llm_answers.sqlite3")
 NUMBER_OF_ATTEMPTS = 5
 CHUNK_SIZE = 10_000
+# 答えのデータベースを、ほかのコマンドが書いている間に待つ秒数と、書き込みを区切る答えの数
+# （2つの LLM のコマンドを同時に実行しても、"database is locked" で止まらないように）
+DATABASE_TIMEOUT = 600
+COMMIT_EVERY = 100
 # 形に合う答えが得られなかった問い合わせが、1回に問い合わせた数のこの割合と10件の
 # 両方を超えたら止まる
 MAXIMUM_INVALID_FRACTION = 0.01
@@ -137,7 +141,11 @@ class LlmClient:
         """
         self._answers_path.parent.mkdir(parents=True, exist_ok=True)
         all_answers: list[dict[str, Any] | None] = []
-        with contextlib.closing(sqlite3.connect(self._answers_path)) as database:
+        with contextlib.closing(
+            sqlite3.connect(self._answers_path, timeout=DATABASE_TIMEOUT)
+        ) as database:
+            # ほかのコマンドが同じファイルに書いている間も読み書きできるように
+            database.execute("PRAGMA journal_mode=WAL")
             database.execute(
                 "CREATE TABLE IF NOT EXISTS answers (key TEXT PRIMARY KEY, prompt_name TEXT,"
                 " prompt_version TEXT, body TEXT, answer TEXT, created_at TEXT)"
@@ -201,7 +209,7 @@ class LlmClient:
                         continue
                     answers[key] = answer
                     self._save(database, key, requests[index], bodies[index], answer)
-                    if number % 1000 == 0:
+                    if number % COMMIT_EVERY == 0:
                         database.commit()
             finally:
                 for task in tasks:
