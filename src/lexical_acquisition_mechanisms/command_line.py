@@ -11,7 +11,7 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from lexical_acquisition_mechanisms import base_data
+from lexical_acquisition_mechanisms import base_data, noun_candidates
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.settings import Settings, SettingsError, load_settings
 
@@ -53,6 +53,12 @@ def all_actions() -> list[Action]:
             "基データ（OLMo 2 の事前学習データの、学習順で先頭の約3億トークン）と、"
             "その直後の検証データをダウンロードする",
             base_data.download,
+        ),
+        Action(
+            "words",
+            "generate-noun-candidates",
+            "名詞の候補を LLM が挙げ、WordNet でのカテゴリと、Pile での使われ方を調べる",
+            noun_candidates.generate_noun_candidates,
         ),
     ]
 
