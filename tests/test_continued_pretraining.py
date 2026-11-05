@@ -219,6 +219,6 @@ def test_new_tokens_start_from_the_mean_of_existing_embeddings(
         assert torch.allclose(matrix[100278], mean) and torch.allclose(matrix[100279], mean)
     initialize_new_tokens(model, noisy)
     embedding = model.get_input_embeddings().weight
-    difference = embedding[100278] - embedding[:vocabulary_size].mean(dim=0)
+    difference = (embedding[100278] - embedding[:vocabulary_size].mean(dim=0)).detach()
     assert 0 < float(difference.abs().max()) < 1
     assert not torch.allclose(embedding[100278], embedding[100279])

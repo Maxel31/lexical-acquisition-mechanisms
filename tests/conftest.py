@@ -1,11 +1,13 @@
 """テストで共有する部品。
 
-テストは GPU を使わない（torch が GPU を調べる前に、GPU を見えなくする）。
+テストは GPU を使わない（torch が GPU を調べる前に、GPU を見えなくする）。学習の記録は W&B に
+送らない。
 """
 
 import os
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
+os.environ["WANDB_MODE"] = "disabled"
 
 from pathlib import Path  # noqa: E402
 
