@@ -20,9 +20,9 @@ import pyarrow.compute as compute
 import pyarrow.parquet as parquet
 
 from lexical_acquisition_mechanisms import (
-    passage_collection,
     passage_finalization,
     word_finalization,
+    word_selection,
 )
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
@@ -116,10 +116,10 @@ def build_natural_word_sentences(
     if short:
         raise CommandStopped(
             f"文が {wanted} 文に届かなかった自然な語があります（{len(short)} 語: {short[:10]}。"
-            f"数は {counts_path}）。settings.yaml の evaluation.passages_per_natural_word を"
-            "増やしてください（その語を外すときは、data/words/excluded_words.csv に足して"
-            " words select から実行し直す）。",
-            rerun_from=passage_collection.COMMAND,
+            f"数は {counts_path}）。その語を data/words/excluded_words.csv に足すか、"
+            "settings.yaml の evaluation.passages_per_natural_word を増やしてください。どちらも、"
+            "自然な語を選び直すことになるので、words select から実行し直してください。",
+            rerun_from=word_selection.COMMAND,
         )
 
 

@@ -71,7 +71,8 @@ def test_one_whole_sentence_is_taken_from_each_passage(
             settings, tmp_path / "words.csv", tmp_path / "passages.parquet", outputs
         )
 
-    assert stopped.value.rerun_from == "passages collect"
+    # 必要な用例の数は、自然な語を選ぶ条件でもあるので、words select から
+    assert stopped.value.rerun_from == "words select"
     (sentence,) = read_rows(outputs[0], NaturalWordSentence)
     assert sentence.sentence == "We ate hot soup for dinner tonight."
     assert sentence.sentence[sentence.word_start :].startswith("soup")
