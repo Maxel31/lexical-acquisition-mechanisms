@@ -10,6 +10,8 @@
   （答えが得られずに不合格にしたものを含む）を使い、問い合わせない。答えの得られなかった問い合わせは
   保存されないので、問い合わせ直すと結果が変わり、学習に使った用例とずれうるため。
 - 出現の位置がない候補は、問い合わせずに不合格にする。
+- 問い合わせる前に、組ごとの候補の数を確かめる。合格する必要がある数に届かない語があれば止まる
+  （passage_shortage）。必要な数 × passages.collection_factor に届かない語は、表示して続ける。
 結果を data/passages/judgments.parquet に、組ごとの数を data/passages/judgment_summary.csv に書く。
 """
 
@@ -26,7 +28,13 @@ import numpy as np
 import pyarrow as arrow
 import pyarrow.parquet as parquet
 
-from lexical_acquisition_mechanisms import passage_split, word_finalization
+from lexical_acquisition_mechanisms import (
+    passage_collection,
+    passage_shortage,
+    passage_split,
+    word_finalization,
+    word_selection,
+)
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.llm_client import (
     ANSWERS_PATH,
@@ -36,6 +44,7 @@ from lexical_acquisition_mechanisms.llm_client import (
     prompt_record_settings,
 )
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
+from lexical_acquisition_mechanisms.passage_shortage import needed_passing_passages
 from lexical_acquisition_mechanisms.settings import Settings
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
@@ -72,19 +81,6 @@ class JudgmentSummary:
     passed: int
 
 
-def needed_passing_passages(role: str, split: str, settings: Settings) -> int:
-    """語の役割と分け方ごとの、合格する必要がある用例の数（ターゲット語と自然な語は評価用だけ）。"""
-    if split == "training":
-        if role == "noun":
-            return max(settings.unknown_word_acquisition.exposure_levels)
-        if role == "adjective":
-            return settings.sense_addition.passages_per_added_sense
-        return 0
-    if role.startswith("natural-"):
-        return settings.evaluation.passages_per_natural_word
-    return settings.passages.evaluation_passages_per_word
-
-
 def judge_word_sense(settings: Settings, arguments: argparse.Namespace) -> None:
     prompts = {
         "noun": PromptTemplate.load(NOUN_PROMPT),
@@ -103,6 +99,7 @@ def judge_word_sense(settings: Settings, arguments: argparse.Namespace) -> None:
         COMMAND,
         inputs={
             word_finalization.OUTPUT_PATH: word_finalization.COMMAND,
+            passage_collection.SUMMARY_PATH: passage_collection.COMMAND,
             passage_split.SPLIT_PATH: passage_split.COMMAND,
         },
         outputs=[JUDGMENTS_PATH, SUMMARY_PATH],
@@ -117,6 +114,7 @@ def judge_word_sense(settings: Settings, arguments: argparse.Namespace) -> None:
             client,
             word_finalization.OUTPUT_PATH,
             passage_split.SPLIT_PATH,
+            (passage_collection.SUMMARY_PATH, word_selection.EXCLUDED_WORDS_PATH),
             (JUDGMENTS_PATH, SUMMARY_PATH),
         ),
         arguments.recompute,
@@ -129,8 +127,10 @@ def build_judgments(
     client: LlmClient,
     words_path: Path,
     split_path: Path,
+    shortage_paths: tuple[Path, Path],
     output_paths: tuple[Path, Path],
 ) -> None:
+    """shortage_paths は、collect の語ごとの数（collection_summary.csv）と、外す語の CSV。"""
     judgments_path, summary_path = output_paths
     words = {word.word: word for word in read_rows(words_path, SelectedWord)}
     tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
@@ -141,6 +141,7 @@ def build_judgments(
         group: needed_passing_passages(words[group[0]].role, group[1], settings)
         for group in remaining
     }
+    _check_candidates(settings, words, remaining, shortage_paths)
     judged: Counter[tuple[str, str]] = Counter()
     passed: Counter[tuple[str, str]] = Counter()
     judged_indices: list[int] = []
@@ -195,6 +196,26 @@ def build_judgments(
         for word, split in sorted(remaining)
     ]
     write_rows(summary_path, JudgmentSummary, summaries)
+
+
+def _check_candidates(
+    settings: Settings,
+    words: Mapping[str, SelectedWord],
+    remaining: Mapping[tuple[str, str], list[int]],
+    shortage_paths: tuple[Path, Path],
+) -> None:
+    """問い合わせる前に、組ごとの候補の数が、合格する必要がある数に届くかを確かめる。"""
+    managed = [word for word in words.values() if word.role != "unknown"]
+    counts = {group: len(indices) for group, indices in remaining.items()}
+    if shortages := passage_shortage.find_shortages(managed, counts, settings):
+        passage_shortage.stop_for_shortage(shortages, "判定に回す候補", *shortage_paths)
+    factor = settings.passages.collection_factor
+    if few := passage_shortage.find_shortages(managed, counts, settings, factor):
+        print(
+            f"判定に回す候補が、合格する必要がある数の {factor} 倍に届かない語があります"
+            f"（{passage_shortage.listed(few)}）。合格する割合が低いと、passages finalize で"
+            "足りなくなります。"
+        )
 
 
 def _candidate_key(candidate: Mapping[str, Any]) -> tuple[str, int, int, int]:
