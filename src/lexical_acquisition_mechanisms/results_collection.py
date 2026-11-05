@@ -225,6 +225,11 @@ def _summary_rows(model: str, paths: Sequence[Path]) -> list[dict[str, object]]:
                 (f"reached-share-{row.indicator}", row.reached_share),
             ):
                 rows.append(base | {"indicator": name, "value": value})
+            # ほかの指標より先に 0.5 に達した再抽出の割合と、その p 値（相手の指標ごと）
+            for suffix, listed in (("", row.earlier_than), ("-p-value", row.p_values)):
+                for other, value in _named_values(listed).items():
+                    name = f"{row.indicator}-earlier-than-{other}{suffix}"
+                    rows.append(base | {"indicator": name, "value": value})
     if classes.exists():
         rows += [
             _row(SENSES, model, "", "", row.component_class)
@@ -234,10 +239,13 @@ def _summary_rows(model: str, paths: Sequence[Path]) -> list[dict[str, object]]:
     if terms.exists():
         for row in read_rows(terms, RegressionTerm):
             base = _row(CONNECTION, model, "", "", row.ablation)
-            rows.append(base | {"indicator": f"regression-{row.term}", "value": row.coefficient})
-            rows.append(
-                base | {"indicator": f"regression-{row.term}-p-value", "value": row.p_value}
-            )
+            for suffix, value in (
+                ("", row.coefficient),
+                ("-lower", row.lower),
+                ("-upper", row.upper),
+                ("-p-value", row.p_value),
+            ):
+                rows.append(base | {"indicator": f"regression-{row.term}{suffix}", "value": value})
     if direction_tests.exists():
         measures = (
             "attribute_change",
@@ -249,7 +257,7 @@ def _summary_rows(model: str, paths: Sequence[Path]) -> list[dict[str, object]]:
         )
         for row in read_rows(direction_tests, AttributeDirectionTest):
             base = _row(SENSES, model, row.run, "", row.attribute)
-            base |= {"layer": row.layer, "head": row.head}
+            base |= {"layer": row.layer, "head": row.head, "number_of_senses": _senses(row.run)}
             for measure in measures:
                 name = f"{row.task}-{measure.replace('_', '-')}"
                 rows.append(base | {"indicator": name, "value": getattr(row, measure)})
@@ -273,6 +281,18 @@ def _summary_rows(model: str, paths: Sequence[Path]) -> list[dict[str, object]]:
             if not row.baseline
         ]
     return rows
+
+
+def _named_values(listed: str) -> dict[str, float]:
+    """ "meaning: 0.900, form: 0.100" の形の文字列の、名前ごとの値。"""
+    pairs = (item.split(": ") for item in listed.split(", ") if item)
+    return {name: float(value) for name, value in pairs}
+
+
+def _senses(run: str) -> int | None:
+    """run の名前（例: other-category-4）の、足した語義の数（対照の run では None）。"""
+    number = run.rsplit("-", 1)[-1]
+    return int(number) if number.isdigit() else None
 
 
 def _plot_model_sizes(summaries: dict[str, list[list]], path: Path) -> None:
