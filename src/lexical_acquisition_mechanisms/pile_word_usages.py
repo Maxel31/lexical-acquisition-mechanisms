@@ -3,9 +3,12 @@
 語の候補を選ぶときに、Pile での頻度と、使われ方（意図した語義・品詞で使われる割合）を見積もる。
 数えるのは標準の形（先頭スペース付き・小文字。例: " pasta"）で、直後が英字でないものだけ。
 用例として切り出せる文章の数も見積もる: 文書ごとに、前に数えた出現から用例1つ分の文字数以上
-離れた出現を数え、1つの文書から取る用例の数の上限で打ち切る。
-見本は、出現ごとに、出現の位置（断片・行・文字の位置）と seed から決まる鍵を付け、鍵の小さいものから
-選ぶ（無作為に選んだのと同じになり、並列の数や、一緒に調べる語によらず同じ見本になる）。
+離れた出現を数え、1つの文書から取る用例の数の上限で打ち切る。前後（用例の半分の文字数）に同じ語の
+別の形（例: "Pasta"、" pastas"）がある出現は数えない（後で切り出すとき、別の形を含む文章は使わない
+ので）。
+見本は、用例として数えた出現から選ぶ（後で切り出す用例と同じ選び方にするため。語を何度も繰り返す
+文書に偏らない）。出現ごとに、出現の位置（断片・行・文字の位置）と seed から決まる鍵を付け、鍵の
+小さいものから選ぶ（無作為に選んだのと同じになり、並列の数や、一緒に調べる語によらず同じ見本になる）。
 """
 
 import hashlib
@@ -13,7 +16,7 @@ import heapq
 import re
 from collections.abc import Callable, Collection, Iterator
 from dataclasses import dataclass, field
-from functools import partial
+from functools import cache, partial
 from pathlib import Path
 
 from lexical_acquisition_mechanisms import pile
@@ -97,8 +100,9 @@ def scan_documents(
             word = match.group()
             start = match.start()
             counts[word] = counts.get(word, 0) + 1
-            if counted:
-                passage_counts[word] = passage_counts.get(word, 0) + 1
+            if not counted or _other_form_nearby(text, match, characters_per_passage // 2):
+                continue
+            passage_counts[word] = passage_counts.get(word, 0) + 1
             key = occurrence_key(seed, document.shard, document.row, start)
             heap = heaps.setdefault(word, [])
             if len(heap) < examples_per_word:
@@ -108,11 +112,30 @@ def scan_documents(
     return {
         word: WordUsages(
             count=count,
-            passage_count=passage_counts[word],
-            examples=sorted((-negative_key, example) for negative_key, example in heaps[word]),
+            passage_count=passage_counts.get(word, 0),
+            examples=sorted(
+                (-negative_key, example) for negative_key, example in heaps.get(word, [])
+            ),
         )
         for word, count in counts.items()
     }
+
+
+def _other_form_nearby(text: str, match: re.Match[str], distance: int) -> bool:
+    """出現の前後 distance 文字に、同じ語の標準でない形（大文字・s・es）があるか。"""
+    word = match.group()
+    begin = max(0, match.start() - distance)
+    for other in _forms_of(word).finditer(text, begin, match.end() + distance):
+        if other.start() == match.start():
+            continue
+        if other.group() != word or other.start() == 0 or text[other.start() - 1] != " ":
+            return True
+    return False
+
+
+@cache
+def _forms_of(word: str) -> re.Pattern[str]:
+    return re.compile(rf"(?<![A-Za-z]){re.escape(word)}(?:e?s)?(?![A-Za-z])", re.IGNORECASE)
 
 
 def standard_form_occurrences(
