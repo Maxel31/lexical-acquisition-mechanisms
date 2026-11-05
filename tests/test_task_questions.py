@@ -9,6 +9,7 @@ import pyarrow.parquet as parquet
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.llm_client import LlmClient, PromptTemplate
 from lexical_acquisition_mechanisms.natural_word_sentences import NaturalWordSentence
+from lexical_acquisition_mechanisms.neutral_contexts import NeutralContext
 from lexical_acquisition_mechanisms.settings import ModelSource, load_settings
 from lexical_acquisition_mechanisms.task_questions import (
     PROMPT,
@@ -16,6 +17,7 @@ from lexical_acquisition_mechanisms.task_questions import (
     TaskExample,
     write_task_questions,
 )
+from lexical_acquisition_mechanisms.unknown_word_assignments import UnknownWordAssignment
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -62,6 +64,9 @@ def test_examples_and_natural_word_questions(
         SelectedWord("quiet", "natural-adjective", token_count=1, part_of_speech_probe=True),
         SelectedWord("car", "target", category="vehicle", token_count=1, definition="a vehicle"),
         SelectedWord("pasta", "noun", category="food", token_count=1),
+        SelectedWord("tiger", "noun", category="animal", token_count=1),
+        SelectedWord("truck", "noun", category="vehicle", token_count=1),
+        SelectedWord("shirt", "noun", category="clothing", token_count=1),
     ]
     write_rows(tmp_path / "words.csv", SelectedWord, words)
     sentences = [
@@ -76,17 +81,27 @@ def test_examples_and_natural_word_questions(
         rerun_from="evaluation-data build-task-questions",
         transport=httpx.MockTransport(answer_like_the_llm),
     )
+    assignment = UnknownWordAssignment("run-1", "zubbet", 2, "near", 1, 0, "pasta", "food", 10)
+    write_rows(tmp_path / "assignments.csv", UnknownWordAssignment, [assignment])
+    contexts = [NeutralContext(0, ""), NeutralContext(1, "Do you know about the")]
+    write_rows(tmp_path / "contexts.csv", NeutralContext, contexts)
     outputs = (
         tmp_path / "paraphrases.csv",
         tmp_path / "examples.csv",
         tmp_path / "questions.parquet",
+        tmp_path / "unknown.parquet",
     )
 
     write_task_questions(
         settings,
         PromptTemplate.load(PROMPT, REPOSITORY_ROOT / "llm_prompts"),
         client,
-        (tmp_path / "words.csv", tmp_path / "sentences.csv"),
+        (
+            tmp_path / "words.csv",
+            tmp_path / "sentences.csv",
+            tmp_path / "assignments.csv",
+            tmp_path / "contexts.csv",
+        ),
         outputs,
     )
 
@@ -118,3 +133,21 @@ def test_examples_and_natural_word_questions(
         assert question["answer"] in question["choices"]
         assert question["prompt_template"].count("Sentence:") == 2
         assert "{word}" in question["prompt_template"].split("\n\n")[-1]
+
+    unknown = parquet.read_table(outputs[3]).to_pylist()
+    # 1つの割り当て × 2つの条件 × 2つの課題
+    assert [(row["condition"], row["task"]) for row in unknown] == [
+        (0, "sense"),
+        (0, "category"),
+        (1, "sense"),
+        (1, "category"),
+    ]
+    sense = unknown[2]
+    assert sorted(sense["choices"]) == ["pasta", "shirt", "tiger", "truck"]
+    assert sense["answer"] == "pasta" and unknown[3]["answer"] == "food"
+    assert (
+        sense["prompt_template"]
+        .split("\n\n")[-1]
+        .startswith("Sentence: Do you know about the {word}.\n")
+    )
+    assert unknown[0]["prompt_template"].split("\n\n")[-1].startswith("Sentence: {word}.\n")
