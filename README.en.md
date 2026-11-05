@@ -29,7 +29,9 @@ uv run wandb login   # only to send training logs to W&B (a web service that kee
 Commands marked `# LLM` use an LLM (Qwen3-Next-80B) to generate word candidates or judge passages. While you run them, keep the LLM server running in another terminal (its URL is `llm.server_url` in `settings.yaml`).
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 uvx --from vllm==0.32.0 vllm serve Qwen/Qwen3-Next-80B-A3B-Instruct-FP8 \
+# DeepGEMM (FP8 matrix kernels) needs nvcc from CUDA 13 or newer on RTX PRO 6000 (Blackwell), so it is turned off
+VLLM_USE_DEEP_GEMM=0 VLLM_MOE_USE_DEEP_GEMM=0 CUDA_VISIBLE_DEVICES=0,1 \
+  uvx --from vllm==0.32.0 vllm serve Qwen/Qwen3-Next-80B-A3B-Instruct-FP8 \
   --tensor-parallel-size 2 --port 8000
 ```
 
