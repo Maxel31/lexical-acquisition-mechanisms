@@ -1,6 +1,7 @@
 """コマンドの入口のテスト。"""
 
 import argparse
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -11,13 +12,13 @@ from lexical_acquisition_mechanisms.command_line import Action, build_parser, ma
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.settings import Settings
 
-SETTINGS_TEXT = "models:\n  tiny-model:\n    repository: ./tiny-model\n"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture
 def in_repository_like_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """settings.yaml がある作業ディレクトリで実行する。"""
-    (tmp_path / "settings.yaml").write_text(SETTINGS_TEXT, encoding="utf-8")
+    shutil.copy(REPOSITORY_ROOT / "settings.yaml", tmp_path / "settings.yaml")
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
@@ -58,14 +59,14 @@ def test_selected_action_runs_with_settings_and_arguments(
     calls = []
 
     def record_call(settings: Settings, arguments: argparse.Namespace) -> None:
-        calls.append((settings.models["tiny-model"].repository, arguments.review_csv))
+        calls.append((settings.models["OLMo-2-1124-7B"].repository, arguments.review_csv))
 
     action = Action("words", "finalize", "語の一覧を書き出す", record_call, add_review_csv_argument)
 
     exit_code = main(["words", "finalize", "--review-csv", "data/words/review.csv"], [action])
 
     assert exit_code == 0
-    assert calls == [("./tiny-model", Path("data/words/review.csv"))]
+    assert calls == [("allenai/OLMo-2-1124-7B", Path("data/words/review.csv"))]
 
 
 def test_every_action_accepts_recompute(in_repository_like_directory: Path) -> None:
