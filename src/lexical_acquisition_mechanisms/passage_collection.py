@@ -44,7 +44,7 @@ from lexical_acquisition_mechanisms.pile_word_usages import (
     standard_form_occurrences,
 )
 from lexical_acquisition_mechanisms.settings import Settings
-from lexical_acquisition_mechanisms.word_selection import SelectedWord
+from lexical_acquisition_mechanisms.word_selection import MANAGED_ROLES, SelectedWord
 
 COMMAND = "passages collect"
 OUTPUT_DIRECTORY = Path("data/passages")
@@ -52,7 +52,6 @@ OCCURRENCES_PATH = OUTPUT_DIRECTORY / "occurrences.parquet"
 CANDIDATES_PATH = OUTPUT_DIRECTORY / "candidates.parquet"
 SUMMARY_PATH = OUTPUT_DIRECTORY / "collection_summary.csv"
 SHARD_DIRECTORY = OUTPUT_DIRECTORY / "collection_shards"
-MANAGED_ROLES = ("noun", "adjective", "target")
 # 出現の前後に残す文字数の、用例のトークン数に対する倍率（1トークンが7文字までなら、
 # 出現がどこにあっても、前後に用例1つ分のトークンが入る）
 CONTEXT_CHARACTERS_PER_TOKEN = 7

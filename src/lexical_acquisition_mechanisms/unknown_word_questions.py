@@ -11,11 +11,9 @@ import random
 from collections.abc import Mapping, Sequence
 
 from lexical_acquisition_mechanisms.neutral_contexts import NeutralContext
-from lexical_acquisition_mechanisms.task_prompts import WORD, TaskItem, prompt_template
+from lexical_acquisition_mechanisms.task_prompts import DISTRACTORS, WORD, TaskItem, prompt_template
 from lexical_acquisition_mechanisms.unknown_word_assignments import UnknownWordAssignment
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
-
-DISTRACTORS = 3
 
 
 def unknown_word_questions(

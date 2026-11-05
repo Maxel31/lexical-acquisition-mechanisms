@@ -42,7 +42,7 @@ from lexical_acquisition_mechanisms.output_records import Step, run_unless_uncha
 from lexical_acquisition_mechanisms.pile_word_usages import WORD_PATTERN
 from lexical_acquisition_mechanisms.sense_addition_assignments import SenseAdditionAssignment
 from lexical_acquisition_mechanisms.settings import Settings
-from lexical_acquisition_mechanisms.word_selection import SelectedWord
+from lexical_acquisition_mechanisms.word_selection import MANAGED_ROLES, SelectedWord
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
 
 COMMAND = "evaluation-data generate-minimal-pairs"
@@ -51,7 +51,6 @@ PROMPT = "generate-minimal-pairs"
 BLANK = "___"
 # 空欄: 前が空白で、ちょうど3本の下線（文の先頭なら、問題文では "Sentence:" の後の空白の後）
 BLANK_PATTERN = re.compile(r"(?<=\s)___(?!_)")
-MANAGED_ROLES = ("noun", "adjective", "target")
 CUE_INSTRUCTIONS = {
     "noun": (
         "The cue is a word (such as a verb) that fits one of the two kinds of things and not the"

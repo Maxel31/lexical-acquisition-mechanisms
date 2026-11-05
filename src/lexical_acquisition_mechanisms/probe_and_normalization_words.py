@@ -37,7 +37,7 @@ from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.noun_candidates import NounCandidate
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.settings import Settings
-from lexical_acquisition_mechanisms.word_selection import SelectedWord
+from lexical_acquisition_mechanisms.word_selection import MANAGED_ROLES, SelectedWord
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
 from lexical_acquisition_mechanisms.wordnet_senses import load_wordnet
 
@@ -49,7 +49,8 @@ TOKEN_COUNTS = (1, 2, 3)
 HELD_OUT_SHARE = 0.2
 # 非語を作るときに、実在語の組を作り直す回数の上限
 PAIRING_ROUNDS = 10
-MANAGED_ROLES = ("noun", "target", "adjective", "unknown")
+# 実在語らしさのプローブの語に使わない役割（管理対象の語と未知語）
+MANAGED_AND_UNKNOWN_ROLES = (*MANAGED_ROLES, "unknown")
 
 
 @dataclass
@@ -111,7 +112,7 @@ def write_probe_and_normalization_words(
     words_path, nouns_path, adjectives_path = input_paths
     tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
     words = read_rows(words_path, SelectedWord)
-    managed = {word.word for word in words if word.role in MANAGED_ROLES}
+    managed = {word.word for word in words if word.role in MANAGED_AND_UNKNOWN_ROLES}
     nouns = [row for row in read_rows(nouns_path, NounCandidate) if not row.rejected_reason]
     adjectives = [
         row for row in read_rows(adjectives_path, AdjectiveCandidate) if not row.rejected_reason

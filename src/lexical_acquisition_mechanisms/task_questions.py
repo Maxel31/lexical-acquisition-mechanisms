@@ -43,6 +43,7 @@ from lexical_acquisition_mechanisms.neutral_contexts import NeutralContext
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.settings import Settings
 from lexical_acquisition_mechanisms.task_prompts import (
+    DISTRACTORS,
     PARTS_OF_SPEECH,
     WORD,
     TaskItem,
@@ -50,7 +51,7 @@ from lexical_acquisition_mechanisms.task_prompts import (
 )
 from lexical_acquisition_mechanisms.unknown_word_assignments import UnknownWordAssignment
 from lexical_acquisition_mechanisms.unknown_word_questions import unknown_word_questions
-from lexical_acquisition_mechanisms.word_selection import SelectedWord
+from lexical_acquisition_mechanisms.word_selection import MANAGED_ROLES, SelectedWord
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
 from lexical_acquisition_mechanisms.wordnet_senses import hypernym_words
 
@@ -62,8 +63,6 @@ NATURAL_QUESTIONS_PATH = OUTPUT_DIRECTORY / "natural_word_questions.parquet"
 UNKNOWN_WORD_QUESTIONS_PATH = OUTPUT_DIRECTORY / "unknown_word_questions.parquet"
 PROMPT = "list-paraphrases"
 PARAPHRASES_PER_REQUEST = 10
-DISTRACTORS = 3
-MANAGED_ROLES = ("noun", "target", "adjective")
 SCHEMA = {
     "type": "object",
     "properties": {"paraphrases": {"type": "array", "items": {"type": "string"}}},

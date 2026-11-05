@@ -63,6 +63,8 @@ from lexical_acquisition_mechanisms.wordnet_senses import adjective_senses, noun
 COMMAND = "words select"
 OUTPUT_PATH = Path("data/words/selected_words.csv")
 EXCLUDED_WORDS_PATH = Path("data/words/excluded_words.csv")
+# 実験で操作する語（管理対象の語）の役割
+MANAGED_ROLES = ("noun", "target", "adjective")
 NOUNS_PER_CATEGORY = 12
 TARGET_TOKEN_COUNTS = (1, 2, 3)
 NATURAL_NOUNS_PER_CATEGORY = 30
