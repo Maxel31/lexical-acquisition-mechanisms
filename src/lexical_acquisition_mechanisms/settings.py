@@ -146,6 +146,9 @@ class PassageSettings(SettingsSection):
     evaluation_passages_per_word: int = Field(gt=0)
     # 判定に回す候補の数（判定に合格する必要がある数の何倍か）
     collection_factor: float = Field(ge=1)
+    # 切り出しで残す出現の数の、判定に回す候補の数に対する倍率（窓の除外と重複の除去で減る分を
+    # 見込む）
+    occurrence_margin: float = Field(ge=1)
     # 切り出しで、Pile の断片ごとに残す出現の鍵の上限を決める余裕（Pile 全体での見積もりで、残す数の
     # この倍の出現が入る上限にする）
     key_limit_margin: float = Field(ge=1)

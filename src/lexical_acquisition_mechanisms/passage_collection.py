@@ -4,11 +4,13 @@
    探す。数え方は Pile の見本（pile_word_usages）と同じで、文書ごとに、前に数えた出現から用例1つ分の
    文字数以上離れた出現を、1つの文書から取る数の上限まで取る。
 2. 出現ごとに、位置と seed から決まる鍵を付け、語ごとに鍵の小さいものから、必要な数 ×
-   passages.collection_factor × OCCURRENCE_MARGIN 個を残す（無作為に選んだのと同じになり、断片を
-   読む順によらない）。窓の除外と重複の除去で減る分を見込み、判定に回す候補が、必要な数 ×
-   collection_factor 個ほどになるようにする。断片ごとには、Pile 全体での用例の見積もりから決めた
-   鍵の上限より小さい出現だけを残す（上限は、残す数の passages.key_limit_margin 倍の出現が入る値。
-   足りなければ止まる）。
+   passages.collection_factor × passages.occurrence_margin ÷ 語の usage_share（Pile の見本で、意図
+   した語義で使われていた割合。MINIMUM_USAGE_SHARE 未満はその値）個を残す（無作為に選んだのと
+   同じになり、断片を読む順によらない）。窓の除外（ほかの管理対象の語を含む窓など）と重複の除去で
+   減る分と、判定で落ちる分を見込み、判定に合格する候補が、必要な数 × collection_factor 個ほどに
+   なるようにする。断片ごとには、
+   Pile 全体での用例の見積もりから決めた鍵の上限より小さい出現だけを残す（上限は、残す数の
+   passages.key_limit_margin 倍の出現が入る値。足りなければ止まる）。
 3. 残した出現の前後の文字列を、data/passages/occurrences.parquet に書く。
 4. 前後の文字列から、語を含む用例の長さの窓を切り出して確かめ（passage_windows）、使える窓を
    data/passages/candidates.parquet に、語ごとの数を data/passages/collection_summary.csv に書く。
@@ -55,10 +57,10 @@ SHARD_DIRECTORY = OUTPUT_DIRECTORY / "collection_shards"
 # 出現の前後に残す文字数の、用例のトークン数に対する倍率（1トークンが7文字までなら、
 # 出現がどこにあっても、前後に用例1つ分のトークンが入る）
 CONTEXT_CHARACTERS_PER_TOKEN = 7
-# 残す出現の数の、判定に回す候補の数（必要な数 × collection_factor）に対する倍率（窓の除外と、
-# 次の段階の重複の除去で減る分を見込む）
-OCCURRENCE_MARGIN = 1.5
 NUMBER_OF_PROCESSES = 24
+# 残す出現の数を決めるときの、usage_share の下限（見本の割合が小さすぎる語で、残す数が膨らみすぎない
+# ように）
+MINIMUM_USAGE_SHARE = 0.1
 
 
 SHARD_SCHEMA = arrow.schema(
@@ -125,9 +127,11 @@ def needed_passages(word: SelectedWord, settings: Settings) -> int:
 
 
 def kept_occurrences(word: SelectedWord, settings: Settings) -> int:
-    """語ごとに残す出現の数（必要な数 × passages.collection_factor × OCCURRENCE_MARGIN）。"""
-    factor = settings.passages.collection_factor * OCCURRENCE_MARGIN
-    return math.ceil(needed_passages(word, settings) * factor)
+    """語ごとに残す出現の数（必要な数 × passages の collection_factor × occurrence_margin ÷
+    usage_share）。"""
+    factor = settings.passages.collection_factor * settings.passages.occurrence_margin
+    share = max(word.usage_share, MINIMUM_USAGE_SHARE)
+    return math.ceil(needed_passages(word, settings) * factor / share)
 
 
 def context_characters(settings: Settings) -> int:
@@ -143,6 +147,7 @@ def collect_passages(settings: Settings, arguments: argparse.Namespace) -> None:
                 "maximum_passages_per_document",
                 "evaluation_passages_per_word",
                 "collection_factor",
+                "occurrence_margin",
                 "key_limit_margin",
             }
         ),
@@ -150,6 +155,7 @@ def collect_passages(settings: Settings, arguments: argparse.Namespace) -> None:
             include={"exposure_levels"}
         ),
         "evaluation": settings.evaluation.model_dump(include={"passages_per_natural_word"}),
+        "minimum_usage_share": MINIMUM_USAGE_SHARE,
         "seed": settings.words.seed,
         "tokenizer": next(iter(settings.models.values())).model_dump(),
     }

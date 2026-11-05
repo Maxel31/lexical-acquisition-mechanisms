@@ -135,7 +135,7 @@ def test_word_without_passed_passages_is_excluded(tmp_path: Path, settings: Sett
 
 
 def test_word_with_more_occurrences_in_the_pile_is_kept(tmp_path: Path, settings: Settings) -> None:
-    with pytest.raises(CommandStopped, match="passages.collection_factor") as stopped:
+    with pytest.raises(CommandStopped, match="passages.occurrence_margin") as stopped:
         finalize(tmp_path, settings, ["1", "1"], pasta_training=2, pasta_reached_limit=True)
 
     assert stopped.value.rerun_from == "passages collect"
