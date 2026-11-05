@@ -60,8 +60,8 @@ BLANK_PATTERN = re.compile(r"(?<=\s)___(?![_\w])")
 CUE_INSTRUCTIONS = {
     "noun": (
         "The cue is a word (such as a verb) that fits one of the two kinds of things and not the"
-        ' other. For example, for "pasta" and "car": {"sentence": "She cooked the ___ for dinner.",'
-        ' "first_cue": "cooked", "second_cue": "parked"}.'
+        ' other. For example, for "pasta" and "car": {"sentence": "She peeled the ___.",'
+        ' "first_cue": "peeled", "second_cue": "parked"}.'
     ),
     "adjective": (
         "In the first sentence the blank is an adjective: the first cue word is an adverb such"
@@ -122,6 +122,9 @@ def generate_minimal_pairs(settings: Settings, arguments: argparse.Namespace) ->
             **prompt_record_settings(settings.llm, [prompt]),
             "candidates": candidates_per_sense_pair(settings),
             "tokenizer": next(iter(settings.models.values())).model_dump(),
+            # 問い合わせの本文と、手がかりを探す決まりも、出力を変える
+            "cue_instructions": CUE_INSTRUCTIONS,
+            "cue_punctuation": PUNCTUATION,
         },
     )
     client = LlmClient(settings.llm, ANSWERS_PATH, rerun_from=COMMAND)

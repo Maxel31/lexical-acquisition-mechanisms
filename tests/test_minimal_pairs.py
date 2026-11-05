@@ -1,11 +1,13 @@
 """最小対の候補を作る処理のテスト。LLM は、決まった答えを返す部品で置き換える。"""
 
+import argparse
 import json
 from pathlib import Path
 
 import httpx
 import pytest
 
+from lexical_acquisition_mechanisms import minimal_pairs
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.llm_client import LlmClient, PromptTemplate
@@ -200,3 +202,16 @@ def test_the_target_sentence_swaps_only_the_cue_word() -> None:
     assert swapped_cue_sentences("The ___ was so big.", "so", "the") is None
     assert swapped_cue_sentences("It was so so ___.", "so", "the") is None
     assert swapped_cue_sentences("It was ___.", "so", "the") is None
+
+
+def test_record_has_the_cue_instructions(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 指示文の .md を変えずに、手がかりの指示や記号の決まりだけを直しても、作り直す
+    steps = []
+    monkeypatch.setattr(
+        minimal_pairs, "run_unless_unchanged", lambda step, compute, recompute: steps.append(step)
+    )
+    minimal_pairs.generate_minimal_pairs(
+        load_settings(REPOSITORY_ROOT / "settings.yaml"), argparse.Namespace(recompute=False)
+    )
+    assert steps[0].settings["cue_instructions"] == minimal_pairs.CUE_INSTRUCTIONS
+    assert steps[0].settings["cue_punctuation"] == minimal_pairs.PUNCTUATION
