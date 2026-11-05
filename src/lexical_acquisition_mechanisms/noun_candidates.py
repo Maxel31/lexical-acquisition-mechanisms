@@ -2,7 +2,12 @@
 
 1. LLM が、カテゴリごとに名詞を挙げる（挙げる語の種類を変えて、何回か）。挙げた形に、WordNet で
    そのカテゴリの語義がなく、複数形を戻した形（例: shoes → shoe）にあれば、戻した形にする。
-2. WordNet で、そのカテゴリの語義があり、ほかのカテゴリの語義がない語だけを残す。
+   LLM は、よく使う語（horse・bird など）を挙げないことがあるので、WordNet でカテゴリの上位語の下に
+   ある1語の見出しのうち、先頭スペース付きで1トークンの語も足す。足した語は、LLM に、ふつう何を
+   名指すかのカテゴリを答えさせ、WordNet のカテゴリと合う語だけを残す（設計書 0-2: LLM が付けた
+   カテゴリと WordNet の上位語が一致した語だけを残す）。
+2. WordNet で、そのカテゴリの語義があり、ほかのカテゴリの語義がない語だけを残す。カテゴリの名前
+   （課題2の選択肢）は外す。
 3. Pile の先頭の断片で、標準の形（例: " pasta"）の出現回数を数え、見本を選ぶ。
 4. LLM が見本ごとに、その語の使われ方を判定する（USAGES: 意図した語義（WordNet の説明）の名詞として
    字義どおり・同じ語義の比喩や慣用句や複合名詞の一部・別の語義・名前の一部・名詞でない）。
@@ -42,6 +47,7 @@ COMMAND = "words generate-noun-candidates"
 OUTPUT_PATH = Path("data/words/noun_candidates.csv")
 LISTING_PROMPT = "list-category-nouns"
 USAGE_PROMPT = "judge-noun-usage"
+CATEGORY_PROMPT = "name-noun-category"
 WORD_FORM = re.compile(r"^[a-z]+$")
 LISTING_SCHEMA = {
     "type": "object",
@@ -94,10 +100,14 @@ class NounCandidate:
     judged_usages: int = 0
     intended_usage_share: float = 0.0
     same_meaning_usage_share: float = 0.0
+    # 候補の出どころ（llm-listing: LLM が挙げた語、wordnet: WordNet から足した1トークンの語）
+    source: str = "llm-listing"
 
 
 def generate_noun_candidates(settings: Settings, arguments: argparse.Namespace) -> None:
-    prompts = [PromptTemplate.load(LISTING_PROMPT), PromptTemplate.load(USAGE_PROMPT)]
+    prompts = [
+        PromptTemplate.load(name) for name in (LISTING_PROMPT, USAGE_PROMPT, CATEGORY_PROMPT)
+    ]
     record_settings = {
         "words": settings.words.model_dump(exclude={"adjectives_per_listing"}),
         "passages": settings.passages.model_dump(
@@ -122,7 +132,7 @@ def build_noun_candidates(
     output_path: Path,
     sample_usages: Callable[..., dict[str, WordUsages]] = sample_word_usages,
 ) -> None:
-    listing_prompt, usage_prompt = prompts
+    listing_prompt, usage_prompt, category_prompt = prompts
     words = settings.words
     requests = [
         LlmRequest(
@@ -145,7 +155,13 @@ def build_noun_candidates(
     require_answers(answers, "名詞の一覧", COMMAND)
     candidates = _listed_candidates(requests, answers, words.categories)
     tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
+    listed = {candidate.word for candidate in candidates}
+    candidates += _wordnet_candidates(settings, tokenizer, listed, category_prompt, client)
+    candidates.sort(key=lambda candidate: (candidate.category, candidate.word))
+    category_names = {category.name for category in words.categories}
     for candidate in candidates:
+        if not candidate.rejected_reason and candidate.word in category_names:
+            candidate.rejected_reason = "カテゴリの名前（課題2の選択肢）"
         if not candidate.rejected_reason:
             _check_with_wordnet(candidate, settings)
             candidate.token_count = len(tokenizer.word_token_ids(candidate.word))
@@ -178,6 +194,58 @@ def _listed_candidates(
             elif not WORD_FORM.match(word):
                 candidate.rejected_reason = "1語の小文字ではない"
     return sorted(by_word.values(), key=lambda candidate: (candidate.category, candidate.word))
+
+
+def _wordnet_candidates(
+    settings: Settings,
+    tokenizer: WordTokenizer,
+    listed: set[str],
+    prompt: PromptTemplate,
+    client: LlmClient,
+) -> list[NounCandidate]:
+    """WordNet で、1つのカテゴリの上位語の下にだけある1語の小文字の見出しのうち、先頭スペース付きで
+    1トークンで、LLM が挙げなかった語。
+
+    LLM が答えた、その語がふつう名指すもののカテゴリが、WordNet のカテゴリと違えば外す。
+    """
+    wordnet = load_wordnet()
+    categories_of: dict[str, set[str]] = {}
+    for category in settings.words.categories:
+        roots = [wordnet.synset(root) for root in category.wordnet_roots]
+        synsets = set(roots)
+        for root in roots:
+            synsets |= set(root.closure(lambda node: node.hyponyms()))
+        for synset in synsets:
+            for name in synset.lemma_names():
+                if WORD_FORM.match(name) and name not in listed:
+                    categories_of.setdefault(name, set()).add(category.name)
+    candidates = [
+        NounCandidate(word, next(iter(names)), "", source="wordnet")
+        for word, names in sorted(categories_of.items())
+        if len(names) == 1 and len(tokenizer.word_token_ids(word)) == 1
+    ]
+    choices = [category.name for category in settings.words.categories] + ["none"]
+    schema = {
+        "type": "object",
+        "properties": {
+            "reason": {"type": "string"},
+            "category": {"type": "string", "enum": choices},
+        },
+        "required": ["reason", "category"],
+        "additionalProperties": False,
+    }
+    listing = "\n".join(
+        f"- {category.name}: {category.description}" for category in settings.words.categories
+    )
+    requests = [
+        LlmRequest(prompt, {"word": candidate.word, "categories": listing}, schema)
+        for candidate in candidates
+    ]
+    for candidate, answer in zip(candidates, client.ask_all(requests), strict=True):
+        named = answer["category"] if answer else "答えなし"
+        if named != candidate.category:
+            candidate.rejected_reason = f"LLM が答えたカテゴリが違う（{named}）"
+    return candidates
 
 
 def _listed_form(word: str, category: str, categories: Sequence[CategorySettings]) -> str:

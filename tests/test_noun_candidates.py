@@ -17,6 +17,7 @@ import pytest
 from lexical_acquisition_mechanisms import pile
 from lexical_acquisition_mechanisms.llm_client import LlmClient, PromptTemplate
 from lexical_acquisition_mechanisms.noun_candidates import (
+    CATEGORY_PROMPT,
     LISTING_PROMPT,
     USAGE_PROMPT,
     build_noun_candidates,
@@ -28,7 +29,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 # 複数形で挙がった語は、そのカテゴリの語義がある単数形にする（giraffes は見出しになく、shoes は
 # 「立場」の語義だけで見出しにある）
 LISTED_NOUNS = {
-    "food": ["pasta", "chicken", "ice cream", "car"],
+    "food": ["pasta", "chicken", "ice cream", "car", "food"],
     "animal": ["giraffes", "chicken"],
     "clothing": ["shoes"],
 }
@@ -50,11 +51,15 @@ def write_local_shard(file_name: str, directory: Path) -> Path:
 def answer_like_the_llm(request: httpx.Request) -> httpx.Response:
     """名詞を挙げる問いには LISTED_NOUNS を返す。
 
+    WordNet から足した語のカテゴリの問いには、horse だけ animal、ほかは none と答える。
     使われ方の問いには、「brand」があれば名前の一部、「Fresh」があれば比喩（同じ語義）、
     それ以外は字義どおりと答える。
     """
     content = json.loads(request.content)["messages"][0]["content"]
-    if content.startswith("You are helping to build word lists"):
+    if "What does the English noun" in content:
+        word = re.search(r'noun "(\w+)"', content).group(1)
+        answer = {"reason": "stub", "category": "animal" if word == "horse" else "none"}
+    elif content.startswith("You are helping to build word lists"):
         category = re.search(r"\(category: (\w+)\)", content).group(1)
         nouns = [{"word": word, "meaning": "x"} for word in LISTED_NOUNS.get(category, [])]
         answer = {"nouns": nouns}
@@ -87,7 +92,7 @@ def test_candidates_are_checked_with_wordnet_and_pile_usages(
     monkeypatch.setattr(pile, "shard_file_names", lambda: FILE_NAMES)
     prompts = [
         PromptTemplate.load(name, REPOSITORY_ROOT / "llm_prompts")
-        for name in (LISTING_PROMPT, USAGE_PROMPT)
+        for name in (LISTING_PROMPT, USAGE_PROMPT, CATEGORY_PROMPT)
     ]
     client = LlmClient(
         settings.llm,
@@ -125,3 +130,9 @@ def test_candidates_are_checked_with_wordnet_and_pile_usages(
     assert rows["chicken"]["rejected_reason"] == "複数のカテゴリで挙がった"
     assert rows["ice cream"]["rejected_reason"] == "1語の小文字ではない"
     assert rows["car"]["rejected_reason"] == "WordNet で、このカテゴリの語義がない"
+    assert rows["food"]["rejected_reason"] == "カテゴリの名前（課題2の選択肢）"
+    # LLM が挙げなかった1トークンの語は WordNet から足し、LLM が答えたカテゴリが合う語だけを残す
+    assert (rows["horse"]["source"], rows["horse"]["rejected_reason"]) == ("wordnet", "")
+    assert rows["horse"]["category"] == "animal"
+    assert rows["comma"]["rejected_reason"] == "LLM が答えたカテゴリが違う（none）"
+    assert rows["pasta"]["source"] == "llm-listing"
