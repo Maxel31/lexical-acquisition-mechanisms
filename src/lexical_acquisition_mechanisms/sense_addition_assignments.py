@@ -5,8 +5,9 @@ run ごとに、各ターゲット語に、どの語（donor）の語義を足�
 1. 各カテゴリの名詞12語を、ターゲット語のトークン数（1・2・3）ごとに4語ずつの「枠」に分ける
    （未知語の獲得で、名詞をトークン数に分けたのと同じ分け方）。形容詞72語は、頻度の順に、
    ターゲット語18語へ 1〜18・18〜1・… の順に4語ずつ配る。枠の中と、配った4語の中の順番
-   （1〜4番目）は、頻度の低い順から、枠（ターゲット語）ごとに1つずつずらす（どの番目でも頻度が
-   そろうように。N と donor の頻度が一緒に動くと、N の比較に頻度が交絡するので）。
+   （1〜4番目）は、頻度の低い順から、カテゴリの順番だけ（0・1・2・3・0・1）ずらす（どの番目でも
+   頻度がそろうように。N と donor の頻度が一緒に動くと、N の比較に頻度が交絡するので）。どの
+   トークン数でも同じずらし方にして、トークン数の比較にも頻度が交絡しないようにする。
 2. 足す語義の種類と数 N（1・2・4）ごとの run で、カテゴリ k・トークン数 j のターゲット語に、
    - 同カテゴリ（same-category-N）: 枠 (k, j) の1〜N番目
    - 別カテゴリ（other-category-N）: 枠 (k+1, j) の1番目、枠 (k+2, j) の2番目、…、枠 (k+N, j) の
@@ -124,14 +125,14 @@ def write_sense_addition_assignments(
     for token_count in TOKEN_COUNTS:
         for index, category in enumerate(categories):
             nouns = [noun for noun in partition[token_count] if noun.category == category]
-            nouns = _rotated(nouns, len(slots))
+            nouns = _rotated(nouns, index)
             # 枠 (k, j) の n 番目の名詞は、別カテゴリで、ターゲット語 (k - n, j) に足す
             partners = [
                 targets[(categories[(index - order) % len(categories)], token_count)]
                 for order in range(1, DONORS_PER_TARGET + 1)
             ]
             slots[(category, token_count)] = _order_slot(nouns, partners, distances)
-    adjectives = _deal_adjectives(words, list(targets.values()))
+    adjectives = _deal_adjectives(words, list(targets.values()), categories)
     assignments = []
     for run in run_names():
         if run in CONTROL_RUNS:
@@ -218,10 +219,10 @@ def _order_slot(
 
 
 def _deal_adjectives(
-    words: Sequence[SelectedWord], targets: Sequence[SelectedWord]
+    words: Sequence[SelectedWord], targets: Sequence[SelectedWord], categories: Sequence[str]
 ) -> dict[str, list[SelectedWord]]:
-    """形容詞を頻度の順に、ターゲット語へ 1〜18・18〜1・… の順に配る（順番は、ターゲット語ごとに
-    ずらす）。
+    """形容詞を頻度の順に、ターゲット語へ 1〜18・18〜1・… の順に配る（順番は、ターゲット語の
+    カテゴリの順番だけずらす）。
     """
     adjectives = sorted(
         (word for word in words if word.role == "adjective"),
@@ -232,7 +233,8 @@ def _deal_adjectives(
     for index, adjective in enumerate(adjectives):
         dealt[snake[index % len(snake)].word].append(adjective)
     return {
-        target.word: _rotated(dealt[target.word], number) for number, target in enumerate(targets)
+        target.word: _rotated(dealt[target.word], categories.index(target.category))
+        for target in targets
     }
 
 
