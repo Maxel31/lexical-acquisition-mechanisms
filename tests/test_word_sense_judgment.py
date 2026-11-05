@@ -172,7 +172,7 @@ def test_rejudging_reuses_previous_results_with_the_same_prompts(
     outputs = (tmp_path / "judgments.parquet", tmp_path / "summary.csv")
     requested: list[str] = []
 
-    def judge(answers_path: Path, unfinished: str = "") -> None:
+    def judge(answers_path: Path, unfinished: str = "", reuse: bool = True) -> None:
         def respond(request: httpx.Request) -> httpx.Response:
             passage = json.loads(request.content)["messages"][0]["content"].split("Passage:")[1]
             requested.append(passage)
@@ -197,6 +197,7 @@ def test_rejudging_reuses_previous_results_with_the_same_prompts(
             tmp_path / "split.parquet",
             shortage_paths(tmp_path, words),
             outputs,
+            reuse=reuse,
         )
 
     # 1回目: "We ate pasta" の答えが長さの上限で切れ、判定できずに不合格になる
@@ -209,7 +210,21 @@ def test_rejudging_reuses_previous_results_with_the_same_prompts(
     second = {row["key"]: row["passed"] for row in parquet.read_table(outputs[0]).to_pylist()}
     assert second == first
     assert requested == []
+    # --recompute（reuse=False）なら、前回の結果は使わない
+    judge(tmp_path / "recompute.sqlite3", reuse=False)
+    assert requested
+    # 語の語義の説明が変わると、前回の結果は使わない
+    requested.clear()
+    judge(tmp_path / "same-definition.sqlite3")
+    assert requested == []
+    words[0] = SelectedWord(
+        "pasta", "noun", token_count=1, definition="a food made from dough", usage_share=0.9
+    )
+    write_rows(tmp_path / "words.csv", SelectedWord, words)
+    judge(tmp_path / "new-definition.sqlite3")
+    assert requested
     # 指示文を直すと、前回の結果は使わない
+    requested.clear()
     prompts["noun"] = PromptTemplate(prompts["noun"].name, prompts["noun"].text + "\n")
     judge(tmp_path / "third.sqlite3")
     assert requested
