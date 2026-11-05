@@ -18,6 +18,7 @@ from lexical_acquisition_mechanisms import (
     attribute_direction_patching,
     attribute_probes,
     base_data,
+    category_dependence,
     continued_pretraining,
     evaluation_finalization,
     head_and_mlp_effects,
@@ -317,6 +318,14 @@ def all_actions() -> list[Action]:
             "make-report",
             "図と表を outputs/figures/sense-addition/ に作る",
             sense_addition_report.make_report,
+        ),
+        Action(
+            "dependence-on-category-judging-heads",
+            "measure-dependence",
+            "カテゴリを判定する head を無効化し、未知語と元の名詞でカテゴリの判定がどれだけ落ちるか"
+            "を測る",
+            category_dependence.measure_dependence,
+            category_dependence.add_arguments,
         ),
     ]
 
