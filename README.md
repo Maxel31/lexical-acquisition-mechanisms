@@ -23,7 +23,6 @@ OLMo 2（1B / 7B / 13B）を継続事前学習して語彙を操作し、次の3
 
 ```bash
 uv sync
-uv run python -m nltk.downloader wordnet
 uv run wandb login   # 学習の記録を W&B（実験の記録を残す Web サービス）に送る場合だけ
 ```
 
