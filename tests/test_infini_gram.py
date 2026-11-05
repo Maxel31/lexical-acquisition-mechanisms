@@ -11,6 +11,7 @@ from lexical_acquisition_mechanisms import infini_gram
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.infini_gram import (
     LLAMA_TOKENIZER,
+    LLAMA_TOKENIZER_REVISION,
     InfiniGramClient,
     word_forms,
 )
@@ -19,7 +20,7 @@ from lexical_acquisition_mechanisms.infini_gram import (
 @pytest.fixture(scope="module")
 def llama_tokenizer():
     try:
-        return AutoTokenizer.from_pretrained(LLAMA_TOKENIZER)
+        return AutoTokenizer.from_pretrained(LLAMA_TOKENIZER, revision=LLAMA_TOKENIZER_REVISION)
     except OSError as error:
         pytest.skip(f"Llama-2 のトークナイザを読み込めません: {error}")
 
@@ -48,11 +49,15 @@ class StubIndex:
 
 
 @pytest.fixture(autouse=True)
-def no_waiting(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def return_immediately(seconds: float) -> None:
-        pass
+def waits(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """待つ代わりに、待つ秒数を記録する。"""
+    recorded: list[float] = []
 
-    monkeypatch.setattr(infini_gram.asyncio, "sleep", return_immediately)
+    async def record(seconds: float) -> None:
+        recorded.append(seconds)
+
+    monkeypatch.setattr(infini_gram.asyncio, "sleep", record)
+    return recorded
 
 
 def make_client(tmp_path: Path, index: StubIndex) -> InfiniGramClient:
@@ -96,14 +101,18 @@ def test_rate_limits_are_retried(tmp_path: Path, llama_tokenizer) -> None:
 
 
 def test_persistent_failure_stops_with_the_command_to_rerun(
-    tmp_path: Path, llama_tokenizer
+    tmp_path: Path, llama_tokenizer, waits: list[float]
 ) -> None:
-    index = StubIndex(llama_tokenizer, statuses=[503] * 100)
+    index = StubIndex(llama_tokenizer, statuses=[403] * 100)
 
     with pytest.raises(CommandStopped) as stopped:
-        make_client(tmp_path, index).occurrences(["pasta"], "v4_test")
+        # "a" の形は4つ（a・A の語頭と語の途中）なので、問い合わせは1件
+        make_client(tmp_path, index).occurrences(["a"], "v4_test")
 
     assert stopped.value.rerun_from == "words generate-unknown-word-candidates"
+    # 最後の試行の後は待たない。待つ秒数の合計は、制限の待ち（約600秒）より長い
+    assert waits == [5, 10, 20, 40, 80, 160, 320]
+    assert sum(waits) > 600
 
 
 def test_error_in_a_successful_response_is_raised(tmp_path: Path, llama_tokenizer) -> None:

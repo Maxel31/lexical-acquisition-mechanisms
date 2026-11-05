@@ -19,11 +19,15 @@ from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 
 API_URL = "https://api.infini-gram.io/"
 LLAMA_TOKENIZER = "hf-internal-testing/llama-tokenizer"
+LLAMA_TOKENIZER_REVISION = "d02ad6cb9dd2c2296a6332199fa2fdca5938fef0"
+# 語の途中の形を作るときに、前に付けて落とすトークン（"▁" と改行）
+NEWLINE_PREFIX = [29871, 13]
 COUNTS_PATH = Path("data/infini_gram_counts.sqlite3")
 # 1つの問い合わせで「または」で数えられる形の数の上限（API の決まり）
 FORMS_PER_QUERY = 4
-NUMBER_OF_ATTEMPTS = 6
-# 制限に当たったときなどに待つ秒数の最初の値（試すたびに2倍にする）
+# 制限に当たったときなどに待つ秒数の最初の値（試すたびに2倍にする）。試す回数は、待つ秒数の合計
+# （最後の試行の後は待たない。5 + 10 + … + 320 = 635秒）が、制限の待ち（約600秒）を超えるようにする
+NUMBER_OF_ATTEMPTS = 8
 FIRST_WAIT_SECONDS = 5
 
 
@@ -34,7 +38,10 @@ def word_forms(word: str, tokenizer: PreTrainedTokenizerBase) -> list[list[int]]
         # 先頭の語は、空白の有無によらず語頭の形（"▁" で始まる）になる
         initial = tokenizer(variant, add_special_tokens=False)["input_ids"]
         # 改行の後では語の途中の形になる。先頭の "▁" と改行（2トークン）を除く
-        inside = tokenizer("\n" + variant, add_special_tokens=False)["input_ids"][2:]
+        with_newline = tokenizer("\n" + variant, add_special_tokens=False)["input_ids"]
+        if with_newline[: len(NEWLINE_PREFIX)] != NEWLINE_PREFIX:
+            raise ValueError(f"改行の後の {variant!r} が、想定したトークン列で始まりません。")
+        inside = with_newline[len(NEWLINE_PREFIX) :]
         for form in (initial, inside):
             if form not in forms:
                 forms.append(form)
@@ -53,7 +60,9 @@ class InfiniGramClient:
         self._counts_path = counts_path
         self._transport = transport
         self._maximum_concurrent_requests = maximum_concurrent_requests
-        self._tokenizer = AutoTokenizer.from_pretrained(LLAMA_TOKENIZER)
+        self._tokenizer = AutoTokenizer.from_pretrained(
+            LLAMA_TOKENIZER, revision=LLAMA_TOKENIZER_REVISION
+        )
 
     def occurrences(self, words: Sequence[str], index: str) -> dict[str, int]:
         """各語の、いずれかの形の出現回数の合計（0 なら、索引のコーパスに一度も現れない）。"""
@@ -135,7 +144,8 @@ class InfiniGramClient:
                         raise RuntimeError(f"infini-gram がエラーを返しました: {result['error']}")
                     return int(result["count"])
                 problem = f"infini-gram が {response.status_code} を返しました"
-            await asyncio.sleep(FIRST_WAIT_SECONDS * 2**attempt)
+            if attempt < NUMBER_OF_ATTEMPTS - 1:
+                await asyncio.sleep(FIRST_WAIT_SECONDS * 2**attempt)
         raise CommandStopped(
             f"{problem}。しばらく待ってから実行し直してください。", rerun_from=self._rerun_from
         )
