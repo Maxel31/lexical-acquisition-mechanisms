@@ -121,10 +121,12 @@ def select_words(settings: Settings, arguments: argparse.Namespace) -> None:
     record_settings = {
         "words": settings.words.model_dump(),
         "word_selection": settings.word_selection.model_dump(),
-        "passages": settings.passages.model_dump(),
-        "unknown_word_acquisition": settings.unknown_word_acquisition.model_dump(),
-        "sense_addition": settings.sense_addition.model_dump(),
-        "evaluation": settings.evaluation.model_dump(),
+        "passages": settings.passages.model_dump(include={"evaluation_passages_per_word"}),
+        "unknown_word_acquisition": settings.unknown_word_acquisition.model_dump(
+            include={"exposure_levels"}
+        ),
+        "sense_addition": settings.sense_addition.model_dump(include={"exposures_per_donor"}),
+        "evaluation": settings.evaluation.model_dump(include={"sentences_per_natural_word"}),
         "tokenizer": next(iter(settings.models.values())).model_dump(),
     }
     tables = SelectionInputs()
