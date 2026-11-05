@@ -178,6 +178,10 @@ class EvaluationSettings(SettingsSection):
     sentences_per_natural_word: int = Field(gt=0)
     # 自然な語ごとの、判定に合格させる用例の数（文を取り出せない用例を見込み、文の数より多くする）
     passages_per_natural_word: int = Field(gt=0)
+    # 実在語らしさのプローブの、トークン数ごとの実在語の数
+    probe_words_per_token_count: int = Field(gt=0)
+    # 正規化の基準にする、トークン数（2・3）ごとの既知の名詞の数
+    normalization_nouns_per_token_count: int = Field(gt=0)
     # 中立文脈（語の意味を示さない文の書き出し）の候補。前から順に、条件に合うものを使う
     neutral_context_candidates: list[str] = Field(min_length=1)
     # 使う中立文脈の数（文脈なしを除く）

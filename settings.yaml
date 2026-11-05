@@ -117,6 +117,11 @@ evaluation:
   sentences_per_natural_word: 20
   # 自然な語ごとの、判定に合格させる用例の数（文を取り出せない用例を見込み、文の数より多くする）
   passages_per_natural_word: 40
+  # 実在語らしさのプローブの、トークン数（1・2・3）ごとの実在語の数（2・3トークンの非語は、
+  # この実在語のトークンを入れ替えて作る）
+  probe_words_per_token_count: 100
+  # 未知語の指標の正規化の基準にする、トークン数（2・3）ごとの既知の名詞の数
+  normalization_nouns_per_token_count: 30
   # 中立文脈（語の意味を示さない文の書き出し。直後に語を置く）の候補。前から順に、条件に合うものを使う。
   # 前の20種は設計書の付録Eの候補、後の10種は、足りないときに使う同じ形の文
   neutral_context_candidates:
