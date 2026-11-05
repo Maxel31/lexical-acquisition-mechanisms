@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from lexical_acquisition_mechanisms import (
     adjective_candidates,
     base_data,
+    hidden_state_similarity,
     neutral_contexts,
     noun_candidates,
     similarity_ratings,
@@ -100,6 +101,13 @@ def all_actions() -> list[Action]:
             "中立文脈（語の意味を示さない文の書き出し）を、公開されている OLMo 2 で、"
             "どのカテゴリの語も予測しやすくしていないことを確かめて選ぶ",
             neutral_contexts.select_neutral_contexts,
+        ),
+        Action(
+            "words",
+            "measure-hidden-state-similarity",
+            "ターゲット語と名詞の組ごとに、公開されている OLMo 2 で内部表現の類似度を測り、"
+            "確認用の data/words/review.csv を書き出す",
+            hidden_state_similarity.measure_hidden_state_similarity,
         ),
     ]
 
