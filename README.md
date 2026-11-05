@@ -29,7 +29,9 @@ uv run wandb login   # 学習の記録を W&B（実験の記録を残す Web サ
 `# LLM` を付けたコマンドは、LLM（Qwen3-Next-80B）で語の候補を作ったり用例を判定したりします。これらを実行する間は、別の端末で LLM のサーバを起動しておきます（URL は `settings.yaml` の `llm.server_url`）。
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 uvx --from vllm==0.32.0 vllm serve Qwen/Qwen3-Next-80B-A3B-Instruct-FP8 \
+# DeepGEMM（FP8 の行列演算の部品）は、RTX PRO 6000（Blackwell）では CUDA 13 以上の nvcc が要るので使わない
+VLLM_USE_DEEP_GEMM=0 VLLM_MOE_USE_DEEP_GEMM=0 CUDA_VISIBLE_DEVICES=0,1 \
+  uvx --from vllm==0.32.0 vllm serve Qwen/Qwen3-Next-80B-A3B-Instruct-FP8 \
   --tensor-parallel-size 2 --port 8000
 ```
 
