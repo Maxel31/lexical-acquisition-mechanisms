@@ -12,9 +12,15 @@ import numpy as np
 import pytest
 import torch
 import yaml
+from transformers import AutoModelForCausalLM
 
 from lexical_acquisition_mechanisms import continued_pretraining
-from lexical_acquisition_mechanisms.continued_pretraining import Process, SequenceBatches, train
+from lexical_acquisition_mechanisms.continued_pretraining import (
+    Process,
+    SequenceBatches,
+    initialize_new_tokens,
+    train,
+)
 from lexical_acquisition_mechanisms.run_settings import RunSettings, build_run_settings
 from lexical_acquisition_mechanisms.settings import ModelSource, load_settings
 
@@ -195,3 +201,24 @@ def test_stopped_training_continues_from_the_saved_state(
 
     assert [record["step"] for record in losses(stopped)] == [1, 2, 3]
     assert losses(stopped)[2]["loss"] == pytest.approx(losses(whole)[2]["loss"], rel=1e-3)
+
+
+def test_new_tokens_start_from_the_mean_of_existing_embeddings(
+    tmp_path: Path, tiny_model_source
+) -> None:
+    run = run_settings(tmp_path, tiny_model_source)
+    model = AutoModelForCausalLM.from_pretrained(tiny_model_source.repository)
+    vocabulary_size = 100278
+    exact = run.model_copy(update={"new_token_ids": [100278, 100279], "new_token_noise_scale": 0.0})
+    noisy = run.model_copy(update={"new_token_ids": [100278, 100279], "new_token_noise_scale": 0.1})
+
+    initialize_new_tokens(model, exact)
+
+    for matrix in (model.get_input_embeddings().weight, model.get_output_embeddings().weight):
+        mean = matrix[:vocabulary_size].mean(dim=0)
+        assert torch.allclose(matrix[100278], mean) and torch.allclose(matrix[100279], mean)
+    initialize_new_tokens(model, noisy)
+    embedding = model.get_input_embeddings().weight
+    difference = embedding[100278] - embedding[:vocabulary_size].mean(dim=0)
+    assert 0 < float(difference.abs().max()) < 1
+    assert not torch.allclose(embedding[100278], embedding[100279])

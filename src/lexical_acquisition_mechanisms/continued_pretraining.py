@@ -1,6 +1,9 @@
 """継続事前学習（training run --run-settings <run>.yaml）。
 
 torchrun から、GPU ごとに1つのプロセスで動かす（GPU がなければ CPU で動く。テスト用）。
+- 新しいトークン（1トークンの未知語）の埋め込みは、入力側・出力側とも、既存のトークンの埋め込みの
+  平均に、正規分布の乱数（標準偏差は、既存の埋め込みの次元ごとの標準偏差 × new_token_noise_scale）を
+  加えたものにする。乱数は seed から決まるので、未知語の獲得の全ての run で同じ初期値になる。
 - モデル: run の設定の版の重みを float32 で読み、FSDP2（fully_shard。重みと最適化器の状態を GPU
   ごとに分けて持つ）で分ける。計算は bf16 にし、勾配は float32 で足し合わせる。勾配チェックポイント
   （層の途中の値を残さず、逆伝播のときに計算し直す）でメモリを減らす。
@@ -34,7 +37,7 @@ import torch.distributed as distributed
 import torch.nn.functional as functional
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
-from transformers import AutoModelForCausalLM, PreTrainedModel
+from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
 
 from lexical_acquisition_mechanisms.run_settings import RunSettings, load_run_settings
 from lexical_acquisition_mechanisms.settings import Settings
@@ -279,6 +282,7 @@ def _load_model(run: RunSettings, process: Process) -> PreTrainedModel:
     model = AutoModelForCausalLM.from_pretrained(
         run.model_source.repository, revision=run.model_source.revision, dtype=torch.float32
     )
+    initialize_new_tokens(model, run)
     model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     model.to(process.device)
     policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32)
@@ -290,6 +294,30 @@ def _load_model(run: RunSettings, process: Process) -> PreTrainedModel:
     fully_shard(model, mesh=mesh, mp_policy=policy)
     model.train()
     return model
+
+
+def initialize_new_tokens(model: PreTrainedModel, run: RunSettings) -> None:
+    """新しいトークンの埋め込み（入力側・出力側）を、既存のトークンの平均 + 乱数にする。"""
+    if not run.new_token_ids:
+        return
+    source = run.model_source
+    vocabulary_size = len(
+        AutoTokenizer.from_pretrained(source.repository, revision=source.revision)
+    )
+    if min(run.new_token_ids) < vocabulary_size:
+        raise ValueError(
+            f"新しいトークン番号 {min(run.new_token_ids)} は、トークナイザが使っている番号です。"
+        )
+    generator = torch.Generator().manual_seed(run.seed)
+    with torch.no_grad():
+        for matrix in (model.get_input_embeddings().weight, model.get_output_embeddings().weight):
+            existing = matrix[:vocabulary_size]
+            noise = torch.randn(
+                (len(run.new_token_ids), matrix.shape[1]), generator=generator, dtype=matrix.dtype
+            )
+            scale = existing.std(dim=0) * run.new_token_noise_scale
+            matrix[run.new_token_ids] = existing.mean(dim=0) + noise * scale
+    print(f"新しいトークン {len(run.new_token_ids)} 個の埋め込みを初期化しました。")
 
 
 def _optimizer(model: PreTrainedModel, run: RunSettings) -> torch.optim.Optimizer:
