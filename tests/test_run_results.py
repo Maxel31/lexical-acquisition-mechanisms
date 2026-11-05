@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from lexical_acquisition_mechanisms import run_results
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.run_results import RunResults
 
@@ -52,3 +53,16 @@ def test_a_stopped_step_resumes_from_the_runs_it_finished(tmp_path: Path) -> Non
     assert measured == ["run-1", "run-2"]
     assert (tmp_path / "out.csv").read_text(encoding="utf-8") == "run-1,run-2"
     assert not (tmp_path / "out.csv.runs").exists()
+
+
+def test_results_from_another_code_version_or_unreadable_files_are_not_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    step = make_step(tmp_path, 0)
+    RunResults(step).put("run-1", [1])
+    # 直す前のコードで測った結果は使わない
+    monkeypatch.setattr(run_results, "code_version", lambda: "別の版")
+    assert RunResults(step).get("run-1") is None
+    # 読めない結果は使わない
+    (tmp_path / "out.csv.runs" / "run-2.pickle").write_bytes(b"not a pickle")
+    assert RunResults(step).get("run-2") is None
