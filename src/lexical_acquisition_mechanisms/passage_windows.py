@@ -8,14 +8,15 @@ passages collect の後半。
    （前のトークンが英字で終わり、後のトークンが英字で始まる所で切らない）。窓に入らなければ
    （文書が短い）、使わない。
 3. 次の窓は使わない。
-   - 語の標準の形でない形（例: "Pasta"、" pastas"）を含む（置き換えた後のトークン列をそろえるため）
+   - 語の標準の形でない形（例: "Pasta"、" pastas"、" cherries"、" quieter"。inflected_forms）を含む
+     （置き換えた後のトークン列をそろえ、元の語の別の形が残らないようにするため）
    - ほかの管理対象の語を、どの形でも含む（1つの文章で操作するのは1語だけにするため）
 4. 窓の中の、標準の形の出現の位置（トークンの位置）を記録する。
 """
 
 import multiprocessing
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from typing import Any
@@ -34,8 +35,10 @@ class WindowSettings:
     tokens_per_passage: int
     context_characters: int
     seed: int
-    # 管理対象の語（名詞・形容詞・ターゲット語）
-    managed_words: frozenset[str]
+    # 語ごとの、標準の形以外の形（小文字）
+    other_forms: Mapping[str, frozenset[str]]
+    # 管理対象の語（名詞・形容詞・ターゲット語）の全ての形（小文字）から、その語への対応
+    managed_forms: Mapping[str, str]
 
 
 @dataclass
@@ -82,6 +85,11 @@ def _initialize_worker(source: ModelSource, settings: WindowSettings) -> None:
         boundaries=tokenizer.word_boundaries(),
         settings=settings,
     )
+    _form_patterns.clear()
+
+
+# 語ごとの、全ての形を大文字と小文字を区別せずに探す正規表現（_form_pattern が作る）
+_form_patterns: dict[str, re.Pattern[str]] = {}
 
 
 def _cut_chunk(occurrences: Iterable[dict[str, Any]]) -> list[PassageWindow | str]:
@@ -124,12 +132,12 @@ def cut_window(
     window = token_ids[start : start + length]
     text = tokenizer.decode(window)
     standard_forms = 0
-    forms = re.compile(rf"(?<![A-Za-z]){re.escape(word)}(?:e?s)?(?![A-Za-z])", re.IGNORECASE)
-    for match in forms.finditer(text):
+    for match in _form_pattern(word, settings).finditer(text):
         if match.group() != word or match.start() == 0 or text[match.start() - 1] != " ":
             return "語の標準の形でない形を含む"
         standard_forms += 1
-    if _words_in(text) & (settings.managed_words - {word}):
+    words = {match.lower() for match in WORD_PATTERN.findall(text)}
+    if {settings.managed_forms[form] for form in words if form in settings.managed_forms} - {word}:
         return "ほかの管理対象の語を含む"
     word_ids = token_ids[spans[1].start : spans[1].stop]
     positions = [
@@ -143,14 +151,11 @@ def cut_window(
     return PassageWindow(window, positions)
 
 
-def _words_in(text: str) -> set[str]:
-    """文章の中の英語の語（小文字にし、複数形の s・es を除いた形も入れる）。"""
-    words = {match.lower() for match in WORD_PATTERN.findall(text)}
-    return (
-        words
-        | {word[:-1] for word in words if word.endswith("s")}
-        | {word[:-2] for word in words if word.endswith("es")}
-    )
+def _form_pattern(word: str, settings: WindowSettings) -> re.Pattern[str]:
+    if word not in _form_patterns:
+        forms = "|".join(map(re.escape, [word, *sorted(settings.other_forms.get(word, ()))]))
+        _form_patterns[word] = re.compile(rf"(?<![A-Za-z])(?:{forms})(?![A-Za-z])", re.IGNORECASE)
+    return _form_patterns[word]
 
 
 def _first_space(text: str) -> int:

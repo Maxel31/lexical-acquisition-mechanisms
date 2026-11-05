@@ -34,6 +34,7 @@ import pyarrow.parquet as parquet
 from lexical_acquisition_mechanisms import pile, word_finalization
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
+from lexical_acquisition_mechanisms.inflected_forms import inflected_forms
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.passage_windows import WindowSettings, cut_windows
 from lexical_acquisition_mechanisms.pile import PileDocument
@@ -174,11 +175,18 @@ def build_passage_candidates(
         settings, words, output_directory, number_of_processes, download_directory, download
     )
     occurrences = parquet.read_table(output_directory / OCCURRENCES_PATH.name).to_pylist()
+    forms = {word.word: inflected_forms(word.word, word.role) for word in words}
     window_settings = WindowSettings(
         tokens_per_passage=settings.passages.tokens_per_passage,
         context_characters=settings.passages.tokens_per_passage * CONTEXT_CHARACTERS_PER_TOKEN,
         seed=settings.words.seed,
-        managed_words=frozenset(word.word for word in words if word.role in MANAGED_ROLES),
+        other_forms=forms,
+        managed_forms={
+            form: word.word
+            for word in words
+            if word.role in MANAGED_ROLES
+            for form in (word.word, *forms[word.word])
+        },
     )
     source = next(iter(settings.models.values()))
     windows = cut_windows(occurrences, source, window_settings, number_of_processes)
