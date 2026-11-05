@@ -157,12 +157,19 @@ def test_word_level_p_values_count_words_as_units() -> None:
 
 
 def test_word_level_p_values_need_enough_words() -> None:
-    # 語が少ないと、語の中の正誤が全てそろうと標準誤差が 0 になり p が 0 になるので、検定しない
-    one_word = word_level_p_value(np.ones(20), ["car"] * 20, 1 / 6, np.random.default_rng(0))
-    assert one_word == 1.0
-    words = [f"word-{index // 4}" for index in range(20)]
-    five_words = word_level_p_value(np.ones(20), words, 1 / 6, np.random.default_rng(0))
-    assert five_words < 0.05
+    def p_value(correct_by_word: list[float], chance: float) -> float:
+        correct = np.repeat(correct_by_word, 10)
+        words = [f"word-{index // 10}" for index in range(len(correct))]
+        return word_level_p_value(correct, words, chance, np.random.default_rng(0))
+
+    # 全ての語で正しくても、語を単位にした二項検定（chance の語の数乗）で有意にならない数の語では、
+    # 検定しない: 1/6 なら1語、1/2 なら4語まで
+    assert p_value([1.0], 1 / 6) == 1.0
+    assert p_value([1.0] * 4, 1 / 2) == 1.0
+    assert p_value([1.0] * 2, 1 / 6) < 0.05
+    assert p_value([1.0] * 5, 1 / 2) < 0.05
+    # 語が少ないときは t 分布で検定する（5語のうち4語が正しいだけでは、偶然の水準 1/2 を超えない）
+    assert p_value([1.0, 1.0, 1.0, 1.0, 0.0], 1 / 2) > 0.05
 
 
 def test_baseline_heads_are_other_heads_of_the_same_layer() -> None:
