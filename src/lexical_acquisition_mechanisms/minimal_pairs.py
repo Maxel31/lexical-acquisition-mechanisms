@@ -6,9 +6,12 @@
   （例: She cooked the ___ / She parked the ___）。
 - 形容詞を足す組: 手がかりは、空欄を形容詞か名詞に決める語（例: It was so ___ / It was the ___）。
 次の候補は使わない。
-- 空欄（___）がちょうど1つでない、または2文で語の数が違う
+- 空欄（前が空白の、ちょうど3本の下線 ___）がちょうど1つでない、または2文で語の数が違う
 - 違う語が、ちょうど1つで、空欄より前にあるものでない
-- 空欄にターゲット語を入れたとき、2文のトークン数が違う（head の出力を位置ごとに入れ替えるため）
+- 空欄の外に、donor・ターゲット語・ほかの管理対象の語（別の形も）がある（手がかり以外から語義が
+  分からないように）
+- 空欄にターゲット語を入れたとき、課題の問題文の中（"Sentence: " の後）で、2文のトークン数が違う
+  （head の出力を位置ごとに入れ替えるため）
 - 同じ組の、ほかの候補と同じ
 使える候補が1つもない語義の組があれば止まる（その語義が、後の全ての分析から黙って消えないように）。
 語義の組ごとに、最小対の数（evaluation.minimal_pairs_per_sense_pair）×
@@ -18,12 +21,14 @@ evaluation.minimal_pair_candidate_factor 個まで残し、data/evaluation/minim
 
 import argparse
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from lexical_acquisition_mechanisms import sense_addition_assignments, word_finalization
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
+from lexical_acquisition_mechanisms.inflected_forms import inflected_forms
 from lexical_acquisition_mechanisms.llm_client import (
     ANSWERS_PATH,
     LlmClient,
@@ -31,8 +36,10 @@ from lexical_acquisition_mechanisms.llm_client import (
     PromptTemplate,
     prompt_record_settings,
     require_answers,
+    with_maximum_items,
 )
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
+from lexical_acquisition_mechanisms.pile_word_usages import WORD_PATTERN
 from lexical_acquisition_mechanisms.sense_addition_assignments import SenseAdditionAssignment
 from lexical_acquisition_mechanisms.settings import Settings
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
@@ -42,6 +49,9 @@ COMMAND = "evaluation-data generate-minimal-pairs"
 OUTPUT_PATH = Path("data/evaluation/minimal_pair_candidates.csv")
 PROMPT = "generate-minimal-pairs"
 BLANK = "___"
+# 空欄: 前が空白で、ちょうど3本の下線（文の先頭なら、問題文では "Sentence:" の後の空白の後）
+BLANK_PATTERN = re.compile(r"(?<=\s)___(?!_)")
+MANAGED_ROLES = ("noun", "adjective", "target")
 CUE_INSTRUCTIONS = {
     "noun": (
         "The cue is a word (such as a verb) that fits one of the two kinds of things and not the"
@@ -153,11 +163,15 @@ def build_minimal_pair_candidates(
                 "cue_instruction": CUE_INSTRUCTIONS[row.donor_role],
                 "number": str(number),
             },
-            SCHEMA,
+            with_maximum_items(SCHEMA, "pairs", number),
             maximum_tokens=60 * number,
         )
         for row, _ in sense_pairs
     ]
+    managed = [word for word in words.values() if word.role in MANAGED_ROLES]
+    excluded = frozenset(
+        form for word in managed for form in (word.word, *inflected_forms(word.word, word.role))
+    )
     candidates = []
     empty = []
     answers = client.ask_all(requests)
@@ -166,7 +180,7 @@ def build_minimal_pair_candidates(
     for (row, kind), answer in zip(sense_pairs, answers, strict=True):
         kept: list[MinimalPairCandidate] = []
         for pair in (answer or {"pairs": []})["pairs"]:
-            cues = _cues(pair["first"], pair["second"], row.target, tokenizer)
+            cues = _cues(pair["first"], pair["second"], row.target, tokenizer, excluded)
             if cues is None or len(kept) == number:
                 continue
             candidate = MinimalPairCandidate(
@@ -199,11 +213,23 @@ def build_minimal_pair_candidates(
     write_rows(output_path, MinimalPairCandidate, candidates)
 
 
-def _cues(first: str, second: str, target: str, tokenizer: WordTokenizer) -> tuple[str, str] | None:
-    """2文で違う1語（手がかり）。最小対の条件に合わなければ None。"""
+def _cues(
+    first: str,
+    second: str,
+    target: str,
+    tokenizer: WordTokenizer,
+    excluded: frozenset[str],
+) -> tuple[str, str] | None:
+    """2文で違う1語（手がかり）。最小対の条件に合わなければ None。
+
+    excluded は、空欄の外にあってはいけない語（小文字）。
+    """
     first_words, second_words = first.split(), second.split()
-    if first.count(BLANK) != 1 or second.count(BLANK) != 1:
-        return None
+    for sentence in (first, second):
+        if len(BLANK_PATTERN.findall(" " + sentence)) != 1 or sentence.count("_") != len(BLANK):
+            return None
+        if {word.lower() for word in WORD_PATTERN.findall(sentence)} & excluded:
+            return None
     if len(first_words) != len(second_words):
         return None
     differences = [
@@ -214,7 +240,10 @@ def _cues(first: str, second: str, target: str, tokenizer: WordTokenizer) -> tup
     blank = next(index for index, word in enumerate(first_words) if BLANK in word)
     if len(differences) != 1 or differences[0] >= blank:
         return None
-    filled = [tokenizer.encode([sentence.replace(BLANK, target)]) for sentence in (first, second)]
+    # 問題文では、文は "Sentence: " の後に置くので、先頭の空白を付けてトークン化する
+    filled = [
+        tokenizer.encode([" " + sentence.replace(BLANK, target)]) for sentence in (first, second)
+    ]
     if len(filled[0]) != len(filled[1]):
         return None
     return first_words[differences[0]], second_words[differences[0]]

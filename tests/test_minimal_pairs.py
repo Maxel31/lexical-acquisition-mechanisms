@@ -28,6 +28,10 @@ PAIRS = [
     {"first": "The ___ was cooked.", "second": "The ___ was parked."},
     {"first": "She cooked the ___ .", "second": "She carefully parked the ___ ."},
     {"first": "He ate the ___ quickly.", "second": "He drove the ___ quickly."},
+    # 空欄の外に donor（pasta）・ターゲット語の別の形（cars）がある、空欄の下線が4本
+    {"first": "She cooked the ___ with pasta.", "second": "She parked the ___ with pasta."},
+    {"first": "She cooked the ___ near cars.", "second": "She parked the ___ near cars."},
+    {"first": "She baked the ____ today.", "second": "She washed the ____ today."},
 ]
 
 
