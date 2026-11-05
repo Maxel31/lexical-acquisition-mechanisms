@@ -11,7 +11,9 @@ from lexical_acquisition_mechanisms import head_and_mlp_effects
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.head_and_mlp_effects import write_effects
 from lexical_acquisition_mechanisms.language_model import LanguageModel
+from lexical_acquisition_mechanisms.output_records import Step
 from lexical_acquisition_mechanisms.patching_checks import PatchingCheck, PatchingCheckSummary
+from lexical_acquisition_mechanisms.run_results import RunResults
 from lexical_acquisition_mechanisms.settings import ModelSource
 from lexical_acquisition_mechanisms.task_prompts import (
     TaskItem,
@@ -145,3 +147,59 @@ def test_the_target_position_is_the_last_token_of_the_word(
     _, spans = encode_prompt_with_word_spans(template, tokenizer.word_token_ids(word), tokenizer)
     length = len(encode_prompt(template, tokenizer.word_token_ids(word), tokenizer))
     assert captured[0] == [spans[0][-1], *range(spans[0].stop, length)]
+
+
+def test_resumed_measurement_gives_the_same_outputs(
+    tmp_path: Path, tiny_model_source: ModelSource
+) -> None:
+    tokenizer = WordTokenizer.from_model(tiny_model_source)
+    car = " ".join(map(str, tokenizer.word_token_ids("car")))
+    write_rows(tmp_path / "words.csv", SelectedWord, [SelectedWord("car", "target", token_ids=car)])
+    questions = [
+        question("ate", "donor", "She ate the {word}."),
+        question("ate", "target", "She drove the {word}."),
+    ]
+    parquet.write_table(arrow.Table.from_pylist(questions), tmp_path / "questions.parquet")
+    directory = Path(tiny_model_source.repository)
+    checkpoints = {run: directory for run in ("other-category-1", "noun-control")}
+    inputs = (tmp_path / "words.csv", tmp_path / "questions.parquet")
+
+    def measure(name: str, load_model, results: RunResults | None) -> tuple[Path, ...]:
+        outputs = tuple(
+            tmp_path / f"{name}-{part}"
+            for part in ("pairs.parquet", "effects.npz", "checks.csv", "summary.csv")
+        )
+        write_effects(checkpoints, load_model, inputs, outputs, seed=0, results=results)
+        return outputs
+
+    def load(source: ModelSource) -> LanguageModel:
+        return LanguageModel.load(source, device="cpu")
+
+    # 止まらずに測った場合
+    straight = measure("straight", load, None)
+    # 1つ目の run を測り終えて止まり、続きから測った場合（測り終えた run のモデルは読まない）
+    results = RunResults(Step("measure", inputs={}, outputs=[tmp_path / "resumed-pairs.parquet"]))
+    loaded = []
+
+    def stop_after_first(source: ModelSource) -> LanguageModel:
+        if loaded:
+            raise RuntimeError("止まった")
+        loaded.append(source)
+        return load(source)
+
+    with pytest.raises(RuntimeError, match="止まった"):
+        measure("resumed", stop_after_first, results)
+    loaded.clear()
+
+    def count_loads(source: ModelSource) -> LanguageModel:
+        loaded.append(source)
+        return load(source)
+
+    resumed = measure("resumed", count_loads, results)
+
+    assert len(loaded) == 1
+    assert parquet.read_table(resumed[0]).equals(parquet.read_table(straight[0]))
+    for name in ("target_position", "after_target_positions"):
+        np.testing.assert_array_equal(np.load(resumed[1])[name], np.load(straight[1])[name])
+    for path, other in zip(resumed[2:], straight[2:], strict=True):
+        assert path.read_text() == other.read_text()
