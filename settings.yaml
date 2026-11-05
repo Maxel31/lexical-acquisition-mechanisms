@@ -176,7 +176,7 @@ training:
   # 学習率の式から求めた値）
   learning_rate_by_model:
     OLMo-2-0425-1B: 7.4e-5
-    OLMo-2-1124-7B: 6.2e-5
+    OLMo-2-1124-7B: 6.1e-5
     OLMo-2-1124-13B: 3.0e-5
   # 1 step で学習するトークン数（4,096トークンの系列 × 256。暫定）
   batch_size_in_tokens: 1048576
