@@ -6,7 +6,7 @@
 
 import itertools
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import yaml
 from pydantic import (
@@ -217,6 +217,8 @@ class TrainingSettings(SettingsSection):
     z_loss_weight: float = Field(ge=0)
     # 途中の重みを保存する、学習の進み具合（最後の重みは必ず保存する）
     checkpoint_fractions: list[float]
+    # 保存する重みの数値の型
+    checkpoint_dtype: Literal["bfloat16", "float32"]
     new_token_embedding_initialization: NewTokenEmbeddingSettings
     # 学習の記録を送る W&B（実験の記録を残す Web サービス）のプロジェクト
     weights_and_biases_project: str
