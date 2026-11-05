@@ -25,6 +25,8 @@ QUESTION_LINES = {
     "part-of-speech": "In this sentence, the part of speech of the word {word} is: {choices}",
 }
 PARTS_OF_SPEECH = ("noun", "adjective")
+# 課題1の問題の、正解のほかの選択肢の数
+DISTRACTORS = 3
 
 
 @dataclass(frozen=True)
