@@ -10,8 +10,8 @@ m̂（analyze-acquisition-order。意味と統合は、順番の判定に使っ�
 （near なら 1。far と、綴りの近さのない1トークンの未知語は 0。2・3トークンの中での near と far
 の差）。
 値が1種類しかない列（例: 使える組が全て2トークンの語）は、式から外す。使える組に1トークンの語が
-ないと、two_tokens + three_tokens が切片と同じ列になるので、two_tokens を外す（2トークンが基準に
-なる）。露出0回の未知語も含める。
+ないと、two_tokens + three_tokens が切片と同じ列になるので、two_tokens を外し、2トークンを基準に
+する（3トークンの係数の名前は three_tokens_versus_two_tokens にする）。露出0回の未知語も含める。
 当てはめに使える組が MINIMUM_ROWS に満たない種類と、当てはめられなかった種類は、表示して飛ばす。
 頑健性: 意味と統合の m̂ を閾値（THRESHOLDS）で区切った状態（both・meaning-only・integration-only・
 neither）ごとの依存度の平均と、未知語と run を単位にした2段のブートストラップの 95% の区間。
@@ -52,6 +52,8 @@ from lexical_acquisition_mechanisms.settings import Settings
 MINIMUM_KNOWN_DROP = 0.05
 # 固定効果の列（値が1種類しかない列は、当てはめるときに外す）
 FIXED_EFFECTS = ("meaning", "integration", "two_tokens", "three_tokens", "near")
+# 1トークンの語の組がなく、2トークンの語を基準にしたときの、3トークンの列の名前
+THREE_VERSUS_TWO_TOKENS = "three_tokens_versus_two_tokens"
 # 固定効果6個（切片を含む）と分散3個に対して、当てはめに使う組の数の下限
 MINIMUM_ROWS = 30
 RANDOM_INTERCEPTS = {
@@ -198,6 +200,9 @@ def fit_mixed_model(ablation: str, rows: Sequence[dict[str, object]]) -> list[Re
         frame["two_tokens"] + frame["three_tokens"] == 0
     ).any():
         print(f"{ablation}: 1トークンの語の組がないので、2トークンの語を基準にします。")
+        # 係数の意味が「1トークンとの差」から変わるので、名前も変える（表や報告で混ざらないように）
+        frame = frame.rename(columns={"three_tokens": THREE_VERSUS_TWO_TOKENS})
+        terms = [THREE_VERSUS_TWO_TOKENS if name == "three_tokens" else name for name in terms]
         terms.remove("two_tokens")
     model = formulas.mixedlm(
         "dependence ~ " + " + ".join(terms),
