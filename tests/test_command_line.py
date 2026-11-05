@@ -109,6 +109,21 @@ def test_stopped_action_shows_what_to_fix_and_where_to_rerun(
     assert "uv run lexical-acquisition-mechanisms words select" in message
 
 
+def test_stopped_training_shows_the_torchrun_command(
+    in_repository_like_directory: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def stop(settings: Settings, arguments: argparse.Namespace) -> None:
+        raise CommandStopped("設定が違います。", rerun_from="training run --run-settings a.yaml")
+
+    main(["training", "run"], [Action("training", "run", "", stop)])
+
+    message = capsys.readouterr().err
+    assert (
+        'uv run torchrun --nproc-per-node "$NUMBER_OF_GPUS" -m lexical_acquisition_mechanisms'
+        " training run --run-settings a.yaml"
+    ) in message
+
+
 def test_unknown_model_names_stop_before_the_action_runs(
     in_repository_like_directory: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
