@@ -23,6 +23,7 @@
   トークン数）で最も近い候補との差の合計が最も小さい値を目標にし、組ごとに最も近い候補を選ぶ
   （多トークンの語は低頻度に偏るので、そちらに合わせる）。
 - 形容詞は、名詞72語と頻度の分布をそろえる。頻度の低い名詞から順に、最も近い候補を選ぶ。
+選んだ語ごとに、基データでの出現回数（分析の共変量）も数える。
 """
 
 import argparse
@@ -33,8 +34,11 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
+import numpy as np
+
 from lexical_acquisition_mechanisms import (
     adjective_candidates,
+    base_data,
     noun_candidates,
     unknown_word_candidates,
 )
@@ -62,12 +66,13 @@ UNKNOWN_WORDS_PER_GROUP = 12
 
 
 @dataclass(frozen=True)
-class CandidateTables:
-    """words select が読む、候補の CSV。"""
+class SelectionInputs:
+    """words select が読む、候補の CSV と基データ。"""
 
     nouns: Path = noun_candidates.OUTPUT_PATH
     adjectives: Path = adjective_candidates.OUTPUT_PATH
     unknown_words: Path = unknown_word_candidates.OUTPUT_PATH
+    base_sequences: Path = base_data.output_paths()["base"]
 
 
 @dataclass
@@ -92,6 +97,8 @@ class SelectedWord:
     # 未知語の綴りの近さ（near・far。1トークンの未知語は空）と、near の元の実在語
     spelling_closeness: str = ""
     source_word: str = ""
+    # 基データでの、先頭スペース付きの形の出現回数（直後に英字が続くものは数えない）
+    base_data_count: int = 0
 
 
 class ChosenWords:
@@ -120,11 +127,12 @@ def select_words(settings: Settings, arguments: argparse.Namespace) -> None:
         "evaluation": settings.evaluation.model_dump(),
         "tokenizer": next(iter(settings.models.values())).model_dump(),
     }
-    tables = CandidateTables()
+    tables = SelectionInputs()
     inputs = {
         tables.nouns: noun_candidates.COMMAND,
         tables.adjectives: adjective_candidates.COMMAND,
         tables.unknown_words: unknown_word_candidates.COMMAND,
+        tables.base_sequences: base_data.COMMAND,
     }
     step = Step(COMMAND, inputs=inputs, outputs=[OUTPUT_PATH], settings=record_settings)
     run_unless_unchanged(
@@ -134,7 +142,7 @@ def select_words(settings: Settings, arguments: argparse.Namespace) -> None:
     )
 
 
-def build_selected_words(settings: Settings, tables: CandidateTables, output_path: Path) -> None:
+def build_selected_words(settings: Settings, tables: SelectionInputs, output_path: Path) -> None:
     tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
     listed_nouns = read_rows(tables.nouns, NounCandidate)
     listed_adjectives = read_rows(tables.adjectives, AdjectiveCandidate)
@@ -148,6 +156,13 @@ def build_selected_words(settings: Settings, tables: CandidateTables, output_pat
     listed_unknown_words = read_rows(tables.unknown_words, UnknownWordCandidate)
     rows += _select_unknown_words(listed_unknown_words, rows, tokenizer)
     rows += _select_natural_words(listed_nouns, listed_adjectives, settings, chosen, tokenizer)
+    counts = base_data.count_word_occurrences(
+        np.load(tables.base_sequences, mmap_mode="r"),
+        {row.word: [int(token) for token in row.token_ids.split()] for row in rows},
+        tokenizer.word_continuation_flags(),
+    )
+    for row in rows:
+        row.base_data_count = counts[row.word]
     write_rows(output_path, SelectedWord, rows)
 
 
