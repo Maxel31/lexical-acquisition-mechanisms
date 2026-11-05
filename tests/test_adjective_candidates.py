@@ -96,6 +96,7 @@ def test_adjectives_are_checked_for_usage_and_category_association(
     assert rows["quiet"]["rejected_reason"] == ""
     assert rows["quiet"]["synset"] == "quiet.a.01"
     assert rows["quiet"]["pile_sample_count"] == "2"
+    assert rows["quiet"]["estimated_pile_passages"] == str(2 * 1650)
     assert float(rows["quiet"]["adjective_usage_share"]) == pytest.approx(0.5)
     assert rows["quiet"]["largest_category_association"] == "1"
     assert rows["delicious"]["most_associated_category"] == "food"

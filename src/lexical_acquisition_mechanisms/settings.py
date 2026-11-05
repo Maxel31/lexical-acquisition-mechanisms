@@ -117,6 +117,15 @@ class UnknownWordSettings(SettingsSection):
     candidates_per_group: int = Field(gt=0)
 
 
+class PassageSettings(SettingsSection):
+    """用例（管理対象の語を含む、Pile から切り出した文章）の作り方。"""
+
+    # 用例の長さ（トークン数）
+    tokens_per_passage: int = Field(gt=0)
+    # 1つの文書から取る用例の数の上限
+    maximum_passages_per_document: int = Field(gt=0)
+
+
 class Settings(SettingsSection):
     """settings.yaml の全体。"""
 
@@ -126,6 +135,7 @@ class Settings(SettingsSection):
     base_data: BaseDataSettings
     words: WordsSettings
     unknown_words: UnknownWordSettings
+    passages: PassageSettings
 
 
 def load_settings(path: Path = Path(SETTINGS_FILE_NAME)) -> Settings:

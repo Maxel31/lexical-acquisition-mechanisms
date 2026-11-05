@@ -75,3 +75,10 @@ unknown_words:
   # トークン数（2・3）と綴りの近さ（near・far）の組ごとに集める、一度も現れない候補の数
   # （使うのは各12個。最初のトークンが重ならないように選ぶための余裕を持たせる）
   candidates_per_group: 40
+
+# 用例（管理対象の語を含む、Pile から切り出した文章）
+passages:
+  # 用例の長さ（トークン数）
+  tokens_per_passage: 256
+  # 1つの文書から取る用例の数の上限
+  maximum_passages_per_document: 3
