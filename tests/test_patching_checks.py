@@ -18,11 +18,11 @@ def test_largest_and_random_components_are_checked(
     first = model.tokenizer.encode(["She cooked the pasta. Answer:"])
     second = model.tokenizer.encode(["She parked the pasta. Answer:"])
     choice = tuple(model.tokenizer.word_token_ids(word)[0] for word in ("food", "car"))
-    rows = [{"usable": False}, {"usable": True}]
-    # 構成要素は 2層 × (4 head + MLP)。手順1で使える組（2行目）の値だけで順位を決める
+    rows = [{}, {}]
+    # 構成要素は 2層 × (4 head + MLP)。全ての組の平均の絶対値で順位を決める
     estimates = np.zeros((2, 10))
-    estimates[0, 0] = 100.0
-    estimates[1, [7, 2, 5]] = [3.0, -2.0, 1.0]
+    estimates[0, 7] = 3.0
+    estimates[1, [7, 2, 5]] = [3.0, -4.0, 2.0]
 
     checks = check_estimates(
         model, "other-category-1", 10, rows, estimates, lambda row: (first, second, [3], choice), 0

@@ -12,7 +12,6 @@ from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.head_and_mlp_effects import write_effects
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.patching_checks import PatchingCheck, PatchingCheckSummary
-from lexical_acquisition_mechanisms.sense_accuracy import SenseAccuracy
 from lexical_acquisition_mechanisms.settings import ModelSource
 from lexical_acquisition_mechanisms.task_prompts import (
     TaskItem,
@@ -58,11 +57,6 @@ def test_effects_are_measured_for_both_directions(
         question("long", "target", "She drove the red {word}."),
     ]
     parquet.write_table(arrow.Table.from_pylist(questions), tmp_path / "questions.parquet")
-    accuracy = [
-        SenseAccuracy("other-category", 1, "car", sense, 2, 1.0, 0.0, 1.0, 0.5, 0.01, True)
-        for sense in ("fruit", "original")
-    ]
-    write_rows(tmp_path / "accuracy.csv", SenseAccuracy, accuracy)
     directory = Path(tiny_model_source.repository)
     checkpoints = {
         run: directory for run in ("other-category-1", "noun-control", "adjective-control")
@@ -71,7 +65,7 @@ def test_effects_are_measured_for_both_directions(
     write_effects(
         checkpoints,
         lambda source: LanguageModel.load(source, device="cpu"),
-        (tmp_path / "words.csv", tmp_path / "questions.parquet", tmp_path / "accuracy.csv"),
+        (tmp_path / "words.csv", tmp_path / "questions.parquet"),
         (
             tmp_path / "pairs.parquet",
             tmp_path / "effects.npz",
@@ -92,7 +86,8 @@ def test_effects_are_measured_for_both_directions(
     ]
     assert (rows[0]["question"], rows[0]["partner"]) == (0, 1)
     assert rows[0]["total_effect"] == pytest.approx(rows[0]["metric"] + rows[1]["metric"])
-    assert all(row["usable"] for row in rows)
+    # 手順1で使える組かは、select-significant-heads-and-mlps で決める
+    assert all("usable" not in row for row in rows)
     effects = np.load(tmp_path / "effects.npz")
     assert effects["target_position"].shape == (4, 2 * (4 + 1))
     assert list(effects["heads"][:5]) == [0, 1, 2, 3, -1]
@@ -128,7 +123,6 @@ def test_the_target_position_is_the_last_token_of_the_word(
         question("ate", "target", "She drove the {word}.") | {"target": word},
     ]
     parquet.write_table(arrow.Table.from_pylist(questions), tmp_path / "questions.parquet")
-    write_rows(tmp_path / "accuracy.csv", SenseAccuracy, [])
     captured = []
     original = head_and_mlp_effects.outputs_and_gradients
 
@@ -141,7 +135,7 @@ def test_the_target_position_is_the_last_token_of_the_word(
     write_effects(
         {"other-category-1": Path(tiny_model_source.repository)},
         lambda source: LanguageModel.load(source, device="cpu"),
-        (tmp_path / "words.csv", tmp_path / "questions.parquet", tmp_path / "accuracy.csv"),
+        (tmp_path / "words.csv", tmp_path / "questions.parquet"),
         tuple(tmp_path / name for name in ("p.parquet", "e.npz", "c.csv", "s.csv")),
         seed=0,
     )

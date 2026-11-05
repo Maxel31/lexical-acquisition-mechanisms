@@ -12,8 +12,9 @@ s_Y: 元の語義を示す文）ごとに、両方向の効果を、全ての構
 対照の run は、対応する種類（名詞の対照は同カテゴリと別カテゴリ、形容詞の対照は形容詞）の、
 全ての数の問題で測る（手がかりの語そのものの影響を、後で引くため）。
 出力は outputs/results/sense-addition/<モデル>/ の
-- patching_pairs.parquet: 入れ替えの組ごとの、run・条件・最小対・方向・問題の番号・m・分母と、
-  手順1で2つの語義とも使えるとした組か（usable）
+- patching_pairs.parquet: 入れ替えの組ごとの、run・条件・最小対・方向・問題の番号・m・分母（手順1で
+  2つの語義とも使えるとした組かは、select-significant-heads-and-mlps
+  で決める。手順1の基準を変えても、この測定をやり直さないように）
 - head_and_mlp_effects.npz: 組 × 構成要素の効果（target_position と after_target_positions）と、
   構成要素の層（layers）と head の番号（heads。MLP は −1）
 - patching_checks.csv・patching_check_summary.csv: 近似を、上位と無作為に選んだ構成要素の実際の
@@ -95,18 +96,12 @@ def measure_head_and_mlp_effects(settings: Settings, arguments: argparse.Namespa
     command = f"sense-addition measure-head-and-mlp-effects --model {model}"
     checkpoints = sense_accuracy.final_checkpoints(model, command)
     pretrained_model_checks.require_usable_tasks(model, ["sense"], command)
-    accuracy_path = sense_accuracy.result_paths(model)[1]
-    input_paths = (
-        word_finalization.OUTPUT_PATH,
-        evaluation_finalization.QUESTIONS_PATH,
-        accuracy_path,
-    )
+    input_paths = (word_finalization.OUTPUT_PATH, evaluation_finalization.QUESTIONS_PATH)
     step = Step(
         command,
         inputs={
             word_finalization.OUTPUT_PATH: word_finalization.COMMAND,
             evaluation_finalization.QUESTIONS_PATH: evaluation_finalization.COMMAND,
-            accuracy_path: f"sense-addition measure-sense-accuracy --model {model}",
             pretrained_model_checks.TASK_ACCURACY_PATH: pretrained_model_checks.COMMAND,
         },
         outputs=list(effect_paths(model)),
@@ -149,14 +144,13 @@ def minimal_pair_questions(questions: Sequence[dict[str, object]]) -> list[Minim
 def write_effects(
     checkpoints: dict[str, Path],
     load_model: Callable[[ModelSource], LanguageModel],
-    input_paths: tuple[Path, Path, Path],
+    input_paths: tuple[Path, Path],
     output_paths: tuple[Path, Path, Path, Path],
     seed: int,
 ) -> None:
-    words_path, questions_path, accuracy_path = input_paths
+    words_path, questions_path = input_paths
     words = {word.word: word for word in read_rows(words_path, SelectedWord)}
     questions = parquet.read_table(questions_path).to_pylist()
-    usable = sense_accuracy.usable_senses(accuracy_path)
     pairs = minimal_pair_questions(questions)
     rows: list[dict[str, object]] = []
     effects: dict[str, list[np.ndarray]] = {"target_position": [], "after_target_positions": []}
@@ -181,10 +175,6 @@ def write_effects(
                 skipped.add(pair)
                 continue
             metrics, directions = measured
-            both_usable = all(
-                (pair.kind, pair.number_of_senses, pair.target, sense) in usable
-                for sense in (pair.donor, "original")
-            )
             question_orders = (
                 (pair.donor_question, pair.target_question),
                 (pair.target_question, pair.donor_question),
@@ -205,7 +195,6 @@ def write_effects(
                         "partner": destination,
                         "metric": float(metric),
                         "total_effect": float(metrics[0] + metrics[1]),
-                        "usable": both_usable,
                     }
                 )
                 effects["target_position"].append(word)

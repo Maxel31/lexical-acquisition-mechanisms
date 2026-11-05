@@ -30,6 +30,7 @@ import torch
 from lexical_acquisition_mechanisms import (
     head_and_mlp_effects,
     pretrained_model_checks,
+    sense_accuracy,
     task_questions,
     unknown_word_assignments,
     word_finalization,
@@ -96,6 +97,9 @@ def compare_head_maps(settings: Settings, arguments: argparse.Namespace) -> None
         word_finalization.OUTPUT_PATH: word_finalization.COMMAND,
         pairs_path: measured_by,
         effects_path: measured_by,
+        sense_accuracy.result_paths(model)[1]: (
+            f"sense-addition measure-sense-accuracy --model {model}"
+        ),
     }
     exposure = max(settings.unknown_word_acquisition.exposure_levels)
     step = Step(
@@ -131,9 +135,12 @@ def write_head_maps(
     outputs: tuple[Path, Path],
     exposure: int,
 ) -> None:
-    questions_path, assignments_path, words_path, pairs_path, effects_path = input_paths
+    questions_path, assignments_path, words_path, pairs_path, effects_path, accuracy_path = (
+        input_paths
+    )
     arrays = np.load(effects_path)
-    existing = existing_form_maps(parquet.read_table(pairs_path).to_pylist(), arrays)
+    usable = sense_accuracy.usable_senses(accuracy_path)
+    existing = existing_form_maps(parquet.read_table(pairs_path).to_pylist(), arrays, usable)
     if existing:
         new_form = new_form_maps(
             checkpoints,
@@ -224,12 +231,16 @@ def new_form_maps(
     return maps
 
 
-def existing_form_maps(rows: Sequence[dict[str, object]], arrays) -> dict[str, np.ndarray]:
-    """donor の名詞ごとの、既存の形の地図（head ごとの、対照を引いた効果の平均）。"""
+def existing_form_maps(
+    rows: Sequence[dict[str, object]], arrays, usable: set[tuple[str, int, str, str]]
+) -> dict[str, np.ndarray]:
+    """donor の名詞ごとの、既存の形の地図（head ごとの、対照を引いた効果の平均。手順1で使える
+    最小対だけ）。
+    """
     values = arrays[SCOPES[0]].astype(np.float64)
     heads = arrays["heads"] != MLP
     by_donor: dict[str, list[np.ndarray]] = {}
-    for (kind, _), units in minimal_pair_units(rows).items():
+    for (kind, _), units in minimal_pair_units(rows, usable).items():
         if kind not in NOUN_KINDS:
             continue
         for unit in units:

@@ -67,8 +67,9 @@ def check_estimates(
     estimates は、rows の組 × 構成要素の、ターゲット語の位置での近似の効果。
     """
     order = components(model)
-    usable = [index for index, row in enumerate(rows) if row["usable"]] or list(range(len(rows)))
-    means = np.abs(estimates[usable].mean(axis=0))
+    # 手順1で使える組かによらず、run の全ての組での平均で上位を選ぶ（手順1の基準を変えても、
+    # 確かめ直さないように）
+    means = np.abs(estimates.mean(axis=0))
     largest = [int(index) for index in np.argsort(-means, kind="stable")[:CHECKED_COMPONENTS]]
     random_numbers = random.Random(f"{seed}:{run}")
     rest = [index for index in range(len(order)) if index not in set(largest)]

@@ -8,6 +8,7 @@ import pyarrow.parquet as parquet
 import pytest
 
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
+from lexical_acquisition_mechanisms.sense_accuracy import SenseAccuracy
 from lexical_acquisition_mechanisms.significant_heads_and_mlps import (
     ComponentEffect,
     write_results,
@@ -22,8 +23,8 @@ def test_control_effects_are_subtracted_and_tested(tmp_path: Path) -> None:
     pairs = [
         (target, f"sentence {number}") for target in ("car", "lamp", "cup") for number in (1, 2)
     ]
-    # 使えない最小対と、対照の組がない最小対は除く
-    pairs += [("car", "unusable"), ("car", "no control")]
+    # 手順1で使えない語義の最小対（ターゲット語 bowl）と、対照の組がない最小対は除く
+    pairs += [("bowl", "sentence 1"), ("car", "no control")]
     for target, sentence in pairs:
         for direction in ("donor-to-target", "target-to-donor"):
             for run in ("other-category-1", "noun-control"):
@@ -39,7 +40,6 @@ def test_control_effects_are_subtracted_and_tested(tmp_path: Path) -> None:
                         "donor_sentence": sentence,
                         "direction": direction,
                         "total_effect": 2.0,
-                        "usable": sentence != "unusable",
                     }
                 )
                 # 構成要素0は対照より 0.8 大きい。1は差がない（ばらつきだけ）。2は対照と同じ値
@@ -58,9 +58,21 @@ def test_control_effects_are_subtracted_and_tested(tmp_path: Path) -> None:
 
     targets = [SelectedWord(target, "target", category="food") for target in ("car", "lamp", "cup")]
     write_rows(tmp_path / "words.csv", SelectedWord, targets)
+    # bowl は、元の語義が手順1で使えない
+    accuracy = [
+        SenseAccuracy("other-category", 1, target, sense, 2, 1.0, 0.0, 1.0, 0.5, 0.01, usable)
+        for target in ("car", "lamp", "cup", "bowl")
+        for sense, usable in (("pasta", True), ("original", target != "bowl"))
+    ]
+    write_rows(tmp_path / "accuracy.csv", SenseAccuracy, accuracy)
 
     write_results(
-        (tmp_path / "pairs.parquet", tmp_path / "effects.npz", tmp_path / "words.csv"),
+        (
+            tmp_path / "pairs.parquet",
+            tmp_path / "effects.npz",
+            tmp_path / "accuracy.csv",
+            tmp_path / "words.csv",
+        ),
         (tmp_path / "effects.csv", tmp_path / "selection.csv", tmp_path / "classes.csv"),
         ["food"],
         0,
