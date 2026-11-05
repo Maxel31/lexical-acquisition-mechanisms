@@ -19,6 +19,7 @@ from lexical_acquisition_mechanisms import (
     noun_candidates,
     similarity_ratings,
     unknown_word_candidates,
+    word_finalization,
     word_selection,
 )
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
@@ -108,6 +109,14 @@ def all_actions() -> list[Action]:
             "ターゲット語と名詞の組ごとに、公開されている OLMo 2 で内部表現の類似度を測り、"
             "確認用の data/words/review.csv を書き出す",
             hidden_state_similarity.measure_hidden_state_similarity,
+        ),
+        Action(
+            "words",
+            "finalize",
+            "確認用の CSV で approved が 1 の語で、以降の手順で使う語の一覧を書き出す"
+            "（0 の語は外し、words select で代わりの語を選ぶ）",
+            word_finalization.finalize_words,
+            word_finalization.add_arguments,
         ),
     ]
 

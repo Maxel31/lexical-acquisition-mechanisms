@@ -24,12 +24,13 @@
   （多トークンの語は低頻度に偏るので、そちらに合わせる）。
 - 形容詞は、名詞72語と頻度の分布をそろえる。頻度の低い名詞から順に、最も近い候補を選ぶ。
 選んだ語ごとに、基データでの出現回数（分析の共変量）も数える。
+data/words/excluded_words.csv にある語（確認で外した語など）は選ばない。
 """
 
 import argparse
 import math
 import random
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
@@ -54,6 +55,7 @@ from lexical_acquisition_mechanisms.wordnet_senses import adjective_senses, noun
 
 COMMAND = "words select"
 OUTPUT_PATH = Path("data/words/selected_words.csv")
+EXCLUDED_WORDS_PATH = Path("data/words/excluded_words.csv")
 NOUNS_PER_CATEGORY = 12
 TARGET_TOKEN_COUNTS = (1, 2, 3)
 NATURAL_NOUNS_PER_CATEGORY = 30
@@ -67,12 +69,21 @@ UNKNOWN_WORDS_PER_GROUP = 12
 
 @dataclass(frozen=True)
 class SelectionInputs:
-    """words select が読む、候補の CSV と基データ。"""
+    """words select が読む、候補の CSV と基データと、外す語の一覧（なくてもよい）。"""
 
     nouns: Path = noun_candidates.OUTPUT_PATH
     adjectives: Path = adjective_candidates.OUTPUT_PATH
     unknown_words: Path = unknown_word_candidates.OUTPUT_PATH
     base_sequences: Path = base_data.output_paths()["base"]
+    excluded_words: Path = EXCLUDED_WORDS_PATH
+
+
+@dataclass
+class ExcludedWord:
+    word: str
+    role: str
+    # 外した理由
+    reason: str
 
 
 @dataclass
@@ -104,9 +115,12 @@ class SelectedWord:
 class ChosenWords:
     """選んだ語と、その語義（WordNet の synset）。選んだ語と、その同義語は、もう選ばない。"""
 
-    def __init__(self, senses: Callable[[str], frozenset[str]]) -> None:
+    def __init__(
+        self, senses: Callable[[str], frozenset[str]], excluded: Iterable[str] = ()
+    ) -> None:
         self._senses = senses
-        self._words: set[str] = set()
+        # 外す語は、選んだ語と同じく選ばない（同義語は選んでよい）
+        self._words: set[str] = set(excluded)
         self._synsets: set[str] = set()
 
     def can_take(self, word: str) -> bool:
@@ -130,6 +144,9 @@ def select_words(settings: Settings, arguments: argparse.Namespace) -> None:
         "tokenizer": next(iter(settings.models.values())).model_dump(),
     }
     tables = SelectionInputs()
+    # 外す語の一覧は、人の確認から書かれる（処理の記録がない）ので、中身を設定として記録する
+    excluded = read_excluded_words(tables.excluded_words)
+    record_settings["excluded_words"] = sorted({row.word for row in excluded})
     inputs = {
         tables.nouns: noun_candidates.COMMAND,
         tables.adjectives: adjective_candidates.COMMAND,
@@ -148,7 +165,8 @@ def build_selected_words(settings: Settings, tables: SelectionInputs, output_pat
     tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
     listed_nouns = read_rows(tables.nouns, NounCandidate)
     listed_adjectives = read_rows(tables.adjectives, AdjectiveCandidate)
-    chosen = ChosenWords(_synsets)
+    excluded = {row.word for row in read_excluded_words(tables.excluded_words)}
+    chosen = ChosenWords(_synsets, excluded)
     nouns = _select_nouns(listed_nouns, settings, chosen)
     targets = _select_target_words(listed_nouns, settings, chosen, nouns, tokenizer)
     adjectives = _select_adjectives(listed_adjectives, settings, chosen, nouns)
@@ -166,6 +184,10 @@ def build_selected_words(settings: Settings, tables: SelectionInputs, output_pat
     for row in rows:
         row.base_data_count = counts[row.word]
     write_rows(output_path, SelectedWord, rows)
+
+
+def read_excluded_words(path: Path = EXCLUDED_WORDS_PATH) -> list[ExcludedWord]:
+    return read_rows(path, ExcludedWord) if path.exists() else []
 
 
 def _select_nouns(
