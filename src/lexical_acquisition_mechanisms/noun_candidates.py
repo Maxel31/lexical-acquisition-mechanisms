@@ -2,10 +2,11 @@
 
 1. LLM が、カテゴリごとに名詞を挙げる（挙げる語の種類を変えて、何回か）。挙げた形に、WordNet で
    そのカテゴリの語義がなく、複数形を戻した形（例: shoes → shoe）にあれば、戻した形にする。
-   LLM は、よく使う語（horse・bird など）を挙げないことがあるので、WordNet でカテゴリの上位語の下に
-   ある1語の見出しのうち、先頭スペース付きで1トークンの語も足す。足した語は、LLM に、ふつう何を
-   名指すかのカテゴリを答えさせ、WordNet のカテゴリと合う語だけを残す（設計書 0-2: LLM が付けた
-   カテゴリと WordNet の上位語が一致した語だけを残す）。
+   LLM は、よく使う語（horse・bird など）を挙げないことがあり、挙げる語の数も限られるので、
+   WordNet でカテゴリの上位語の下にある1語の見出しのうち、先頭スペース付きで
+   MAXIMUM_TOKEN_COUNT トークンまでの語も足す（語を選ぶ役割のどれかに使えるトークン数）。足した
+   語は、LLM に、ふつう何を名指すかのカテゴリを答えさせ、WordNet のカテゴリと合う語だけを残す
+   （設計書 0-2: LLM が付けたカテゴリと WordNet の上位語が一致した語だけを残す）。
 2. WordNet で、そのカテゴリの語義があり、ほかのカテゴリの語義がない語だけを残す。カテゴリの名前
    （課題2の選択肢）は外す。
 3. Pile の先頭の断片で、標準の形（例: " pasta"）の出現回数を数え、見本を選ぶ。
@@ -48,6 +49,9 @@ OUTPUT_PATH = Path("data/words/noun_candidates.csv")
 LISTING_PROMPT = "list-category-nouns"
 USAGE_PROMPT = "judge-noun-usage"
 CATEGORY_PROMPT = "name-noun-category"
+# WordNet から足す語の、先頭スペース付きのトークン数の上限（ターゲット語と自然な名詞は
+# 3トークンまで）
+MAXIMUM_TOKEN_COUNT = 3
 WORD_FORM = re.compile(r"^[a-z]+$")
 LISTING_SCHEMA = {
     "type": "object",
@@ -100,7 +104,7 @@ class NounCandidate:
     judged_usages: int = 0
     intended_usage_share: float = 0.0
     same_meaning_usage_share: float = 0.0
-    # 候補の出どころ（llm-listing: LLM が挙げた語、wordnet: WordNet から足した1トークンの語）
+    # 候補の出どころ（llm-listing: LLM が挙げた語、wordnet: WordNet から足した語）
     source: str = "llm-listing"
 
 
@@ -204,7 +208,7 @@ def _wordnet_candidates(
     client: LlmClient,
 ) -> list[NounCandidate]:
     """WordNet で、1つのカテゴリの上位語の下にだけある1語の小文字の見出しのうち、先頭スペース付きで
-    1トークンで、LLM が挙げなかった語。
+    MAXIMUM_TOKEN_COUNT トークンまでで、LLM が挙げなかった語。
 
     LLM が答えた、その語がふつう名指すもののカテゴリが、WordNet のカテゴリと違えば外す。
     """
@@ -222,7 +226,7 @@ def _wordnet_candidates(
     candidates = [
         NounCandidate(word, next(iter(names)), "", source="wordnet")
         for word, names in sorted(categories_of.items())
-        if len(names) == 1 and len(tokenizer.word_token_ids(word)) == 1
+        if len(names) == 1 and len(tokenizer.word_token_ids(word)) <= MAXIMUM_TOKEN_COUNT
     ]
     choices = [category.name for category in settings.words.categories] + ["none"]
     schema = {

@@ -51,14 +51,15 @@ def write_local_shard(file_name: str, directory: Path) -> Path:
 def answer_like_the_llm(request: httpx.Request) -> httpx.Response:
     """名詞を挙げる問いには LISTED_NOUNS を返す。
 
-    WordNet から足した語のカテゴリの問いには、horse だけ animal、ほかは none と答える。
+    WordNet から足した語のカテゴリの問いには、horse と armadillo は animal、ほかは none と答える。
     使われ方の問いには、「brand」があれば名前の一部、「Fresh」があれば比喩（同じ語義）、
     それ以外は字義どおりと答える。
     """
     content = json.loads(request.content)["messages"][0]["content"]
     if "What does the English noun" in content:
         word = re.search(r'noun "(\w+)"', content).group(1)
-        answer = {"reason": "stub", "category": "animal" if word == "horse" else "none"}
+        category = "animal" if word in {"horse", "armadillo"} else "none"
+        answer = {"reason": "stub", "category": category}
     elif content.startswith("You are helping to build word lists"):
         category = re.search(r"\(category: (\w+)\)", content).group(1)
         nouns = [{"word": word, "meaning": "x"} for word in LISTED_NOUNS.get(category, [])]
@@ -131,8 +132,10 @@ def test_candidates_are_checked_with_wordnet_and_pile_usages(
     assert rows["ice cream"]["rejected_reason"] == "1語の小文字ではない"
     assert rows["car"]["rejected_reason"] == "WordNet で、このカテゴリの語義がない"
     assert rows["food"]["rejected_reason"] == "カテゴリの名前（課題2の選択肢）"
-    # LLM が挙げなかった1トークンの語は WordNet から足し、LLM が答えたカテゴリが合う語だけを残す
+    # LLM が挙げなかった3トークンまでの語は WordNet から足し、LLM が答えたカテゴリが合う語だけを残す
     assert (rows["horse"]["source"], rows["horse"]["rejected_reason"]) == ("wordnet", "")
     assert rows["horse"]["category"] == "animal"
+    assert (rows["armadillo"]["source"], rows["armadillo"]["rejected_reason"]) == ("wordnet", "")
+    assert int(rows["armadillo"]["token_count"]) > 1
     assert rows["comma"]["rejected_reason"] == "LLM が答えたカテゴリが違う（none）"
     assert rows["pasta"]["source"] == "llm-listing"
