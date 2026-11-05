@@ -6,6 +6,9 @@
 - ターゲット語18語: 各カテゴリから、先頭スペース付きで1・2・3トークンの語を1語ずつ。最初の
   トークンが、名詞やほかのターゲット語と重ならない。
 - 形容詞72語: 先頭スペース付きで1トークン。どのカテゴリとも結びつきが強くない。
+- 自然な語（実験で操作しない実在語。課題の例やプローブの学習に使う）: 各カテゴリ30語の名詞と、
+  形容詞60語。名詞は、カテゴリごとに1・2・3トークンの語を順に（なければ、あるトークン数の語を）、
+  無作為に選ぶ。品詞のプローブには、形容詞と同じ1トークンの名詞を、各カテゴリ10語使う。
 どの語も、Pile の見本で意図した語義（形容詞は、形容詞として）で使われていた割合が高く、Pile で
 取れる用例の見積もり（意図した使われ方の割合を掛けたもの）が必要な数より十分に多い候補から選ぶ。
 すでに選んだ語の同義語（WordNet で、その語を見出しとする語義が重なる語）は選ばない。
@@ -20,6 +23,7 @@
 
 import argparse
 import math
+import random
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import cache
@@ -39,6 +43,10 @@ COMMAND = "words select"
 OUTPUT_PATH = Path("data/words/selected_words.csv")
 NOUNS_PER_CATEGORY = 12
 TARGET_TOKEN_COUNTS = (1, 2, 3)
+NATURAL_NOUNS_PER_CATEGORY = 30
+NATURAL_ADJECTIVES = 60
+# 品詞のプローブに使う、カテゴリごとの自然な名詞の数
+PART_OF_SPEECH_NOUNS_PER_CATEGORY = 10
 
 
 @dataclass(frozen=True)
@@ -52,7 +60,8 @@ class CandidateTables:
 @dataclass
 class SelectedWord:
     word: str
-    # 役割（noun: 名詞72語、target: ターゲット語、adjective: 形容詞72語）
+    # 役割（noun: 名詞72語、target: ターゲット語、adjective: 形容詞72語、
+    # natural-noun・natural-adjective: 自然な名詞・形容詞）
     role: str
     category: str = ""
     token_count: int = 0
@@ -65,6 +74,8 @@ class SelectedWord:
     estimated_pile_passages: int = 0
     # Pile の見本で、意図した語義（形容詞は、形容詞として）で使われていた割合
     usage_share: float = 0.0
+    # 品詞のプローブの学習に使う自然な語か
+    part_of_speech_probe: bool = False
 
 
 class ChosenWords:
@@ -90,6 +101,7 @@ def select_words(settings: Settings, arguments: argparse.Namespace) -> None:
         "passages": settings.passages.model_dump(),
         "unknown_word_acquisition": settings.unknown_word_acquisition.model_dump(),
         "sense_addition": settings.sense_addition.model_dump(),
+        "evaluation": settings.evaluation.model_dump(),
         "tokenizer": next(iter(settings.models.values())).model_dump(),
     }
     tables = CandidateTables()
@@ -107,16 +119,16 @@ def select_words(settings: Settings, arguments: argparse.Namespace) -> None:
 
 def build_selected_words(settings: Settings, tables: CandidateTables, output_path: Path) -> None:
     tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
-    nouns_and_targets = read_rows(tables.nouns, NounCandidate)
+    listed_nouns = read_rows(tables.nouns, NounCandidate)
+    listed_adjectives = read_rows(tables.adjectives, AdjectiveCandidate)
     chosen = ChosenWords(_synsets)
-    nouns = _select_nouns(nouns_and_targets, settings, chosen)
-    targets = _select_target_words(nouns_and_targets, settings, chosen, nouns, tokenizer)
-    adjectives = _select_adjectives(
-        read_rows(tables.adjectives, AdjectiveCandidate), settings, chosen, nouns
-    )
+    nouns = _select_nouns(listed_nouns, settings, chosen)
+    targets = _select_target_words(listed_nouns, settings, chosen, nouns, tokenizer)
+    adjectives = _select_adjectives(listed_adjectives, settings, chosen, nouns)
     rows = [_row(noun, "noun", tokenizer) for noun in nouns]
     rows += [_row(target, "target", tokenizer) for target in targets]
     rows += [_row(adjective, "adjective", tokenizer) for adjective in adjectives]
+    rows += _select_natural_words(listed_nouns, listed_adjectives, settings, chosen, tokenizer)
     write_rows(output_path, SelectedWord, rows)
 
 
@@ -266,6 +278,73 @@ def _select_adjectives(
     return adjectives
 
 
+def _select_natural_words(
+    listed_nouns: Sequence[NounCandidate],
+    listed_adjectives: Sequence[AdjectiveCandidate],
+    settings: Settings,
+    chosen: ChosenWords,
+    tokenizer: WordTokenizer,
+) -> list[SelectedWord]:
+    """自然な名詞（各カテゴリ30語）と形容詞（60語）を、無作為に選ぶ。"""
+    needed = settings.evaluation.sentences_per_natural_word
+    random_numbers = random.Random(settings.words.seed)
+    rows = []
+    for category in settings.words.categories:
+        buckets = []
+        for token_count in TARGET_TOKEN_COUNTS:
+            bucket = [
+                candidate
+                for candidate in listed_nouns
+                if candidate.category == category.name
+                and candidate.token_count == token_count
+                and _usable(candidate, settings, needed)
+            ]
+            random_numbers.shuffle(bucket)
+            buckets.append(bucket)
+        natural_nouns = _take_in_turn(buckets, NATURAL_NOUNS_PER_CATEGORY, chosen)
+        if len(natural_nouns) < NATURAL_NOUNS_PER_CATEGORY:
+            description = f"カテゴリ {category.name} の自然な名詞"
+            raise _shortage(description, len(natural_nouns), needed, settings)
+        one_token = [noun.word for noun in natural_nouns if noun.token_count == 1]
+        for noun in natural_nouns:
+            row = _row(noun, "natural-noun", tokenizer)
+            row.part_of_speech_probe = noun.word in one_token[:PART_OF_SPEECH_NOUNS_PER_CATEGORY]
+            rows.append(row)
+    usable = [candidate for candidate in listed_adjectives if _usable(candidate, settings, needed)]
+    random_numbers.shuffle(usable)
+    natural_adjectives = _take_in_turn([usable], NATURAL_ADJECTIVES, chosen)
+    if len(natural_adjectives) < NATURAL_ADJECTIVES:
+        raise _shortage(
+            "自然な形容詞",
+            len(natural_adjectives),
+            needed,
+            settings,
+            listing="words.adjectives_per_listing",
+            rerun_from=adjective_candidates.COMMAND,
+        )
+    for adjective in natural_adjectives:
+        row = _row(adjective, "natural-adjective", tokenizer)
+        row.part_of_speech_probe = True
+        rows.append(row)
+    return rows
+
+
+def _take_in_turn[Candidate: (NounCandidate, AdjectiveCandidate)](
+    buckets: Sequence[list[Candidate]], count: int, chosen: ChosenWords
+) -> list[Candidate]:
+    """組から順に1つずつ、選べる候補を count 個まで取る（候補がなくなった組は飛ばす）。"""
+    taken: list[Candidate] = []
+    while len(taken) < count and any(buckets):
+        for bucket in buckets:
+            while bucket and len(taken) < count:
+                candidate = bucket.pop(0)
+                if chosen.can_take(candidate.word):
+                    chosen.take(candidate.word)
+                    taken.append(candidate)
+                    break
+    return taken
+
+
 def _usable(
     candidate: NounCandidate | AdjectiveCandidate, settings: Settings, needed_passages: int
 ) -> bool:
@@ -290,7 +369,7 @@ def _frequency(candidate: NounCandidate | AdjectiveCandidate) -> float:
     return math.log10(max(candidate.estimated_pile_count, 1))
 
 
-def _distance(candidate: NounCandidate, goal: float) -> float:
+def _distance(candidate: NounCandidate | AdjectiveCandidate, goal: float) -> float:
     return abs(_frequency(candidate) - goal)
 
 
