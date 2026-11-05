@@ -118,6 +118,7 @@ def generate_noun_candidates(settings: Settings, arguments: argparse.Namespace) 
             include={"tokens_per_passage", "maximum_passages_per_document"}
         ),
         "tokenizer": next(iter(settings.models.values())).model_dump(),
+        "wordnet_maximum_token_count": MAXIMUM_TOKEN_COUNT,
         **prompt_record_settings(settings.llm, prompts),
     }
     step = Step(COMMAND, inputs={}, outputs=[OUTPUT_PATH], settings=record_settings)
