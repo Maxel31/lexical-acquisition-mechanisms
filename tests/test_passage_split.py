@@ -75,6 +75,39 @@ def test_duplicates_are_removed_and_documents_are_split(tmp_path: Path, settings
     assert "training" in {row["split"] for row in split}
 
 
+def test_near_duplicates_with_scattered_differences_are_removed(
+    tmp_path: Path, settings: Settings
+) -> None:
+    generator = np.random.default_rng(2)
+    windows = generator.integers(1000, 50_000, (4, 100))
+    # 2番目の窓は、1番目の窓を20トークンに1つずつ替えたもの（一致率 95%）。3番目の窓は、2番目の
+    # 窓を半分だけ替えたもの（一致率 50%。残す）
+    windows[1] = windows[0]
+    windows[1, ::20] = generator.integers(1000, 50_000, 5)
+    windows[2] = windows[1]
+    windows[2, 50:] = generator.integers(1000, 50_000, 50)
+    rows = [
+        candidate("pasta", "noun", row, row / 100, window) for row, window in enumerate(windows)
+    ]
+    candidates_path = tmp_path / "candidates.parquet"
+    parquet.write_table(arrow.Table.from_pylist(rows, schema=CANDIDATE_SCHEMA), candidates_path)
+    np.save(tmp_path / "base.npy", np.zeros((1, 64), dtype=np.uint32))
+
+    build_split(
+        settings,
+        candidates_path,
+        tmp_path / "base.npy",
+        tmp_path / "split.parquet",
+        tmp_path / "summary.csv",
+    )
+
+    (summary,) = read_rows(tmp_path / "summary.csv", SplitSummary)
+    assert summary.duplicates == 1
+    assert 1 not in {
+        row["row"] for row in parquet.read_table(tmp_path / "split.parquet").to_pylist()
+    }
+
+
 def test_documents_are_split_in_the_same_way_for_every_word(
     tmp_path: Path, settings: Settings
 ) -> None:

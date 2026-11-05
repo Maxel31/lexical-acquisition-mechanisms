@@ -1,9 +1,10 @@
 """ほぼ同じ用例の候補を除き、元の文書の単位で学習用と評価用に分ける
 （passages remove-duplicates-and-split）。
 
-1. 語ごとに、ほぼ同じ候補（一方の5トークンの並びの8割以上が、もう一方にもある）を除く。鍵の小さい
-   候補から順に残す。似た組は MinHash（並びの集合から作る短い署名で、似た集合ほど一致しやすい）で
-   探し、並びの集合を比べて確かめる。
+1. 語ごとに、ほぼ同じ候補（トークン列の8割以上が一致する。difflib の一致率）を除く。鍵の小さい
+   候補から順に残す。似た組は MinHash（3トークンの並びの集合から作る短い署名で、似た集合ほど
+   一致しやすい）で探し、トークン列の一致率で確かめる（違いが散らばった組も見つかるように、並びを
+   短くし、並びの集合ではなくトークン列を比べる）。
 2. 元の文書（Pile の断片と行）ごとに、全ての語で共通の分け方を1つ決める（同じ文書の候補は、どの語
    でも、学習用と評価用の両方には入らない）。ターゲット語か自然な語の候補を含む文書（これらの語は
    全て評価用）は評価用にする。ほかの文書は、seed と文書から決まる鍵が、評価用の用例の割合より
@@ -16,6 +17,7 @@
 import argparse
 from collections import Counter
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from pathlib import Path
 
 import numpy as np
@@ -33,7 +35,7 @@ COMMAND = "passages remove-duplicates-and-split"
 OUTPUT_DIRECTORY = Path("data/passages")
 SPLIT_PATH = OUTPUT_DIRECTORY / "split_candidates.parquet"
 SUMMARY_PATH = OUTPUT_DIRECTORY / "split_summary.csv"
-SHINGLE_LENGTH = 5
+SHINGLE_LENGTH = 3
 DUPLICATE_SHARE = 0.8
 NUMBER_OF_HASHES = 64
 ROWS_PER_BAND = 4
@@ -159,13 +161,12 @@ def _unique_indices(windows: np.ndarray) -> list[int]:
             for position, index in enumerate(members[1:], start=1):
                 earlier = [members[0], *members[max(1, position - NEARBY_MEMBERS) : position]]
                 similar.setdefault(index, set()).update(earlier)
-    shingle_sets = [set(row.tolist()) for row in shingles]
+    tokens = windows.tolist()
     kept: list[int] = []
     kept_set: set[int] = set()
     for index in range(len(windows)):
         duplicate = any(
-            len(shingle_sets[index] & shingle_sets[other])
-            >= DUPLICATE_SHARE * min(len(shingle_sets[index]), len(shingle_sets[other]))
+            _similar_enough(tokens[index], tokens[other])
             for other in similar.get(index, ())
             if other in kept_set
         )
@@ -173,6 +174,16 @@ def _unique_indices(windows: np.ndarray) -> list[int]:
             kept.append(index)
             kept_set.add(index)
     return kept
+
+
+def _similar_enough(first: list[int], second: list[int]) -> bool:
+    """トークン列の一致率（2 × 一致したトークンの数 ÷ 2つの長さの和）が DUPLICATE_SHARE 以上か。"""
+    matcher = SequenceMatcher(None, first, second, autojunk=False)
+    return (
+        matcher.real_quick_ratio() >= DUPLICATE_SHARE
+        and matcher.quick_ratio() >= DUPLICATE_SHARE
+        and matcher.ratio() >= DUPLICATE_SHARE
+    )
 
 
 def _document_splits(
