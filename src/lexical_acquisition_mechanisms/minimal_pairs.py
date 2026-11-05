@@ -193,9 +193,10 @@ def build_minimal_pair_candidates(
                 pair["second"].strip(),
                 *cues,
             )
+            # 後の処理は、最小対を donor の文で見分けるので、片方の文だけが同じ候補も使わない
             if all(
-                (other.donor_sentence, other.target_sentence)
-                != (candidate.donor_sentence, candidate.target_sentence)
+                other.donor_sentence != candidate.donor_sentence
+                and other.target_sentence != candidate.target_sentence
                 for other in kept
             ):
                 kept.append(candidate)

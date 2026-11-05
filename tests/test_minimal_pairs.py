@@ -22,8 +22,10 @@ from lexical_acquisition_mechanisms.word_selection import SelectedWord
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PAIRS = [
     {"first": "She cooked the ___ for dinner.", "second": "She parked the ___ for dinner."},
-    # 同じ候補、空欄がない、手がかりが空欄の後、語の数が違う
+    # 同じ候補、片方の文だけが同じ候補（2つ）、空欄がない、手がかりが空欄の後、語の数が違う
     {"first": "She cooked the ___ for dinner.", "second": "She parked the ___ for dinner."},
+    {"first": "She cooked the ___ for dinner.", "second": "She washed the ___ for dinner."},
+    {"first": "She boiled the ___ for dinner.", "second": "She parked the ___ for dinner."},
     {"first": "She cooked dinner.", "second": "She parked dinner."},
     {"first": "The ___ was cooked.", "second": "The ___ was parked."},
     {"first": "She cooked the ___ .", "second": "She carefully parked the ___ ."},
