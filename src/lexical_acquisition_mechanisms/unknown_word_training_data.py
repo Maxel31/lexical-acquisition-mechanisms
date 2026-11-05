@@ -47,6 +47,9 @@ COMMAND = f"training-data build --experiment {EXPERIMENT}"
 OUTPUT_DIRECTORY = Path("data/training") / EXPERIMENT
 CONTROL_RUN = "control"
 DECODED_PASSAGES_PER_RUN = 5
+# run ごとの学習データのファイル（トークン列と、差し込んだ用例の始まりの位置）
+TOKENS_FILE_NAME = "tokens.npy"
+PASSAGE_STARTS_FILE_NAME = "passage_starts.npy"
 
 
 @dataclass
@@ -253,8 +256,8 @@ def write_run_files(
 ) -> None:
     """run の学習データ（トークン列・差し込んだ用例の始まり・差し込んだ用例の記録）を書く。"""
     directory.mkdir(parents=True, exist_ok=True)
-    np.save(directory / "tokens.npy", tokens.astype(np.uint32))
-    np.save(directory / "passage_starts.npy", np.asarray(starts, dtype=np.int64))
+    np.save(directory / TOKENS_FILE_NAME, tokens.astype(np.uint32))
+    np.save(directory / PASSAGE_STARTS_FILE_NAME, np.asarray(starts, dtype=np.int64))
     parquet.write_table(records, directory / "inserted.parquet")
 
 
