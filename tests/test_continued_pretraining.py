@@ -164,9 +164,28 @@ def test_two_processes_give_the_same_losses(
         if "loss" in record
     ]
 
-    # 計算は bf16 なので、少しずれてよい
+    # 計算は bf16 なので、少しずれてよい（勾配のノルムが合うので、GPU の数で掛ける係数も正しい）
     for one, two in zip(alone, together, strict=True):
         assert one["loss"] == pytest.approx(two["loss"], rel=2e-2)
+        assert one["gradient_norm"] == pytest.approx(two["gradient_norm"], rel=2e-2)
+
+
+def test_training_stops_when_the_loss_is_not_finite(
+    tmp_path: Path, tiny_model_source, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setenv("MASTER_PORT", str(free_port()))
+    run = run_settings(tmp_path, tiny_model_source)
+
+    def not_finite(*arguments) -> dict[str, float]:
+        return {"loss": float("nan"), "tokens": 1.0, "inserted_loss": 0.0, "inserted_tokens": 0.0}
+
+    monkeypatch.setattr(continued_pretraining, "_train_step", not_finite)
+
+    with pytest.raises(CommandStopped, match="1 step 目で、損失か勾配のノルムが有限でなく"):
+        train(run)
+    assert not (run.output_directory / "completed.json").exists()
+    assert not [record for record in metrics_of(run) if "loss" in record]
 
 
 def metrics_of(run: RunSettings) -> list[dict]:
