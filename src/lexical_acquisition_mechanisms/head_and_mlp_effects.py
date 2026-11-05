@@ -50,7 +50,6 @@ from lexical_acquisition_mechanisms.patching_checks import (
     check_estimates,
     summarize_checks,
 )
-from lexical_acquisition_mechanisms.sense_accuracy import SenseAccuracy
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings
 from lexical_acquisition_mechanisms.task_prompts import (
     choice_token_ids,
@@ -154,11 +153,7 @@ def write_effects(
     words_path, questions_path, accuracy_path = input_paths
     words = {word.word: word for word in read_rows(words_path, SelectedWord)}
     questions = parquet.read_table(questions_path).to_pylist()
-    usable = {
-        (row.kind, row.number_of_senses, row.target, row.sense)
-        for row in read_rows(accuracy_path, SenseAccuracy)
-        if row.usable
-    }
+    usable = sense_accuracy.usable_senses(accuracy_path)
     pairs = minimal_pair_questions(questions)
     rows: list[dict[str, object]] = []
     effects: dict[str, list[np.ndarray]] = {"target_position": [], "after_target_positions": []}
