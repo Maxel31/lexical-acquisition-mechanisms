@@ -54,7 +54,7 @@ def settings(tiny_model_source: ModelSource, monkeypatch: pytest.MonkeyPatch) ->
     settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
     passages = settings.passages.model_copy(update={"evaluation_passages_per_word": 1})
     exposure = settings.unknown_word_acquisition.model_copy(update={"exposure_levels": [0, 3]})
-    evaluation = settings.evaluation.model_copy(update={"sentences_per_natural_word": 1})
+    evaluation = settings.evaluation.model_copy(update={"passages_per_natural_word": 1})
     return settings.model_copy(
         update={
             "models": {"tiny": tiny_model_source},

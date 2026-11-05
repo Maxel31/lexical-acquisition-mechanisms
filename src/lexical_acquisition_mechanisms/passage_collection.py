@@ -114,7 +114,7 @@ def needed_passages(word: SelectedWord, settings: Settings) -> int:
         return max(settings.unknown_word_acquisition.exposure_levels) + evaluation
     if word.role == "target":
         return evaluation
-    return settings.evaluation.sentences_per_natural_word
+    return settings.evaluation.passages_per_natural_word
 
 
 def collect_passages(settings: Settings, arguments: argparse.Namespace) -> None:
@@ -123,7 +123,7 @@ def collect_passages(settings: Settings, arguments: argparse.Namespace) -> None:
         "unknown_word_acquisition": settings.unknown_word_acquisition.model_dump(
             include={"exposure_levels"}
         ),
-        "evaluation": settings.evaluation.model_dump(include={"sentences_per_natural_word"}),
+        "evaluation": settings.evaluation.model_dump(include={"passages_per_natural_word"}),
         "seed": settings.words.seed,
         "tokenizer": next(iter(settings.models.values())).model_dump(),
     }

@@ -74,7 +74,7 @@ def needed_passing_passages(role: str, split: str, settings: Settings) -> int:
             return settings.sense_addition.passages_per_added_sense
         return 0
     if role.startswith("natural-"):
-        return settings.evaluation.sentences_per_natural_word
+        return settings.evaluation.passages_per_natural_word
     return settings.passages.evaluation_passages_per_word
 
 
@@ -90,7 +90,7 @@ def judge_word_sense(settings: Settings, arguments: argparse.Namespace) -> None:
             include={"exposure_levels"}
         ),
         "sense_addition": settings.sense_addition.model_dump(include={"passages_per_added_sense"}),
-        "evaluation": settings.evaluation.model_dump(include={"sentences_per_natural_word"}),
+        "evaluation": settings.evaluation.model_dump(include={"passages_per_natural_word"}),
     }
     step = Step(
         COMMAND,

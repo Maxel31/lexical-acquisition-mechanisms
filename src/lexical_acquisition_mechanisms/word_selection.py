@@ -141,7 +141,7 @@ def select_words(settings: Settings, arguments: argparse.Namespace) -> None:
         "unknown_word_acquisition": settings.unknown_word_acquisition.model_dump(
             include={"exposure_levels"}
         ),
-        "evaluation": settings.evaluation.model_dump(include={"sentences_per_natural_word"}),
+        "evaluation": settings.evaluation.model_dump(include={"passages_per_natural_word"}),
         "tokenizer": next(iter(settings.models.values())).model_dump(),
     }
     tables = SelectionInputs()
@@ -396,7 +396,7 @@ def _select_natural_words(
     tokenizer: WordTokenizer,
 ) -> list[SelectedWord]:
     """自然な名詞（各カテゴリ30語）と形容詞（60語）を、無作為に選ぶ。"""
-    needed = settings.evaluation.sentences_per_natural_word
+    needed = settings.evaluation.passages_per_natural_word
     random_numbers = random.Random(settings.words.seed)
     rows = []
     for category in settings.words.categories:
