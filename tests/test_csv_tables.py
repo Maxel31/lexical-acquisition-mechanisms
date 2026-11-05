@@ -46,3 +46,22 @@ def test_columns_that_do_not_match_the_fields_give_a_clear_message(tmp_path: Pat
 
     with pytest.raises(ValueError, match=r"ない列: \['note'\]、項目にない列: \['comment'\]"):
         read_rows(path, Row)
+
+
+def test_review_csv_in_another_encoding_stops_instead_of_dropping_approvals(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = tmp_path / "review.csv"
+    # 表計算ソフトで cp932 のまま保存された、記入済みの CSV
+    path.write_bytes("word,note,approved\nパスタ,a,1\n".encode("cp932"))
+    before = path.read_bytes()
+
+    with pytest.raises(ValueError, match="CSV UTF-8"):
+        write_review_rows(path, Row, [Row("パスタ", "a")], ("word",))
+    assert path.read_bytes() == before
+
+    # 列が変わった古い CSV は、引き継がずに、そのことを表示する
+    path.write_text("word,approved\npasta,1\n", encoding="utf-8")
+    write_review_rows(path, Row, [Row("pasta", "a")], ("word",))
+    assert "引き継ぎません" in capsys.readouterr().out
+    assert [row.approved for row in read_rows(path, Row)] == [""]
