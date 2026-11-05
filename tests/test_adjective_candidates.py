@@ -45,10 +45,11 @@ def answer_like_the_llm(request: httpx.Request) -> httpx.Response:
     content = json.loads(request.content)["messages"][0]["content"]
     if content.startswith("You are helping to build word lists"):
         answer = {"adjectives": [{"word": word, "meaning": "x"} for word in LISTED_ADJECTIVES]}
-    elif content.startswith("How strongly"):
+    elif content.startswith("How specific"):
         word = content.split('"')[1]
         names = ["food", "animal", "vehicle", "clothing", "furniture", "building"]
-        answer = {name: 1 for name in names} | ({"food": 6} if word == "delicious" else {})
+        answer = {"reason": "stub"} | {name: 1 for name in names}
+        answer |= {"food": 6} if word == "delicious" else {}
     else:
         answer = {"adjective": "The [[" not in content, "reason": "stub"}
     choice = {"message": {"content": json.dumps(answer)}, "finish_reason": "stop"}

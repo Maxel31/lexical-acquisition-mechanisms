@@ -4,7 +4,8 @@
 2. WordNet に形容詞の語義があり、先頭スペース付きで1トークンの語だけを残す。
 3. Pile の先頭の断片で、標準の形の出現回数を数え、見本を選ぶ。
 4. LLM が見本ごとに、形容詞として使われているかを判定する。
-5. LLM が、各カテゴリとの結びつきの強さを 1〜7 で評定する。
+5. LLM が、各カテゴリとの結びつきの強さ（その種類のものに特有か。1: ほかのものと同じくらい使う〜
+   7: ほとんどその種類のものに使う）を 1〜7 で評定する。短い理由を先に書かせる。
 形容詞72語と自然な形容詞は、words select がこの候補から選ぶ。
 """
 
@@ -208,12 +209,14 @@ def _rate_associations(
     category_lines = "\n".join(
         f"- {category.name}: {category.description}" for category in categories
     )
+    names = [category.name for category in categories]
     schema = {
         "type": "object",
         "properties": {
-            category.name: {"type": "integer", "enum": list(range(1, 8))} for category in categories
+            "reason": {"type": "string"},
+            **{name: {"type": "integer", "enum": list(range(1, 8))} for name in names},
         },
-        "required": [category.name for category in categories],
+        "required": ["reason", *names],
         "additionalProperties": False,
     }
     requests = [
@@ -224,5 +227,5 @@ def _rate_associations(
         if ratings is None:
             candidate.rejected_reason = "カテゴリとの結びつきを評定できなかった"
             continue
-        candidate.most_associated_category = max(ratings, key=ratings.get)
+        candidate.most_associated_category = max(names, key=ratings.get)
         candidate.largest_category_association = ratings[candidate.most_associated_category]
