@@ -25,10 +25,12 @@ from lexical_acquisition_mechanisms.pile_word_usages import sample_word_usages
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings, load_settings
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-# 複数形で挙がった語（giraffes）は、WordNet の見出しの形（giraffe）にする
+# 複数形で挙がった語は、そのカテゴリの語義がある単数形にする（giraffes は見出しになく、shoes は
+# 「立場」の語義だけで見出しにある）
 LISTED_NOUNS = {
     "food": ["pasta", "chicken", "ice cream", "car"],
     "animal": ["giraffes", "chicken"],
+    "clothing": ["shoes"],
 }
 TEXTS_BY_SHARD = [
     ["We ate pasta tonight.", "A pasta brand was sold."],
@@ -117,6 +119,9 @@ def test_candidates_are_checked_with_wordnet_and_pile_usages(
     assert float(rows["pasta"]["same_meaning_usage_share"]) == pytest.approx(2 / 3)
     assert rows["giraffe"]["category"] == "animal"
     assert rows["giraffe"]["rejected_reason"] == ""
+    assert rows["shoe"]["category"] == "clothing"
+    assert rows["shoe"]["rejected_reason"] == ""
+    assert "shoes" not in rows
     assert rows["chicken"]["rejected_reason"] == "複数のカテゴリで挙がった"
     assert rows["ice cream"]["rejected_reason"] == "1語の小文字ではない"
     assert rows["car"]["rejected_reason"] == "WordNet で、このカテゴリの語義がない"
