@@ -11,6 +11,8 @@
   効果の平均
 - 比べるもの: 名詞ごとの、2つの地図の head の効果の順位相関（Spearman）と、効果が大きい TOP_HEADS
   個の head の重なりの割合（偶然の水準は TOP_HEADS ÷ head の数）
+- 既存の形の地図（GPU が要らない）を先に作り、それがある名詞だけ、新しい形の地図を作る。既存の形の
+  地図が1つもなければ（例: 語義の追加の最小対が使えないモデル）、GPU での処理をせずに、空の表を書く
 出力は outputs/results/dependence-on-category-judging-heads/<モデル>/ の head_maps.npz（名詞 ×
 head の2つの地図）と head_map_comparison.csv（名詞ごと。名詞での平均と区間は make-report で出す）。
 """
@@ -130,17 +132,21 @@ def write_head_maps(
     exposure: int,
 ) -> None:
     questions_path, assignments_path, words_path, pairs_path, effects_path = input_paths
-    assignments = read_rows(assignments_path, UnknownWordAssignment)
-    new_form = new_form_maps(
-        checkpoints,
-        load_model,
-        parquet.read_table(questions_path).to_pylist(),
-        assignments,
-        {word.word: word for word in read_rows(words_path, SelectedWord)},
-        exposure,
-    )
     arrays = np.load(effects_path)
     existing = existing_form_maps(parquet.read_table(pairs_path).to_pylist(), arrays)
+    if existing:
+        new_form = new_form_maps(
+            checkpoints,
+            load_model,
+            parquet.read_table(questions_path).to_pylist(),
+            read_rows(assignments_path, UnknownWordAssignment),
+            {word.word: word for word in read_rows(words_path, SelectedWord)},
+            exposure,
+            set(existing),
+        )
+    else:
+        print("既存の形の地図（語義の追加で、名詞が donor の最小対）がないので、比べません。")
+        new_form = {}
     nouns = sorted(set(new_form) & set(existing))
     heads = arrays["heads"] != MLP
     comparisons = []
@@ -163,9 +169,9 @@ def write_head_maps(
     maps_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(
         maps_path,
-        nouns=np.array(nouns),
-        new_form=np.array([new_form[noun][0] for noun in nouns]).reshape(len(nouns), -1),
-        existing_form=np.array([existing[noun] for noun in nouns]).reshape(len(nouns), -1),
+        nouns=np.array(nouns, dtype=str),
+        new_form=np.array([new_form[noun][0] for noun in nouns]).reshape(len(nouns), heads.sum()),
+        existing_form=np.array([existing[noun] for noun in nouns]).reshape(len(nouns), heads.sum()),
         layers=arrays["layers"][heads],
         heads=arrays["heads"][heads],
     )
@@ -179,9 +185,10 @@ def new_form_maps(
     assignments: Sequence[UnknownWordAssignment],
     words: dict[str, SelectedWord],
     exposure: int,
+    nouns: set[str],
 ) -> dict[str, tuple[np.ndarray, UnknownWordAssignment]]:
-    """名詞ごとの、新しい形の地図（head ごとの効果）と、使った未知語の割り当て。"""
-    targets = [row for row in assignments if row.exposure == exposure]
+    """nouns の名詞ごとの、新しい形の地図（head ごとの効果）と、使った未知語の割り当て。"""
+    targets = [row for row in assignments if row.exposure == exposure and row.noun in nouns]
     zero_words: dict[tuple[str, int, str], str] = {}
     for row in sorted(assignments, key=lambda row: row.unknown_word):
         if row.exposure == 0:
