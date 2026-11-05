@@ -3,11 +3,12 @@
 
 自然な語ごとに、判定に合格した用例を鍵の順に見て、語の最初の出現を含む1文を取り出す。
 - 文の区切りは、文の終わりの記号（. ! ?。後ろの引用符や括弧を含む）の後の空白と、改行。
-- 用例の端で切れた文（前か後ろに区切りがない文）、大文字で始まらない文、文の終わりの記号で
-  終わらない文、語の数が MINIMUM_WORDS〜MAXIMUM_WORDS でない文は使わない。
+- 用例の端で切れた文（前か後ろに区切りがない文。用例の末尾の記号は、元の文の途中（例: "3.5 kg" の
+  "3."）でありうるので、文の終わりにしない）、大文字で始まらない文、文の終わりの記号で終わらない文、
+  語の数が MINIMUM_WORDS〜MAXIMUM_WORDS でない文は使わない。
 語ごとに evaluation.sentences_per_natural_word 文まで取り、
 data/evaluation/natural_word_sentences.csv に書く。語ごとの文の数は natural_word_sentence_counts.csv
-に書き、足りない語があれば表示する。
+に書く。足りない語があれば、書いた後に止まる（用例を増やすか、語を選び直す）。
 """
 
 import argparse
@@ -18,7 +19,12 @@ from pathlib import Path
 import pyarrow.compute as compute
 import pyarrow.parquet as parquet
 
-from lexical_acquisition_mechanisms import passage_finalization, word_finalization
+from lexical_acquisition_mechanisms import (
+    passage_collection,
+    passage_finalization,
+    word_finalization,
+)
+from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.settings import Settings
@@ -33,7 +39,7 @@ MINIMUM_WORDS = 5
 MAXIMUM_WORDS = 40
 # 文の区切り（文の終わりの記号と、後ろの引用符・括弧の後の空白か、改行）
 BOUNDARY = re.compile(r"[.!?][\"')\]]*\s+|\n+")
-SENTENCE_END = re.compile(r"[.!?][\"')\]]*(?=\s|$)|\n")
+SENTENCE_END = re.compile(r"[.!?][\"')\]]*(?=\s)|\n")
 
 
 @dataclass
@@ -108,8 +114,12 @@ def build_natural_word_sentences(
     write_rows(counts_path, NaturalWordSentenceCount, counts)
     short = [count.word for count in counts if count.sentences < wanted]
     if short:
-        print(
-            f"文が {wanted} 文に届かなかった自然な語があります（{len(short)} 語: {short[:10]}）。"
+        raise CommandStopped(
+            f"文が {wanted} 文に届かなかった自然な語があります（{len(short)} 語: {short[:10]}。"
+            f"数は {counts_path}）。settings.yaml の evaluation.passages_per_natural_word を"
+            "増やしてください（その語を外すときは、data/words/excluded_words.csv に足して"
+            " words select から実行し直す）。",
+            rerun_from=passage_collection.COMMAND,
         )
 
 
