@@ -7,6 +7,9 @@ test-attribute-directions まで終えたモデルごとに、outputs/figures/se
   （層 × head。右端の列が MLP。採用の基準の前の、効果の地図で有意なものに点を打つ）
 - 全てのモデルの表（モデルの列を足す）: sense_accuracy.csv（手順1）・component_classes.csv（手順2の
   分類）・attribute_judging_heads.csv（手順3の3つの基準。手順2の分類の列を足す）
+- アブレーション（設計書 2-5。sense_addition_ablations）の表: ablation_number_of_senses.csv（足す
+  語義の数 N）・ablation_token_count.csv（ターゲット語のトークン数）・ablation_model_size.csv
+  （モデルサイズ。相対的な深さ）
 """
 
 import argparse
@@ -29,22 +32,35 @@ from lexical_acquisition_mechanisms.component_patching import MLP
 from lexical_acquisition_mechanisms.csv_tables import read_rows
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.sense_accuracy import SenseAccuracy
+from lexical_acquisition_mechanisms.sense_addition_ablations import (
+    ModelSizeAblation,
+    NumberOfSensesAblation,
+    TokenCountAblation,
+    by_model_size,
+    by_number_of_senses,
+    by_token_count,
+    number_of_layers,
+)
 from lexical_acquisition_mechanisms.sense_addition_assignments import KINDS, NUMBERS_OF_SENSES
 from lexical_acquisition_mechanisms.settings import Settings
-from lexical_acquisition_mechanisms.significant_heads_and_mlps import ComponentEffect
+from lexical_acquisition_mechanisms.significant_heads_and_mlps import (
+    ComponentEffect,
+    TokenCountEffect,
+)
 
 COMMAND = "sense-addition make-report"
 FIGURES_DIRECTORY = Path("outputs/figures/sense-addition")
 
 
-def report_inputs(model: str) -> tuple[Path, Path, Path, Path]:
-    """手順1の正解率・効果の地図・分類・属性を判定する head の表。"""
+def report_inputs(model: str) -> tuple[Path, Path, Path, Path, Path]:
+    """手順1の正解率・効果の地図・分類・属性を判定する head の表・トークン数ごとの地図。"""
     effects, _, classes = significant_heads_and_mlps.output_paths(model)
     return (
         sense_accuracy.result_paths(model)[1],
         effects,
         classes,
         attribute_direction_patching.output_paths(model)[2],
+        significant_heads_and_mlps.token_count_effects_path(model),
     )
 
 
@@ -52,11 +68,12 @@ def make_report(settings: Settings, arguments: argparse.Namespace) -> None:
     models = [model for model in settings.models if report_inputs(model)[3].exists()]
     inputs = {}
     for model in models:
-        accuracy, effects, classes, judging = report_inputs(model)
+        accuracy, effects, classes, judging, token_counts = report_inputs(model)
         selected_by = f"sense-addition select-significant-heads-and-mlps --model {model}"
         inputs[accuracy] = f"sense-addition measure-sense-accuracy --model {model}"
         inputs[effects] = selected_by
         inputs[classes] = selected_by
+        inputs[token_counts] = selected_by
         inputs[judging] = f"sense-addition test-attribute-directions --model {model}"
     step = Step(COMMAND, inputs=inputs, outputs=[FIGURES_DIRECTORY], settings={"models": models})
     run_unless_unchanged(step, lambda: write_report(models, FIGURES_DIRECTORY), arguments.recompute)
@@ -65,18 +82,28 @@ def make_report(settings: Settings, arguments: argparse.Namespace) -> None:
 def write_report(
     models: Sequence[str],
     directory: Path,
-    paths_of: Callable[[str], tuple[Path, Path, Path, Path]] = report_inputs,
+    paths_of: Callable[[str], tuple[Path, Path, Path, Path, Path]] = report_inputs,
 ) -> None:
     directory.mkdir(parents=True, exist_ok=True)
-    tables: dict[str, list[dict[str, object]]] = {"accuracy": [], "classes": [], "judging": []}
+    tables: dict[str, list[dict[str, object]]] = {
+        name: []
+        for name in ("accuracy", "classes", "judging", "senses", "token_counts", "model_sizes")
+    }
     for model in models:
-        accuracy_path, effects_path, classes_path, judging_path = paths_of(model)
+        accuracy_path, effects_path, classes_path, judging_path, token_counts_path = paths_of(model)
         accuracy = read_rows(accuracy_path, SenseAccuracy)
         classes = read_rows(classes_path, ComponentClass)
+        effects = read_rows(effects_path, ComponentEffect)
         _plot_accuracy(accuracy, directory / f"sense-accuracy-{model}.png", model)
-        _plot_maps(
-            read_rows(effects_path, ComponentEffect), directory / f"head-maps-{model}.png", model
-        )
+        _plot_maps(effects, directory / f"head-maps-{model}.png", model)
+        layers = number_of_layers(effects)
+        ablations = {
+            "senses": by_number_of_senses(effects),
+            "token_counts": by_token_count(read_rows(token_counts_path, TokenCountEffect), layers),
+            "model_sizes": by_model_size(classes, layers),
+        }
+        for name, rows in ablations.items():
+            tables[name] += [{"model": model, **vars(row)} for row in rows]
         class_of = {(row.layer, row.head): row.component_class for row in classes}
         tables["accuracy"] += [{"model": model, **vars(row)} for row in accuracy]
         tables["classes"] += [{"model": model, **vars(row)} for row in classes]
@@ -92,6 +119,9 @@ def write_report(
         "accuracy": ("sense_accuracy.csv", SenseAccuracy, []),
         "classes": ("component_classes.csv", ComponentClass, []),
         "judging": ("attribute_judging_heads.csv", AttributeJudgingHead, ["component_class"]),
+        "senses": ("ablation_number_of_senses.csv", NumberOfSensesAblation, []),
+        "token_counts": ("ablation_token_count.csv", TokenCountAblation, []),
+        "model_sizes": ("ablation_model_size.csv", ModelSizeAblation, []),
     }
     for key, (file_name, row_type, extra) in names.items():
         fields = ["model", *(field.name for field in dataclasses.fields(row_type)), *extra]
