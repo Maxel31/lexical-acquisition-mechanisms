@@ -13,7 +13,8 @@
   ずれうるため。--recompute を付けたときは使わない。
 - 出現の位置がない候補は、問い合わせずに不合格にする。
 - 問い合わせる前に、組ごとの候補の数を確かめる。合格する必要がある数に届かない語があれば止まる
-  （passage_shortage）。必要な数 × passages.collection_factor に届かない語は、表示して続ける。
+  （passage_shortage）。合格する見込み（候補の数 × usage_share）が、必要な数 ×
+  passages.collection_factor に届かない語は、表示して続ける。
 結果を data/passages/judgments.parquet に、組ごとの数を data/passages/judgment_summary.csv に書く。
 """
 
@@ -228,11 +229,19 @@ def _check_candidates(
     if shortages := passage_shortage.find_shortages(managed, counts, settings):
         passage_shortage.stop_for_shortage(shortages, "判定に回す候補", *shortage_paths)
     factor = settings.passages.collection_factor
-    if few := passage_shortage.find_shortages(managed, counts, settings, factor):
+    few = []
+    for word in managed:
+        share = max(word.usage_share, passage_collection.MINIMUM_USAGE_SHARE)
+        for split in passage_shortage.SPLITS:
+            needed = passage_shortage.needed_passing_passages(word.role, split, settings)
+            found = counts.get((word.word, split), 0)
+            if needed and found * share < needed * factor:
+                few.append(passage_shortage.Shortage(word.word, word.role, split, found, needed))
+    if few:
         print(
-            f"判定に回す候補が、合格する必要がある数の {factor} 倍に届かない語があります"
-            f"（{passage_shortage.listed(few)}）。合格する割合が低いと、passages finalize で"
-            "足りなくなります。"
+            "合格する見込み（判定に回す候補の数 × usage_share）が、合格する必要がある数の"
+            f" {factor} 倍に届かない語があります（{passage_shortage.listed(few)}）。合格する割合が"
+            "見込みより低いと、passages finalize で足りなくなります。"
         )
 
 
