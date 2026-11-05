@@ -16,7 +16,9 @@
   管理対象の語でないものに限る。
 - 自然な語（実験で操作しない実在語。課題の例やプローブの学習に使う）: 各カテゴリ30語の名詞と、
   形容詞60語。名詞は、カテゴリごとに1・2・3トークンの語を順に（なければ、あるトークン数の語を）、
-  無作為に選ぶ。品詞のプローブには、形容詞と同じ1トークンの名詞を、各カテゴリ10語使う。
+  無作為に選ぶ。品詞のプローブには、形容詞と同じ1トークンの名詞を、形容詞と同じ60語使う（カテゴリから
+  順に1語ずつ。1トークンの自然な名詞が足りなければ、1トークンの候補が残るカテゴリから順に、自然な
+  名詞を足す。足したカテゴリの自然な名詞は30語より多くなる）。
 どの語も、Pile の見本で意図した語義（形容詞は、形容詞として）で使われていた割合が高く、Pile で
 取れる用例の見積もり（意図した使われ方の割合を掛けたもの）が必要な数より十分に多い候補から選ぶ。
 すでに選んだ語の同義語（WordNet で、その語を見出しとする語義が重なる語）は選ばない。
@@ -64,8 +66,8 @@ NOUNS_PER_CATEGORY = 12
 TARGET_TOKEN_COUNTS = (1, 2, 3)
 NATURAL_NOUNS_PER_CATEGORY = 30
 NATURAL_ADJECTIVES = 60
-# 品詞のプローブに使う、カテゴリごとの自然な名詞の数
-PART_OF_SPEECH_NOUNS_PER_CATEGORY = 10
+# 品詞のプローブに使う、1トークンの自然な名詞の数（自然な形容詞と同じ数）
+PART_OF_SPEECH_NOUNS = 60
 # 1トークンの未知語の数と、2・3トークンの未知語の、トークン数と綴りの近さの組ごとの数
 ONE_TOKEN_UNKNOWN_WORDS = 24
 UNKNOWN_WORDS_PER_GROUP = 12
@@ -417,10 +419,11 @@ def _select_natural_words(
     chosen: ChosenWords,
     tokenizer: WordTokenizer,
 ) -> list[SelectedWord]:
-    """自然な名詞（各カテゴリ30語）と形容詞（60語）を、無作為に選ぶ。"""
+    """自然な名詞（各カテゴリ30語。品詞のプローブ用に足す語を除く）と形容詞（60語）を、無作為に選ぶ。"""
     needed = settings.evaluation.passages_per_natural_word
     random_numbers = random.Random(settings.words.seed)
-    rows = []
+    natural: dict[str, list[NounCandidate]] = {}
+    spare_one_token = []
     for category in settings.words.categories:
         buckets = []
         for token_count in TARGET_TOKEN_COUNTS:
@@ -433,19 +436,30 @@ def _select_natural_words(
             ]
             random_numbers.shuffle(bucket)
             buckets.append(bucket)
-        natural_nouns = _take_in_turn(buckets, NATURAL_NOUNS_PER_CATEGORY, chosen)
-        if len(natural_nouns) < NATURAL_NOUNS_PER_CATEGORY:
+        natural[category.name] = _take_in_turn(buckets, NATURAL_NOUNS_PER_CATEGORY, chosen)
+        if len(natural[category.name]) < NATURAL_NOUNS_PER_CATEGORY:
             description = f"カテゴリ {category.name} の自然な名詞"
-            raise _shortage(description, len(natural_nouns), needed, settings)
-        one_token = [noun.word for noun in natural_nouns if noun.token_count == 1]
-        if len(one_token) < PART_OF_SPEECH_NOUNS_PER_CATEGORY:
-            # 品詞のプローブの名詞（各カテゴリの1トークンの自然な名詞）が足りないと、名詞と形容詞の
-            # 数がそろわない
-            description = f"カテゴリ {category.name} の1トークンの自然な名詞（品詞のプローブ用）"
-            raise _shortage(description, len(one_token), needed, settings)
-        for noun in natural_nouns:
+            raise _shortage(description, len(natural[category.name]), needed, settings)
+        # _take_in_turn が取らずに残した、1トークンの候補
+        spare_one_token.append(buckets[0])
+    probe_nouns = _take_in_turn(
+        [[noun for noun in nouns if noun.token_count == 1] for nouns in natural.values()],
+        PART_OF_SPEECH_NOUNS,
+        ChosenWords(lambda word: frozenset()),
+    )
+    # 1トークンの自然な名詞が足りなければ、1トークンの候補が残るカテゴリから順に、自然な名詞を足す
+    extra = _take_in_turn(spare_one_token, PART_OF_SPEECH_NOUNS - len(probe_nouns), chosen)
+    for noun in extra:
+        natural[noun.category].append(noun)
+    probe_words = {noun.word for noun in [*probe_nouns, *extra]}
+    if len(probe_words) < PART_OF_SPEECH_NOUNS:
+        description = "1トークンの自然な名詞（品詞のプローブ用）"
+        raise _shortage(description, len(probe_words), needed, settings)
+    rows = []
+    for nouns in natural.values():
+        for noun in nouns:
             row = _row(noun, "natural-noun", tokenizer)
-            row.part_of_speech_probe = noun.word in one_token[:PART_OF_SPEECH_NOUNS_PER_CATEGORY]
+            row.part_of_speech_probe = noun.word in probe_words
             rows.append(row)
     usable = [candidate for candidate in listed_adjectives if _usable(candidate, settings, needed)]
     random_numbers.shuffle(usable)
