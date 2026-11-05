@@ -83,7 +83,6 @@ def measure_indicators(settings: Settings, arguments: argparse.Namespace) -> Non
     run_unless_unchanged(
         step,
         lambda: write_indicators(
-            settings,
             dict(zip(runs, checkpoints, strict=True)),
             lambda source: LanguageModel.load(source, batch_size=BATCH_SIZE),
             probes_path,
@@ -91,6 +90,19 @@ def measure_indicators(settings: Settings, arguments: argparse.Namespace) -> Non
         ),
         arguments.recompute,
     )
+
+
+def read_real_word_probes(path: Path) -> dict[str, LogisticProbe]:
+    """実在語らしさのプローブ（キーは "{トークン数}-{層}"）を、一度に読む。"""
+    with np.load(path) as arrays:
+        parts: dict[str, dict[str, np.ndarray]] = {}
+        for name in arrays.files:
+            key, _, field = name.rpartition("-")
+            parts.setdefault(key, {})[field] = arrays[name]
+    return {
+        key: LogisticProbe(*(values[field] for field in ("weights", "biases", "mean", "scale")))
+        for key, values in parts.items()
+    }
 
 
 def checkpoint_states(checkpoints: Sequence[Path]) -> dict[str, list[list[object]]]:
@@ -105,7 +117,6 @@ def checkpoint_states(checkpoints: Sequence[Path]) -> dict[str, list[list[object
 
 
 def write_indicators(
-    settings: Settings,
     checkpoints: dict[str, Path],
     load_model: Callable[[ModelSource], LanguageModel],
     probes_path: Path,
@@ -122,7 +133,7 @@ def write_indicators(
     assignments = read_rows(assignments_path, UnknownWordAssignment)
     contexts = [row.context for row in read_rows(contexts_path, NeutralContext)]
     references = read_rows(normalization_path, NormalizationWord)
-    probes = np.load(probes_path)
+    probes = read_real_word_probes(probes_path)
     rows = []
     for run, checkpoint in checkpoints.items():
         model = load_model(ModelSource(repository=str(checkpoint)))
@@ -142,7 +153,7 @@ def _measure_run(
     words: dict[str, SelectedWord],
     references: Sequence[NormalizationWord],
     contexts: Sequence[str],
-    probes,
+    probes: dict[str, LogisticProbe],
 ) -> list[dict[str, object]]:
     """1つの run の、未知語と正規化の基準の指標（縦長の行）。"""
     unknown = [word for word in words.values() if word.role == "unknown"]
@@ -189,10 +200,8 @@ def _measure_run(
             ]
         for layer in range(states.shape[2]):
             key = f"{token_count}-{layer}"
-            if kind != "split-noun" and f"{key}-weights" in probes:
-                probe = LogisticProbe(
-                    *(probes[f"{key}-{name}"] for name in ("weights", "biases", "mean", "scale"))
-                )
+            probe = probes.get(key)
+            if kind != "split-noun" and probe is not None:
                 probability = probe.probabilities(states[index, :, layer])[:, 1].mean()
                 rows.append(
                     row | {"layer": layer, "indicator": "integration", "value": float(probability)}

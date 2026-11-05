@@ -109,6 +109,24 @@ def test_stopped_action_shows_what_to_fix_and_where_to_rerun(
     assert "uv run lexical-acquisition-mechanisms words select" in message
 
 
+def test_unknown_model_names_stop_before_the_action_runs(
+    in_repository_like_directory: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def add_model_argument(parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--model", required=True)
+
+    def fail(settings: Settings, arguments: argparse.Namespace) -> None:
+        raise AssertionError("実行しない")
+
+    actions = [Action("results", "collect", "", fail, add_model_argument)]
+    exit_code = main(["results", "collect", "--model", "OLMo-3B"], actions)
+
+    assert exit_code == 1
+    message = capsys.readouterr().err
+    assert "モデル OLMo-3B は settings.yaml の models にありません" in message
+    assert "results collect --model OLMo-3B" in message
+
+
 def test_missing_settings_file_is_reported(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

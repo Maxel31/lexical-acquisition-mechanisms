@@ -11,7 +11,7 @@ from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.logistic_probes import train_logistic_probe
 from lexical_acquisition_mechanisms.neutral_contexts import NeutralContext
 from lexical_acquisition_mechanisms.probe_and_normalization_words import NormalizationWord
-from lexical_acquisition_mechanisms.settings import ModelSource, load_settings
+from lexical_acquisition_mechanisms.settings import ModelSource
 from lexical_acquisition_mechanisms.unknown_word_assignments import UnknownWordAssignment
 from lexical_acquisition_mechanisms.unknown_word_indicators import write_indicators
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
@@ -27,7 +27,6 @@ def ids(tokenizer: WordTokenizer, word: str) -> str:
 def test_indicators_are_measured_for_words_and_references(
     tmp_path: Path, tiny_model_source: ModelSource
 ) -> None:
-    settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
     tokenizer = WordTokenizer.from_model(tiny_model_source)
     words = [
         SelectedWord(
@@ -69,7 +68,6 @@ def test_indicators_are_measured_for_words_and_references(
     checkpoint = Path(tiny_model_source.repository)
 
     write_indicators(
-        settings,
         {"run-1": checkpoint, "control": checkpoint},
         lambda source: LanguageModel.load(source, device="cpu"),
         tmp_path / "probes.npz",
