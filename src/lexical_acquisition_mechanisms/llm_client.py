@@ -32,7 +32,7 @@ PROMPT_DIRECTORY = Path("llm_prompts")
 ANSWERS_PATH = Path("data/llm_answers.sqlite3")
 NUMBER_OF_ATTEMPTS = 5
 CHUNK_SIZE = 10_000
-# 答えのデータベースを、ほかのコマンドが書いている間に待つ秒数と、書き込みを区切る答えの数
+# 答えのデータベースを、ほかのコマンドが書いている間に待つ秒数と、まとめて書く答えの数
 # （2つの LLM のコマンドを同時に実行しても、"database is locked" で止まらないように）
 DATABASE_TIMEOUT = 600
 COMMIT_EVERY = 100
@@ -180,6 +180,8 @@ class LlmClient:
         )
         problems: list[str] = []
         stop: CommandStopped | None = None
+        # 書く答え（答えを待つ間は書き込みの鍵を持たないように、まとめて短く書く）
+        pending: list[tuple[str, ...]] = []
         async with httpx.AsyncClient(
             base_url=self._settings.server_url,
             transport=self._transport,
@@ -196,7 +198,7 @@ class LlmClient:
 
             tasks = [asyncio.create_task(ask(key, index)) for key, index in missing.items()]
             try:
-                for number, finished in enumerate(asyncio.as_completed(tasks), start=1):
+                for finished in asyncio.as_completed(tasks):
                     try:
                         key, index, answer = await finished
                     except CommandStopped as stopped:
@@ -208,14 +210,14 @@ class LlmClient:
                         problems.append(f"{requests[index].prompt.name}: {answer}")
                         continue
                     answers[key] = answer
-                    self._save(database, key, requests[index], bodies[index], answer)
-                    if number % COMMIT_EVERY == 0:
-                        database.commit()
+                    pending.append(_answer_row(key, requests[index], bodies[index], answer))
+                    if len(pending) >= COMMIT_EVERY:
+                        _write(database, pending)
             finally:
                 for task in tasks:
                     task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
-                database.commit()
+                _write(database, pending)
         if stop is not None:
             raise stop
         if len(problems) > max(10, MAXIMUM_INVALID_FRACTION * len(missing)):
@@ -272,25 +274,26 @@ class LlmClient:
             rerun_from=self._rerun_from,
         )
 
-    def _save(
-        self,
-        database: sqlite3.Connection,
-        key: str,
-        request: LlmRequest,
-        body: dict[str, Any],
-        answer: dict[str, Any],
-    ) -> None:
-        database.execute(
-            "INSERT OR REPLACE INTO answers VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                key,
-                request.prompt.name,
-                request.prompt.version,
-                json.dumps(body, ensure_ascii=False),
-                json.dumps(answer, ensure_ascii=False),
-                datetime.now().astimezone().isoformat(timespec="seconds"),
-            ),
-        )
+
+def _answer_row(
+    key: str, request: LlmRequest, body: dict[str, Any], answer: dict[str, Any]
+) -> tuple[str, ...]:
+    return (
+        key,
+        request.prompt.name,
+        request.prompt.version,
+        json.dumps(body, ensure_ascii=False),
+        json.dumps(answer, ensure_ascii=False),
+        datetime.now().astimezone().isoformat(timespec="seconds"),
+    )
+
+
+def _write(database: sqlite3.Connection, rows: list[tuple[str, ...]]) -> None:
+    """ためた答えを1つの短い書き込みで書き、空にする。"""
+    if rows:
+        with database:
+            database.executemany("INSERT OR REPLACE INTO answers VALUES (?, ?, ?, ?, ?, ?)", rows)
+        rows.clear()
 
 
 def _key_of(body: Mapping[str, Any]) -> str:

@@ -1,5 +1,6 @@
 """LLM への問い合わせのテスト。サーバの代わりに、決まった答えを返す部品を使う。"""
 
+import asyncio
 import json
 import sqlite3
 import threading
@@ -29,6 +30,8 @@ ANSWER_SCHEMA = {
     "additionalProperties": False,
 }
 PROMPT = PromptTemplate("judge-word-sense", "Is $word used as food here?\n$passage\n")
+# 待つ処理を差し替える前の asyncio.sleep（本当に待つテストに使う）
+REAL_SLEEP = asyncio.sleep
 
 
 class StubServer:
@@ -258,3 +261,32 @@ def test_a_client_waits_while_another_command_writes_to_the_database(tmp_path: P
     releaser.join()
     holder.close()
     assert answers[0]["passed"] is True
+
+
+def test_the_write_lock_is_not_held_while_waiting_for_answers(tmp_path: Path) -> None:
+    # 答えを待っている間は、ほかのコマンドがすぐに書き込みの鍵を取れる
+    path = tmp_path / "answers.sqlite3"
+    make_client(tmp_path, StubServer()).ask_all(requests_for("car"))
+    could_write = []
+    server = StubServer()
+
+    async def handle(request: httpx.Request) -> httpx.Response:
+        # 本当に待って、前の答えを受け取る（書く）番を回す
+        await REAL_SLEEP(0.05)
+        if "lamp" in json.loads(request.content)["messages"][0]["content"]:
+            other = sqlite3.connect(path, timeout=0)
+            try:
+                other.execute("BEGIN IMMEDIATE")
+                other.rollback()
+                could_write.append(True)
+            except sqlite3.OperationalError:
+                could_write.append(False)
+            finally:
+                other.close()
+        return server.handle(request)
+
+    settings = SETTINGS.model_copy(update={"maximum_concurrent_requests": 1})
+    client = LlmClient(settings, path, rerun_from="test", transport=httpx.MockTransport(handle))
+    client.ask_all(requests_for("pasta", "bread", "rice", "lamp"))
+
+    assert could_write == [True]
