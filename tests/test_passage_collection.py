@@ -94,8 +94,8 @@ def settings(tiny_model_source: ModelSource) -> Settings:
 
 def write_words(tmp_path: Path, pasta_passages: int = 8) -> Path:
     words = [
-        SelectedWord("pasta", "noun", estimated_pile_passages=pasta_passages),
-        SelectedWord("quiet", "natural-adjective", estimated_pile_passages=1),
+        SelectedWord("pasta", "noun", estimated_pile_passages=pasta_passages, usage_share=1.0),
+        SelectedWord("quiet", "natural-adjective", estimated_pile_passages=1, usage_share=1.0),
         SelectedWord("<new_01>", "unknown"),
     ]
     path = tmp_path / "words.csv"
@@ -185,7 +185,11 @@ def test_word_rarer_than_estimated_stops(tmp_path: Path, settings: Settings) -> 
 
 def test_more_occurrences_are_kept_than_the_candidates_for_judging(settings: Settings) -> None:
     # 窓の除外と重複の除去で減る分を見込み、判定に回す候補の数（4 × 1.2 = 4.8 件）より多く残す
-    assert kept_occurrences(SelectedWord("pasta", "noun"), settings) == 8
+    assert kept_occurrences(SelectedWord("pasta", "noun", usage_share=1.0), settings) == 8
+    # 意図した語義で使われる割合が小さい語は、判定で落ちる分も見込んで、その割合で割った数を残す
+    assert kept_occurrences(SelectedWord("pasta", "noun", usage_share=0.5), settings) == 15
+    # 割合の下限（0.1）より小さい語も、下限の割合で割る
+    assert kept_occurrences(SelectedWord("pasta", "noun", usage_share=0.01), settings) == 72
 
 
 def test_record_does_not_depend_on_the_judgment_precision(
