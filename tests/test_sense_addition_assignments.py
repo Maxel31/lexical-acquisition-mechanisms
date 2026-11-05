@@ -5,15 +5,18 @@ from pathlib import Path
 
 import pytest
 
+from lexical_acquisition_mechanisms import sense_addition_assignments
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.hidden_state_similarity import HiddenStateSimilarity
 from lexical_acquisition_mechanisms.sense_addition_assignments import (
     OtherCategoryPair,
     SenseAdditionAssignment,
+    frequency_imbalance,
     write_sense_addition_assignments,
 )
 from lexical_acquisition_mechanisms.settings import load_settings
 from lexical_acquisition_mechanisms.similarity_ratings import SimilarityRating
+from lexical_acquisition_mechanisms.unknown_word_assignments import nouns_by_token_count
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -180,13 +183,21 @@ def test_frequency_of_first_donors_is_the_same_for_every_token_count(
     assert max(adjectives.values()) - min(adjectives.values()) <= 1
 
 
-def test_frequency_of_adjective_donors_does_not_follow_the_number_of_senses(
-    assignments: list[SenseAdditionAssignment],
+def test_donor_order_is_the_least_imbalanced_in_frequency(
+    tmp_path: Path, assignments: list[SenseAdditionAssignment]
 ) -> None:
-    # N と donor の頻度が一緒に動かない: どの N でも、形容詞の番号（頻度の順）の平均が、全体の平均
-    # （35.5）から1以内
-    for number in (1, 2, 4):
-        numbers = [
-            int(row.donor.split("-")[1]) for row in assignments if row.run == f"adjective-{number}"
-        ]
-        assert abs(sum(numbers) / len(numbers) - 35.5) <= 1
+    # ずらす量の全ての組から、donor の頻度の偏りが最も小さい組を選ぶ（#176 の並びや、ずらさない
+    # 場合より偏らない）
+    settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
+    categories = [category.name for category in settings.words.categories]
+    words = read_rows(tmp_path / "words.csv", SelectedWord)
+    distances = sense_addition_assignments._pair_distances(
+        tmp_path / "similarity.csv", tmp_path / "ratings.csv"
+    )
+    partition = nouns_by_token_count(words, settings)
+    chosen = frequency_imbalance(assignments, words)
+    for shifts in ((0, 0, 0, 0, 0, 0), (0, 1, 2, 3, 0, 1)):
+        other = sense_addition_assignments._assignments(
+            words, categories, distances, partition, shifts
+        )
+        assert chosen <= frequency_imbalance(other, words)
