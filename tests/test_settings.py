@@ -4,6 +4,8 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
+from pydantic import ValidationError
 
 from lexical_acquisition_mechanisms.settings import Settings, SettingsError, load_settings
 
@@ -33,6 +35,8 @@ def test_repository_settings_are_valid() -> None:
 def test_revision_can_be_omitted() -> None:
     content = load_settings(REPOSITORY_ROOT / "settings.yaml").model_dump()
     content["models"] = {"tiny": {"repository": "./tiny"}}
+    content["training"]["learning_rate_by_model"]["tiny"] = 1e-4
+    content["training"]["sequences_per_device_by_model"]["tiny"] = 1
 
     assert Settings.model_validate(content).models["tiny"].revision is None
 
@@ -135,4 +139,20 @@ def test_exposure_levels_must_be_eight_increasing_numbers() -> None:
     content["unknown_word_acquisition"]["exposure_levels"] = [0, 10, 1]
 
     with pytest.raises(ValueError, match="0 以上の数を8つ、小さい順に"):
+        Settings.model_validate(content)
+
+
+def test_training_values_are_needed_for_every_model() -> None:
+    content = yaml.safe_load((REPOSITORY_ROOT / "settings.yaml").read_text(encoding="utf-8"))
+    del content["training"]["sequences_per_device_by_model"]["OLMo-2-1124-13B"]
+
+    with pytest.raises(ValidationError, match="sequences_per_device_by_model"):
+        Settings.model_validate(content)
+
+
+def test_checkpoint_fractions_are_inside_training() -> None:
+    content = yaml.safe_load((REPOSITORY_ROOT / "settings.yaml").read_text(encoding="utf-8"))
+    content["training"]["checkpoint_fractions"] = [25, 50]
+
+    with pytest.raises(ValidationError, match="0 より大きく 1 より小さい"):
         Settings.model_validate(content)

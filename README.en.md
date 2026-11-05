@@ -17,7 +17,7 @@ Besides the unknown words' indicators, the evaluation uses tasks that ask the mo
 
 - Python 3.12, [uv](https://docs.astral.sh/uv/), internet access
 - NVIDIA GPUs (96 GB): for training, 1 for 1B, 2 for 7B and 4 for 13B; 2 for the LLM server
-- Disk: about 4 TB (of which the trained weights take about 3.6 TB)
+- Disk: about 4 TB (of which the trained weights take about 3.6 TB). A run in training also uses about 180 GB (7B) or 330 GB (13B) for the state to continue from (deleted when the run finishes)
 
 ## Setup
 

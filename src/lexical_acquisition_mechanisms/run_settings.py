@@ -16,7 +16,9 @@ from pydantic import Field, ValidationError
 from lexical_acquisition_mechanisms import (
     base_data,
     sense_addition_assignments,
+    sense_addition_training_data,
     unknown_word_assignments,
+    unknown_word_training_data,
     word_finalization,
 )
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
@@ -33,10 +35,17 @@ from lexical_acquisition_mechanisms.word_selection import SelectedWord
 
 RUNS_DIRECTORY = Path("outputs/runs")
 CHECKPOINTS_DIRECTORY = Path("outputs/checkpoints")
-TRAINING_DATA_DIRECTORY = Path("data/training")
 EXPERIMENT_RUNS = {
-    unknown_word_assignments.EXPERIMENT: [*unknown_word_assignments.run_names(), "control"],
+    unknown_word_assignments.EXPERIMENT: [
+        *unknown_word_assignments.run_names(),
+        unknown_word_training_data.CONTROL_RUN,
+    ],
     sense_addition_assignments.EXPERIMENT: sense_addition_assignments.run_names(),
+}
+# 実験ごとの、学習データ（training-data build が書く）のディレクトリ
+TRAINING_DATA_DIRECTORIES = {
+    unknown_word_assignments.EXPERIMENT: unknown_word_training_data.OUTPUT_DIRECTORY,
+    sense_addition_assignments.EXPERIMENT: sense_addition_training_data.OUTPUT_DIRECTORY,
 }
 
 
@@ -67,7 +76,7 @@ class RunSettings(SettingsSection):
     gradient_clipping: float = Field(gt=0)
     z_loss_weight: float = Field(ge=0)
     checkpoint_fractions: list[float]
-    checkpoint_dtype: Literal["bfloat16", "float32"]
+    checkpoint_number_type: Literal["bfloat16", "float32"]
     # 埋め込みを初期化する新しいトークン番号（1トークンの未知語）と、乱数の倍率
     new_token_ids: list[int]
     new_token_noise_scale: float = Field(ge=0)
@@ -75,8 +84,10 @@ class RunSettings(SettingsSection):
     weights_and_biases_project: str
 
 
-def run_settings_path(experiment: str, model: str, run: str) -> Path:
-    return RUNS_DIRECTORY / experiment / model / f"{run}.yaml"
+def run_settings_path(
+    experiment: str, model: str, run: str, directory: Path = RUNS_DIRECTORY
+) -> Path:
+    return directory / experiment / model / f"{run}.yaml"
 
 
 def load_run_settings(path: Path) -> RunSettings:
@@ -143,13 +154,14 @@ def build_run_settings(
         ]
     paths = []
     for run in EXPERIMENT_RUNS[experiment]:
+        data_directory = TRAINING_DATA_DIRECTORIES[experiment] / run
         run_settings = RunSettings(
             experiment=experiment,
             run=run,
             model=model,
             model_source=settings.models[model],
-            training_tokens=TRAINING_DATA_DIRECTORY / experiment / run / "tokens.npy",
-            passage_starts=TRAINING_DATA_DIRECTORY / experiment / run / "passage_starts.npy",
+            training_tokens=data_directory / unknown_word_training_data.TOKENS_FILE_NAME,
+            passage_starts=data_directory / unknown_word_training_data.PASSAGE_STARTS_FILE_NAME,
             passage_length=settings.passages.tokens_per_passage + 1,
             validation_sequences=base_data.output_paths()["validation"],
             output_directory=CHECKPOINTS_DIRECTORY / experiment / model / run,
@@ -164,13 +176,13 @@ def build_run_settings(
             gradient_clipping=training.gradient_clipping,
             z_loss_weight=training.z_loss_weight,
             checkpoint_fractions=training.checkpoint_fractions,
-            checkpoint_dtype=training.checkpoint_dtype,
+            checkpoint_number_type=training.checkpoint_number_type,
             new_token_ids=new_token_ids,
             new_token_noise_scale=training.new_token_embedding_initialization.noise_scale,
             seed=settings.words.seed,
             weights_and_biases_project=training.weights_and_biases_project,
         )
-        path = directory / experiment / model / f"{run}.yaml"
+        path = run_settings_path(experiment, model, run, directory)
         path.parent.mkdir(parents=True, exist_ok=True)
         content = run_settings.model_dump(mode="json")
         path.write_text(

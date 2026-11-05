@@ -16,6 +16,7 @@ from pydantic import (
     StringConstraints,
     ValidationError,
     field_validator,
+    model_validator,
 )
 
 SETTINGS_FILE_NAME = "settings.yaml"
@@ -230,13 +231,24 @@ class TrainingSettings(SettingsSection):
     gradient_clipping: float = Field(gt=0)
     # 出力の対数の分配関数が大きくなりすぎないようにする損失（z-loss）の重み（事前学習と同じ）
     z_loss_weight: float = Field(ge=0)
-    # 途中の重みを保存する、学習の進み具合（最後の重みは必ず保存する）
+    # 途中の重みを保存する、学習の進み具合（0 より大きく 1 より小さい割合。最後の重みは必ず
+    # 保存する）
     checkpoint_fractions: list[float]
     # 保存する重みの数値の型
-    checkpoint_dtype: Literal["bfloat16", "float32"]
+    checkpoint_number_type: Literal["bfloat16", "float32"]
     new_token_embedding_initialization: NewTokenEmbeddingSettings
     # 学習の記録を送る W&B（実験の記録を残す Web サービス）のプロジェクト
     weights_and_biases_project: str
+
+    @field_validator("checkpoint_fractions")
+    @classmethod
+    def _fractions_inside_training(cls, fractions: list[float]) -> list[float]:
+        if not all(0 < fraction < 1 for fraction in fractions):
+            raise ValueError(
+                f"途中の重みを保存する進み具合は、0 より大きく 1 より小さい割合にしてください: "
+                f"{fractions}"
+            )
+        return fractions
 
 
 class Settings(SettingsSection):
@@ -254,6 +266,14 @@ class Settings(SettingsSection):
     sense_addition: SenseAdditionSettings
     evaluation: EvaluationSettings
     training: TrainingSettings
+
+    @model_validator(mode="after")
+    def _training_values_for_every_model(self) -> "Settings":
+        for name in ("learning_rate_by_model", "sequences_per_device_by_model"):
+            missing = sorted(set(self.models) - set(getattr(self.training, name)))
+            if missing:
+                raise ValueError(f"training.{name} に、models のモデル {missing} がありません。")
+        return self
 
 
 def load_settings(path: Path = Path(SETTINGS_FILE_NAME)) -> Settings:

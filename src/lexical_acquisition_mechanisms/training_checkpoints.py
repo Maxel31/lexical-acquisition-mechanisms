@@ -1,7 +1,7 @@
 """継続事前学習の、重みと途中の状態の保存。
 
 - 重み: 学習の進み具合が checkpoint_fractions に届いた step と最後の step に、Hugging Face の
-  形式（トークナイザを含む。数値の型は checkpoint_dtype）で、出力のディレクトリの
+  形式（トークナイザを含む。数値の型は checkpoint_number_type）で、出力のディレクトリの
   checkpoint-<百分率>/ と final/ に保存する。
 - 続きから学習するための状態（重みと最適化器の状態。GPU ごとに分けたまま）: STATE_INTERVAL_STEPS
   step ごとと、重みを保存した step に、state/ に保存する（新しい状態を書き終えてから、前の状態と
@@ -104,8 +104,8 @@ def save_weights(model: PreTrainedModel, run: RunSettings, rank: int, name: str)
     full_state = get_model_state_dict(model, options=options)
     if rank == 0:
         directory = run.output_directory / name
-        dtype = getattr(torch, run.checkpoint_dtype)
-        state = {key: value.to(dtype) for key, value in full_state.items()}
+        number_type = getattr(torch, run.checkpoint_number_type)
+        state = {key: value.to(number_type) for key, value in full_state.items()}
         model.save_pretrained(directory, state_dict=state)
         source = run.model_source
         tokenizer = AutoTokenizer.from_pretrained(source.repository, revision=source.revision)
