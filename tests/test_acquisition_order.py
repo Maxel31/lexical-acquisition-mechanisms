@@ -187,5 +187,7 @@ def test_half_exposure_crosses_levels_without_values() -> None:
     reached = _half_exposure(np.array([0.0, np.nan, 1.0]), [0, 10, 100])
     assert reached == pytest.approx(10 ** (math.log10(101) * 0.5) - 1)
     assert _half_exposure(np.array([0.0, np.nan, 0.4]), [0, 10, 100]) == math.inf
-    # 最初の水準で達していれば、その露出回数
+    # 最初の水準で達していれば、その露出回数（後で下がってまた上がっても）
     assert _half_exposure(np.array([np.nan, 0.6, 1.0]), [0, 10, 100]) == pytest.approx(10)
+    assert _half_exposure(np.array([np.nan, 0.6, 0.3, 0.8]), [0, 10, 30, 100]) == pytest.approx(10)
+    assert _half_exposure(np.array([0.6, 0.3, 0.8, 0.9]), [0, 10, 30, 100]) == 0
