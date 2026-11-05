@@ -22,6 +22,7 @@ attribute_probe_accuracy.csv（(a)）・attribute_probe_transfer.csv（(b)）。
 
 import argparse
 import gc
+import math
 import random
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -30,6 +31,7 @@ from pathlib import Path
 import numpy as np
 import pyarrow.parquet as parquet
 import torch
+from scipy import stats
 
 from lexical_acquisition_mechanisms import (
     bootstrap_statistics,
@@ -60,9 +62,12 @@ from lexical_acquisition_mechanisms.unknown_word_indicators import checkpoint_st
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 
 HELD_OUT_SHARE = 0.2
-# 語を単位にした検定（word_level_p_value）をする、語の数の下限（偶然の水準が 1/2 のとき、全ての語で
-# 正しくても、語を単位にした二項検定の p が 0.05 を下回るのは 5 語から）
-MINIMUM_TEST_WORDS = 5
+# 語を単位にした検定（word_level_p_value）の決め方（記録に入れる）
+WORD_LEVEL_TEST = {
+    "error": "two-stage bootstrap over words",
+    "distribution": "t with words - 1 degrees of freedom",
+    "minimum_words": "chance ** words < significance level",
+}
 BATCH_SIZE = 32
 # 属性ごとの、課題2の問題の種類（task の列の値）
 ATTRIBUTES = ("category", "part-of-speech")
@@ -148,9 +153,9 @@ def train_attribute_probes(settings: Settings, arguments: argparse.Namespace) ->
             "seed": settings.words.seed,
             "held_out_share": HELD_OUT_SHARE,
             "probe_training": TRAINING_SETTINGS,
-            # 符号化と転移の判定の有意水準と、検定する語の数の下限
+            # 符号化と転移の判定の有意水準と、語を単位にした検定の決め方
             "significance_level": SIGNIFICANCE_LEVEL,
-            "minimum_test_words": MINIMUM_TEST_WORDS,
+            "word_level_test": WORD_LEVEL_TEST,
         },
     )
 
@@ -328,14 +333,29 @@ def word_level_p_value(
     """正解率が偶然の水準を超えるという、片側の p 値。
 
     同じ語の問題の正誤は相関するので、語を単位にした2段のブートストラップ（語の中の問題も再抽出
-    する）の標準誤差による正規近似にする。語が MINIMUM_TEST_WORDS 語より少ないときは、検定しない
-    （1 を返す。語の中の正誤が全てそろうと標準誤差が 0 になり、p が 0 になってしまうので）。
+    する）の標準誤差を使い、自由度が「語の数 − 1」の t 分布で検定する（語が少ないときに、正規近似
+    より甘くならないように）。語の数が minimum_test_words(chance) より少ないときは検定しない
+    （1 を返す）。標準誤差が 0（語の中の正誤が全てそろう）なら、平均が正のとき 0。
     """
-    if len(set(words)) < MINIMUM_TEST_WORDS:
+    number_of_words = len(set(words))
+    if number_of_words < minimum_test_words(chance):
         return 1.0
     differences = (np.asarray(correct, dtype=float) - chance)[:, None]
     mean, error = bootstrap_statistics.mean_and_error(list(words), differences, random_numbers)
-    return float(bootstrap_statistics.positive_p_values(mean, error)[0])
+    mean, error = float(mean[0]), float(error[0])
+    if error == 0:
+        return 0.0 if mean > 0 else 1.0
+    return float(stats.t.sf(mean / error, df=number_of_words - 1))
+
+
+def minimum_test_words(chance: float) -> int:
+    """語を単位にした検定をする語の数の下限。
+
+    全ての語で正しくても、語を単位にした二項検定の p（chance の語の数乗）が有意水準を下回らない語の
+    数では、検定しない（偶然の水準が 1/2 なら5語、1/6 なら2語から）。t 分布の自由度のために、
+    2語以上にする。
+    """
+    return max(2, math.floor(math.log(SIGNIFICANCE_LEVEL) / math.log(chance)) + 1)
 
 
 def read_attribute_probes(path: Path) -> dict[tuple[int, int, str], LogisticProbe]:
