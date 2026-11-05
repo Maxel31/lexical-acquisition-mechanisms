@@ -3,12 +3,17 @@
 語の候補（words generate-noun-candidates の CSV）から、実験で操作する語（管理対象の語）を選び、
 data/words/selected_words.csv に書く。
 - 名詞72語: 各カテゴリ12語。先頭スペース付きで1トークン。
+- ターゲット語18語: 各カテゴリから、先頭スペース付きで1・2・3トークンの語を1語ずつ。最初の
+  トークンが、名詞やほかのターゲット語と重ならない。
 どの語も、Pile の見本で意図した語義で使われていた割合が高く、Pile で取れる用例の見積もり（意図した
 使われ方の割合を掛けたもの）が必要な数より十分に多い候補から選ぶ。すでに選んだ語の同義語
 （WordNet で、その語を見出しとする語義が重なる語）は選ばない。
 頻度は、Pile での標準の形の出現回数の対数で比べる。
 - 名詞は、カテゴリの間で頻度の分布をそろえる。全カテゴリに候補がある頻度の範囲に、12個の目標の値を
   等間隔に置き、カテゴリごとに、それぞれの値に最も近い候補を選ぶ。
+- ターゲット語は、トークン数の間で頻度をそろえる。多トークンの候補の頻度のうち、各組（カテゴリと
+  トークン数）で最も近い候補との差の合計が最も小さい値を目標にし、組ごとに最も近い候補を選ぶ
+  （多トークンの語は低頻度に偏るので、そちらに合わせる）。
 """
 
 import argparse
@@ -30,12 +35,13 @@ from lexical_acquisition_mechanisms.wordnet_senses import noun_senses
 COMMAND = "words select"
 OUTPUT_PATH = Path("data/words/selected_words.csv")
 NOUNS_PER_CATEGORY = 12
+TARGET_TOKEN_COUNTS = (1, 2, 3)
 
 
 @dataclass
 class SelectedWord:
     word: str
-    # 役割（noun: 名詞72語）
+    # 役割（noun: 名詞72語、target: ターゲット語）
     role: str
     category: str = ""
     token_count: int = 0
@@ -88,7 +94,9 @@ def build_selected_words(settings: Settings, noun_candidates_path: Path, output_
     candidates = read_rows(noun_candidates_path, NounCandidate)
     chosen = ChosenWords(_noun_synsets)
     nouns = _select_nouns(candidates, settings, chosen)
+    targets = _select_target_words(candidates, settings, chosen, nouns, tokenizer)
     rows = [_row(noun, "noun", tokenizer) for noun in nouns]
+    rows += [_row(target, "target", tokenizer) for target in targets]
     write_rows(output_path, SelectedWord, rows)
 
 
@@ -138,6 +146,70 @@ def _select_nouns(
     return nouns
 
 
+def _select_target_words(
+    candidates: Sequence[NounCandidate],
+    settings: Settings,
+    chosen: ChosenWords,
+    nouns: Sequence[NounCandidate],
+    tokenizer: WordTokenizer,
+) -> list[NounCandidate]:
+    """各カテゴリの、1・2・3トークンの名詞を1語ずつ。トークン数の間で頻度をそろえる。"""
+    needed = settings.passages.evaluation_passages_per_word
+    first_token = {
+        candidate.word: tokenizer.word_token_ids(candidate.word)[0]
+        for candidate in candidates
+        if not candidate.rejected_reason
+    }
+    taken_first_tokens = {first_token[noun.word] for noun in nouns}
+
+    def available(candidate: NounCandidate) -> bool:
+        return (
+            chosen.can_take(candidate.word)
+            and first_token[candidate.word] not in taken_first_tokens
+        )
+
+    cells = {
+        (category.name, token_count): [
+            candidate
+            for candidate in candidates
+            if candidate.category == category.name
+            and candidate.token_count == token_count
+            and _usable(candidate, settings, needed)
+            and available(candidate)
+        ]
+        for category in settings.words.categories
+        for token_count in TARGET_TOKEN_COUNTS
+    }
+    for (name, token_count), usable in cells.items():
+        if not usable:
+            description = f"カテゴリ {name} の、{token_count}トークンのターゲット語"
+            raise _shortage(description, 0, needed, settings)
+    multi_token_frequencies = [
+        _frequency(candidate)
+        for (_, token_count), usable in cells.items()
+        if token_count > 1
+        for candidate in usable
+    ]
+    goal = min(
+        multi_token_frequencies,
+        key=lambda value: (
+            sum(_distance(_nearest(usable, value), value) for usable in cells.values()),
+            value,
+        ),
+    )
+    targets = []
+    for (name, token_count), usable in cells.items():
+        remaining = [candidate for candidate in usable if available(candidate)]
+        if not remaining:
+            description = f"カテゴリ {name} の、{token_count}トークンのターゲット語（同義語を除く）"
+            raise _shortage(description, 0, needed, settings)
+        target = _nearest(remaining, goal)
+        chosen.take(target.word)
+        taken_first_tokens.add(first_token[target.word])
+        targets.append(target)
+    return targets
+
+
 def _usable(candidate: NounCandidate, settings: Settings, needed_passages: int) -> bool:
     selection = settings.word_selection
     return (
@@ -153,11 +225,13 @@ def _frequency(candidate: NounCandidate) -> float:
     return math.log10(max(candidate.estimated_pile_count, 1))
 
 
+def _distance(candidate: NounCandidate, goal: float) -> float:
+    return abs(_frequency(candidate) - goal)
+
+
 def _nearest(candidates: Sequence[NounCandidate], goal: float) -> NounCandidate:
     """頻度が goal に最も近い候補（同じなら、語の順で先のもの）。"""
-    return min(
-        candidates, key=lambda candidate: (abs(_frequency(candidate) - goal), candidate.word)
-    )
+    return min(candidates, key=lambda candidate: (_distance(candidate, goal), candidate.word))
 
 
 def _shortage(

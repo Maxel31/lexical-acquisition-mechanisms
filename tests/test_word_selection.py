@@ -103,6 +103,23 @@ def test_nouns_match_in_frequency_across_categories_without_synonyms(
     assert rows["cheese"]["token_count"] == "1"
 
 
+def test_target_words_match_the_multi_token_frequencies(tmp_path: Path, settings: Settings) -> None:
+    rows = select(tmp_path, settings, [noun_candidate(*noun) for noun in NOUNS])
+
+    # 1トークンの語も、多トークンの語の頻度（10^3.4 あたり）に合わせて選ぶ。
+    # catfish は、最初のトークン " cat" が名詞 cat と重なるので選ばない
+    assert words_with_role(rows, "target") == {
+        "bagel",
+        "lasagna",
+        "ravioli",
+        "bunny",
+        "giraffe",
+        "armadillo",
+    }
+    assert rows["lasagna"]["token_count"] == "2"
+    assert len(rows["lasagna"]["token_ids"].split()) == 2
+
+
 def test_missing_candidates_stop_with_the_category(tmp_path: Path, settings: Settings) -> None:
     candidates = [noun_candidate(*noun) for noun in NOUNS if noun[0] not in {"pig", "hog", "cat"}]
 
