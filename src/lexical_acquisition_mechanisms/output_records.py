@@ -6,6 +6,8 @@
 
 - 記録のない入力（書き出す途中で止まった生成物など）は使わずに止まる。
 - 記録の後に書き換えられた生成物（人が記入した確認用の CSV など）は、上書きする前に写しを残す。
+- 人が記入して渡すファイル（--review-csv。別の名前で保存したものもある）は、入力ではなく、パスと
+  中身のハッシュを設定として記録する（edited_file_settings）。
 """
 
 import hashlib
@@ -84,6 +86,16 @@ def run_unless_unchanged(step: Step, compute: Callable[[], None], recompute: boo
             record_path_of(path), json.dumps(record, ensure_ascii=False, indent=2) + "\n"
         )
     return True
+
+
+def edited_file_settings(path: Path, writing_command: str) -> dict[str, str]:
+    """人が記入して渡すファイルを、処理の設定として記録する値（パスと中身のハッシュ）。"""
+    if not path.is_file():
+        raise CommandStopped(
+            f"{path} がありません。先に、これを書き出すコマンドを実行して、記入してください。",
+            rerun_from=writing_command,
+        )
+    return {"path": str(path), "hash": hash_path(path)}
 
 
 def record_path_of(path: Path) -> Path:
