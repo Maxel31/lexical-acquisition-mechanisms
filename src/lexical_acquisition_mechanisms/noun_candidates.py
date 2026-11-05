@@ -1,7 +1,7 @@
 """名詞の候補を作る（words generate-noun-candidates）。
 
-1. LLM が、カテゴリごとに名詞を挙げる（挙げる語の種類を変えて、何回か）。挙げた語が WordNet の
-   名詞の見出しになく、元の形（例: gloves → glove）が見出しにあれば、元の形にする。
+1. LLM が、カテゴリごとに名詞を挙げる（挙げる語の種類を変えて、何回か）。挙げた形に、WordNet で
+   そのカテゴリの語義がなく、複数形を戻した形（例: shoes → shoe）にあれば、戻した形にする。
 2. WordNet で、そのカテゴリの語義があり、ほかのカテゴリの語義がない語だけを残す。
 3. Pile の先頭の断片で、標準の形（例: " pasta"）の出現回数を数え、見本を選ぶ。
 4. LLM が見本ごとに、その語の使われ方を判定する（USAGES: 意図した語義（WordNet の説明）の名詞として
@@ -29,7 +29,7 @@ from lexical_acquisition_mechanisms.llm_client import (
 )
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.pile_word_usages import WordUsages, sample_word_usages
-from lexical_acquisition_mechanisms.settings import Settings
+from lexical_acquisition_mechanisms.settings import CategorySettings, Settings
 from lexical_acquisition_mechanisms.usage_shares import usage_shares
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
 from lexical_acquisition_mechanisms.wordnet_senses import (
@@ -143,7 +143,7 @@ def build_noun_candidates(
     ]
     answers = client.ask_all(requests)
     require_answers(answers, "名詞の一覧", COMMAND)
-    candidates = _listed_candidates(requests, answers)
+    candidates = _listed_candidates(requests, answers, words.categories)
     tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
     for candidate in candidates:
         if not candidate.rejected_reason:
@@ -162,14 +162,16 @@ def build_noun_candidates(
 
 
 def _listed_candidates(
-    requests: Sequence[LlmRequest], answers: Sequence[dict | None]
+    requests: Sequence[LlmRequest],
+    answers: Sequence[dict | None],
+    categories: Sequence[CategorySettings],
 ) -> list[NounCandidate]:
     """LLM が挙げた名詞。複数のカテゴリで挙がった語や、1語の小文字でない語は外す。"""
     by_word: dict[str, NounCandidate] = {}
     for request, answer in zip(requests, answers, strict=True):
         category = request.values["category"]
         for noun in (answer or {"nouns": []})["nouns"]:
-            word = _base_form(noun["word"].strip())
+            word = _listed_form(noun["word"].strip(), category, categories)
             candidate = by_word.setdefault(word, NounCandidate(word, category, noun["meaning"]))
             if candidate.category != category:
                 candidate.rejected_reason = "複数のカテゴリで挙がった"
@@ -178,15 +180,33 @@ def _listed_candidates(
     return sorted(by_word.values(), key=lambda candidate: (candidate.category, candidate.word))
 
 
-def _base_form(word: str) -> str:
-    """WordNet の名詞の見出しにない語（例: 複数形の gloves）を、見出しにある元の形（glove）にする。
+def _listed_form(word: str, category: str, categories: Sequence[CategorySettings]) -> str:
+    """挙がった語の、候補にする形。
 
-    元の形も見出しになければ、そのまま返す。
+    挙がった形に、WordNet でそのカテゴリの語義がなく、複数形を戻した形にあれば、戻した形にする
+    （例: shoes は「立場」の語義だけで見出しにあるので、shoe にする）。どちらにもなければ、
+    そのまま。
     """
+    for form in (word, *_singular_forms(word)):
+        if any(category in sense.categories for sense in noun_senses(form, categories)):
+            return form
+    return word
+
+
+def _singular_forms(word: str) -> list[str]:
+    """複数形を戻した形のうち、WordNet の名詞の見出しにあるもの（WordNet の規則と例外の表で
+    戻す）。"""
     wordnet = load_wordnet()
-    if wordnet.lemmas(word, pos=wordnet.NOUN):
-        return word
-    return wordnet.morphy(word, wordnet.NOUN) or word
+    forms = [wordnet.morphy(word, wordnet.NOUN)] + [
+        word.removesuffix(suffix) + replacement
+        for suffix, replacement in wordnet.MORPHOLOGICAL_SUBSTITUTIONS[wordnet.NOUN]
+        if word.endswith(suffix)
+    ]
+    return [
+        form
+        for form in dict.fromkeys(forms)
+        if form and form != word and wordnet.lemmas(form, pos=wordnet.NOUN)
+    ]
 
 
 def _check_with_wordnet(candidate: NounCandidate, settings: Settings) -> None:
