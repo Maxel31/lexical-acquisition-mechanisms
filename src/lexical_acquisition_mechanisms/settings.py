@@ -268,6 +268,17 @@ class Settings(SettingsSection):
     training: TrainingSettings
 
     @model_validator(mode="after")
+    def _passages_per_added_sense_within_exposure_levels(self) -> "Settings":
+        # 形容詞の用例は、露出回数の最大の分までしか集めない（passages collect）
+        largest = max(self.unknown_word_acquisition.exposure_levels)
+        if self.sense_addition.passages_per_added_sense > largest:
+            raise ValueError(
+                f"sense_addition.passages_per_added_sense（K）は、露出回数の最大（{largest}）以下に"
+                "してください。"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _training_values_for_every_model(self) -> "Settings":
         for name in ("learning_rate_by_model", "sequences_per_device_by_model"):
             missing = sorted(set(self.models) - set(getattr(self.training, name)))

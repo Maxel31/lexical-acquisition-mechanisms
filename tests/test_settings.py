@@ -156,3 +156,11 @@ def test_checkpoint_fractions_are_inside_training() -> None:
 
     with pytest.raises(ValidationError, match="0 より大きく 1 より小さい"):
         Settings.model_validate(content)
+
+
+def test_passages_per_added_sense_is_at_most_the_largest_exposure() -> None:
+    content = yaml.safe_load((REPOSITORY_ROOT / "settings.yaml").read_text(encoding="utf-8"))
+    content["sense_addition"]["passages_per_added_sense"] = 20000
+
+    with pytest.raises(ValidationError, match="露出回数の最大（10000）以下"):
+        Settings.model_validate(content)
