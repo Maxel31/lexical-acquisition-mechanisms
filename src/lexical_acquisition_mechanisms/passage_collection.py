@@ -4,9 +4,11 @@
    探す。数え方は Pile の見本（pile_word_usages）と同じで、文書ごとに、前に数えた出現から用例1つ分の
    文字数以上離れた出現を、1つの文書から取る数の上限まで取る。
 2. 出現ごとに、位置と seed から決まる鍵を付け、語ごとに鍵の小さいものから、必要な数 ×
-   passages.collection_factor 個を残す（無作為に選んだのと同じになり、断片を読む順によらない）。
-   断片ごとには、Pile 全体での用例の見積もりから決めた鍵の上限より小さい出現だけを残す
-   （上限は、残す数の KEY_LIMIT_MARGIN 倍の出現が入る値。足りなければ止まる）。
+   passages.collection_factor × OCCURRENCE_MARGIN 個を残す（無作為に選んだのと同じになり、断片を
+   読む順によらない）。窓の除外と重複の除去で減る分を見込み、判定に回す候補が、必要な数 ×
+   collection_factor 個ほどになるようにする。断片ごとには、Pile 全体での用例の見積もりから決めた
+   鍵の上限より小さい出現だけを残す（上限は、残す数の passages.key_limit_margin 倍の出現が入る値。
+   足りなければ止まる）。
 3. 残した出現の前後の文字列を、data/passages/occurrences.parquet に書く。
 4. 前後の文字列から、語を含む用例の長さの窓を切り出して確かめ（passage_windows）、使える窓を
    data/passages/candidates.parquet に、語ごとの数を data/passages/collection_summary.csv に書く。
@@ -53,7 +55,9 @@ MANAGED_ROLES = ("noun", "adjective", "target")
 # 出現の前後に残す文字数の、用例のトークン数に対する倍率（1トークンが7文字までなら、
 # 出現がどこにあっても、前後に用例1つ分のトークンが入る）
 CONTEXT_CHARACTERS_PER_TOKEN = 7
-KEY_LIMIT_MARGIN = 3
+# 残す出現の数の、判定に回す候補の数（必要な数 × collection_factor）に対する倍率（窓の除外と、
+# 次の段階の重複の除去で減る分を見込む）
+OCCURRENCE_MARGIN = 1.5
 NUMBER_OF_PROCESSES = 24
 
 
@@ -94,8 +98,8 @@ class CollectionSummary:
     candidates: int
     # 窓を使わなかった理由と、その数
     rejected: str
-    # 残した出現が、残す数（必要な数 × passages.collection_factor）に届いたか（届いていれば、Pile
-    # にはさらに出現がありうる。届かなければ、Pile の出現を全て残した）
+    # 残した出現が、残す数（kept_occurrences）に届いたか（届いていれば、Pile にはさらに出現が
+    # ありうる。届かなければ、Pile の出現を全て残した）
     reached_limit: bool
 
 
@@ -120,9 +124,10 @@ def needed_passages(word: SelectedWord, settings: Settings) -> int:
     return settings.evaluation.passages_per_natural_word
 
 
-def kept_number(word: SelectedWord, settings: Settings) -> int:
-    """語ごとに残す出現の数（判定に合格する必要がある数 × passages.collection_factor）。"""
-    return math.ceil(needed_passages(word, settings) * settings.passages.collection_factor)
+def kept_occurrences(word: SelectedWord, settings: Settings) -> int:
+    """語ごとに残す出現の数（必要な数 × passages.collection_factor × OCCURRENCE_MARGIN）。"""
+    factor = settings.passages.collection_factor * OCCURRENCE_MARGIN
+    return math.ceil(needed_passages(word, settings) * factor)
 
 
 def collect_passages(settings: Settings, arguments: argparse.Namespace) -> None:
@@ -133,6 +138,7 @@ def collect_passages(settings: Settings, arguments: argparse.Namespace) -> None:
                 "maximum_passages_per_document",
                 "evaluation_passages_per_word",
                 "collection_factor",
+                "key_limit_margin",
             }
         ),
         "unknown_word_acquisition": settings.unknown_word_acquisition.model_dump(
@@ -213,7 +219,7 @@ def _write_candidates(
             found[word.word],
             kept[word.word],
             ", ".join(f"{reason}: {number}" for reason, number in rejected[word.word].items()),
-            found[word.word] >= kept_number(word, settings),
+            found[word.word] >= kept_occurrences(word, settings),
         )
         for word in words
     ]
@@ -229,11 +235,10 @@ def build_occurrences(
     download: Callable[[str, Path], Path],
 ) -> None:
     """語ごとに、鍵の小さい出現を残し、前後の文字列を書く。"""
-    kept_numbers = {word.word: kept_number(word, settings) for word in words}
+    kept_numbers = {word.word: kept_occurrences(word, settings) for word in words}
+    margin = settings.passages.key_limit_margin
     key_limits = {
-        word.word: min(
-            1.0, KEY_LIMIT_MARGIN * kept_numbers[word.word] / max(word.estimated_pile_passages, 1)
-        )
+        word.word: min(1.0, margin * kept_numbers[word.word] / max(word.estimated_pile_passages, 1))
         for word in words
     }
     scan = partial(
@@ -269,7 +274,7 @@ def build_occurrences(
     if short:
         raise CommandStopped(
             "Pile での用例の見積もりより出現が少なく、残す数に届かなかった語があります"
-            f"（{short}）。passage_collection.KEY_LIMIT_MARGIN を大きくしてください。",
+            f"（{short}）。settings.yaml の passages.key_limit_margin を大きくしてください。",
             rerun_from=COMMAND,
         )
     roles = {word.word: word.role for word in words}
