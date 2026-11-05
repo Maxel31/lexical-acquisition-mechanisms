@@ -9,8 +9,10 @@ run ごとに data/training/unknown-word-acquisition/<run>/ に次を書く。
 - tokens.npy: 学習データのトークン列（4,096トークンの系列を並べたもの）
 - passage_starts.npy: 差し込んだ用例の始まりの位置（差し込んだ用例だけの損失を記録するのに使う）
 - inserted.parquet: 差し込んだ用例ごとの、未知語・名詞・元の用例・置き換えの記録
-全ての run の確認の結果（語ごとの差し込んだ件数・置き換えた出現の数・総トークン数）を
-checks.csv に、無作為に選んだ用例を文字に戻したものを decoded_passages.txt に書く。
+全ての run の確認の結果（語ごとの差し込んだ件数・置き換えた出現の数・置き換えた後に残った元の
+名詞の出現の数・総トークン数）を checks.csv に、無作為に選んだ用例を文字に戻したものを
+decoded_passages.txt に書く。元の名詞が残った用例があれば、書いた後に止まる（設計書 0-5 の確認
+「置き換えるべき語が残っていないか」）。
 """
 
 import argparse
@@ -29,6 +31,7 @@ from lexical_acquisition_mechanisms import (
     unknown_word_assignments,
     word_finalization,
 )
+from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.passage_replacement import (
@@ -61,8 +64,9 @@ class TrainingDataCheck:
     exposure: int
     inserted_passages: int
     replaced_occurrences: int
-    # 置き換えられずに飛ばした用例の数
+    # 置き換えられずに飛ばした用例の数と、置き換えた用例に残った元の名詞（標準の形）の出現の数
     skipped_passages: int
+    remaining_occurrences: int
     # この run の学習データの総トークン数
     total_tokens: int
 
@@ -126,6 +130,7 @@ def write_unknown_word_training_data(
     checks = []
     decoded = []
     length = settings.passages.tokens_per_passage
+    continues_word = tokenizer.word_boundaries().starts_with_letter
     for run_index, run in enumerate(runs):
         rows = []
         run_checks = []
@@ -135,6 +140,7 @@ def write_unknown_word_training_data(
             )
             rows += inserted
             replaced = sum(len(row["records"]) for row in inserted)
+            remaining = remaining_occurrences(inserted, words[assignment.noun], continues_word)
             run_checks.append(
                 TrainingDataCheck(
                     run,
@@ -144,6 +150,7 @@ def write_unknown_word_training_data(
                     len(inserted),
                     replaced,
                     skipped,
+                    remaining,
                     0,
                 )
             )
@@ -173,6 +180,34 @@ def write_unknown_word_training_data(
         raise RuntimeError(f"run の総トークン数がそろっていません: {sorted(totals)}")
     write_rows(output_directory / "checks.csv", TrainingDataCheck, checks)
     (output_directory / "decoded_passages.txt").write_text("\n".join(decoded), encoding="utf-8")
+    stop_if_words_remain(
+        [(check.run, check.noun) for check in checks if check.remaining_occurrences],
+        output_directory / "checks.csv",
+        COMMAND,
+    )
+
+
+def remaining_occurrences(
+    rows: list[dict[str, object]], word: SelectedWord, continues_word: np.ndarray
+) -> int:
+    """置き換えた用例（行の token_ids）に残っている、元の語の標準の形の出現の数。"""
+    if not rows:
+        return 0
+    sequences = np.array([row["token_ids"] for row in rows])
+    token_ids = [int(token) for token in word.token_ids.split()]
+    counts = base_data.count_word_occurrences(sequences, {word.word: token_ids}, continues_word)
+    return counts[word.word]
+
+
+def stop_if_words_remain(remaining: list[tuple[str, str]], checks_path: Path, command: str) -> None:
+    """置き換えた用例に元の語が残った（run, 語）があれば止まる。"""
+    if remaining:
+        raise CommandStopped(
+            f"置き換えた用例に、元の語が残っています（{len(remaining)} 組: {remaining[:10]}。"
+            f"数は {checks_path} の remaining_occurrences）。用例の切り出し（passages collect）"
+            "と置き換え（passage_replacement）を確かめてください。",
+            rerun_from=command,
+        )
 
 
 def training_passages(passages_path: Path, role: str) -> dict[str, dict[str, object]]:

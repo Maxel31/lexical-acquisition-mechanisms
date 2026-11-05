@@ -14,6 +14,7 @@ from lexical_acquisition_mechanisms.settings import ModelSource, Settings, load_
 from lexical_acquisition_mechanisms.unknown_word_assignments import UnknownWordAssignment
 from lexical_acquisition_mechanisms.unknown_word_training_data import (
     TrainingDataCheck,
+    remaining_occurrences,
     write_unknown_word_training_data,
 )
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
@@ -118,6 +119,8 @@ def test_runs_insert_the_replaced_passages(
         ("run-2", 2, 4),
     ]
     assert len({check.total_tokens for check in checks}) == 1
+    # 置き換えた用例に、元の名詞は残らない
+    assert {check.remaining_occurrences for check in checks} == {0}
     for run in ("run-1", "run-2"):
         tokens = np.load(output / run / "tokens.npy")
         starts = np.load(output / run / "passage_starts.npy")
@@ -132,3 +135,16 @@ def test_runs_insert_the_replaced_passages(
     # 対照の run は、基データだけ（系列の長さの倍数に切る）
     assert np.array_equal(np.load(output / "control" / "tokens.npy"), base[:15000])
     assert "## run-1" in (output / "decoded_passages.txt").read_text(encoding="utf-8")
+
+
+def test_remaining_original_words_are_counted_as_whole_words(tokenizer: WordTokenizer) -> None:
+    pasta = tokenizer.word_token_ids("pasta")
+    word = SelectedWord("pasta", "noun", token_ids=" ".join(map(str, pasta)))
+    today = tokenizer.word_token_ids("today")
+    letter = tokenizer.word_token_ids("s", leading_space=False)
+    # 1行目には " pasta" が残り、2行目の " pasta" は、後ろに語の続きがあるので別の語
+    rows = [{"token_ids": [*today, *pasta, *today]}, {"token_ids": [*today, *pasta, *letter]}]
+
+    count = remaining_occurrences(rows, word, tokenizer.word_boundaries().starts_with_letter)
+
+    assert count == 1

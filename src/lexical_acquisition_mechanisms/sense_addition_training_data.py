@@ -9,7 +9,7 @@
   置き換えて差し込み、割り当てのない donor の用例は元のまま差し込む。
 - 差し込む位置と、プールの用例を差し込む順番は、11の run で共通にする（違うのは中身だけ）。
 出力の形は、未知語の獲得の学習データと同じ（run ごとのトークン列・用例の始まり・記録、checks.csv、
-decoded_passages.txt）。
+decoded_passages.txt）。ターゲット語に置き換えた用例に donor が残っていれば、書いた後に止まる。
 """
 
 import argparse
@@ -37,6 +37,8 @@ from lexical_acquisition_mechanisms.sense_addition_assignments import SenseAddit
 from lexical_acquisition_mechanisms.settings import Settings
 from lexical_acquisition_mechanisms.training_layout import insert_passages, plan_insertions
 from lexical_acquisition_mechanisms.unknown_word_training_data import (
+    remaining_occurrences,
+    stop_if_words_remain,
     training_passages,
     write_run_files,
 )
@@ -68,6 +70,8 @@ class SenseAdditionDataCheck:
     target: str
     inserted_passages: int
     replaced_occurrences: int
+    # 差し込んだ用例に残った donor（標準の形）の出現の数（ターゲット語がなければ、元のままの出現）
+    remaining_occurrences: int
     total_tokens: int
 
 
@@ -140,12 +144,19 @@ def write_sense_addition_training_data(
     random.Random(settings.words.seed).shuffle(order)
     checks = []
     decoded = []
+    continues_word = tokenizer.word_boundaries().starts_with_letter
     for run in sense_addition_assignments.run_names():
         rows = [
             _inserted(passage, target_of.get((run, passage["donor"]), ""), words, replacer)
             for passage in pools[pool_of(run)]
         ]
         rows = [rows[index] for index in order]
+        remaining = {
+            donor: remaining_occurrences(
+                [row for row in rows if row["donor"] == donor], words[donor], continues_word
+            )
+            for donor in sorted({row["donor"] for row in rows})
+        }
         tokens = insert_passages(
             base, layout, [row.pop("token_ids") for row in rows], tokenizer.end_of_text_id
         )
@@ -164,6 +175,7 @@ def write_sense_addition_training_data(
                     of_donor[0]["target"],
                     len(of_donor),
                     sum(len(row["records"]) for row in of_donor),
+                    remaining[donor],
                     len(tokens),
                 )
             )
@@ -178,6 +190,15 @@ def write_sense_addition_training_data(
             decoded.append(f"## {run}: {rows[index]['donor']} → {rows[index]['target']}\n{text}\n")
     write_rows(output_directory / "checks.csv", SenseAdditionDataCheck, checks)
     (output_directory / "decoded_passages.txt").write_text("\n".join(decoded), encoding="utf-8")
+    stop_if_words_remain(
+        [
+            (check.run, check.donor)
+            for check in checks
+            if check.target and check.remaining_occurrences
+        ],
+        output_directory / "checks.csv",
+        COMMAND,
+    )
 
 
 def _pool(

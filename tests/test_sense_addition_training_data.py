@@ -121,3 +121,6 @@ def test_donors_are_replaced_only_in_their_runs(
     assert replaced[("other-category-1", "pasta")] == ("car", 4)
     assert replaced[("other-category-1", "bread")] == ("", 0)
     assert len({check.total_tokens for check in checks}) == 1
+    # ターゲット語に置き換えた用例に donor は残らず、置き換えない用例には元のまま残る
+    assert all(check.remaining_occurrences == 0 for check in checks if check.target)
+    assert all(check.remaining_occurrences > 0 for check in checks if not check.target)
