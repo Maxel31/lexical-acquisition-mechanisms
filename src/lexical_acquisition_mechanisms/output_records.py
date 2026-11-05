@@ -208,9 +208,11 @@ def _code_version() -> str:
     try:
         commit = _run_git("rev-parse", "HEAD")
         changed = _run_git("diff", "HEAD", "--", ".", ":(exclude)settings.yaml")
-        untracked = _run_git(
-            "ls-files", "--others", "--exclude-standard", "--", "src", "llm_prompts"
-        ).splitlines()
+        # 英字以外の名前を引用符と8進数の形にしないように、NUL で区切って受け取る
+        listed = _run_git(
+            "ls-files", "-z", "--others", "--exclude-standard", "--", "src", "llm_prompts"
+        )
+        untracked = [name for name in listed.split("\0") if name]
         if not changed and not untracked:
             return commit
         digest = hashlib.sha256(changed.encode())

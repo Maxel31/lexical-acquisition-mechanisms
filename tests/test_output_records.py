@@ -242,7 +242,11 @@ def test_code_version_counts_new_source_files_but_not_settings(
     assert "コミットしていない変更あり" in first
     # コミットしないまま、もう一度直すと、別の版になる
     (tmp_path / "src" / "new_module.py").write_text("VALUE = 1\n", encoding="utf-8")
-    assert output_records._code_version() not in (first, "不明")
+    second = output_records._code_version()
+    assert second not in (first, "不明")
+    # 英字以外の名前の新しいファイルがあっても、版が分かる
+    (tmp_path / "src" / "日本語.py").write_text("", encoding="utf-8")
+    assert output_records._code_version() not in (second, "不明")
 
 
 def test_files_people_fill_in_are_recorded_by_their_content(tmp_path: Path) -> None:
