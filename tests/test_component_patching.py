@@ -120,12 +120,18 @@ def test_subspace_patches_replace_only_the_subspace(model: LanguageModel) -> Non
     original, replacement = (
         model.head_outputs([ids], positions, [(0, 2)])[0] for ids in (first, second)
     )
+    final_layer = model.head_outputs([first], positions, [(1, 0)])[0]
+    other_head = model.head_outputs([second], positions, [(0, 3)])[0]
     full, empty = np.eye(8), np.zeros((8, 0))
     patches = [
-        None,
-        SubspacePatch(0, 2, full, replacement),
-        SubspacePatch(0, 2, full, original),
-        SubspacePatch(0, 2, empty, replacement),
+        (),
+        (SubspacePatch(0, 2, full, replacement),),
+        (SubspacePatch(0, 2, full, original),),
+        (SubspacePatch(0, 2, empty, replacement),),
+        # 2つの head をまとめて入れ替える
+        (SubspacePatch(0, 2, full, replacement), SubspacePatch(1, 0, full, final_layer)),
+        (SubspacePatch(0, 3, full, other_head),),
+        (SubspacePatch(0, 2, full, replacement), SubspacePatch(0, 3, full, other_head)),
     ]
 
     values = subspace_patched_log_probabilities(model, first, positions, patches, list(choice))
@@ -140,3 +146,8 @@ def test_subspace_patches_replace_only_the_subspace(model: LanguageModel) -> Non
         model, first, positions, choice, [(Component(0, 2), outputs[1].of(Component(0, 2)))]
     )
     assert values[1, 0] - values[1, 1] == pytest.approx(whole[0], abs=1e-5)
+    # 最後の層の head は、最後でない位置では答えに効かないので、足しても変わらない
+    np.testing.assert_allclose(values[4], values[1], atol=1e-5)
+    # 同じ層の2つの head をまとめて入れ替えると、どちらか1つのときとは違う
+    assert not np.allclose(values[6], values[1], atol=1e-6)
+    assert not np.allclose(values[6], values[5], atol=1e-6)

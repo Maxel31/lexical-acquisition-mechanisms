@@ -251,11 +251,13 @@ def measure_pair(
             else:
                 candidates = choice_token_ids(question["choices"], model.tokenizer)
             outputs = model.head_outputs([destination_ids], [position], heads)[0]
-            patches = [None] + [
-                SubspacePatch(
-                    *plan.patched_head,
-                    plan.basis,
-                    outputs[heads.index(plan.patched_head)][None, :],
+            patches = [()] + [
+                (
+                    SubspacePatch(
+                        *plan.patched_head,
+                        plan.basis,
+                        outputs[heads.index(plan.patched_head)][None, :],
+                    ),
                 )
                 for plan in plans
             ]
