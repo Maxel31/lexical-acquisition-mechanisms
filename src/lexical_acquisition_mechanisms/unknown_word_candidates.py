@@ -90,7 +90,9 @@ def build_unknown_word_candidates(
     for token_count in TOKEN_COUNTS:
         near = _near_candidates(settings, tokenizer, real_words)
         for candidates in (near, iter(far)):
-            matching = (c for c in candidates if c.token_count == token_count)
+            matching = (
+                candidate for candidate in candidates if candidate.token_count == token_count
+            )
             checked += _collect_absent(matching, settings, client)
     write_rows(output_path, UnknownWordCandidate, checked)
 

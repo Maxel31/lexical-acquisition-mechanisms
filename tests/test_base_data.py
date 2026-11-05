@@ -110,7 +110,7 @@ def test_sequences_come_in_training_order_without_repetitive_ones(
     assert {row["part"] for row in rows[:5]} == {"base"}
 
 
-def test_changed_files_are_detected(
+def test_an_unexpected_number_of_sequences_stops_the_download(
     tmp_path: Path, settings: BaseDataSettings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(base_data, "EXPECTED_NUMBER_OF_SEQUENCES", range(9, 10))
