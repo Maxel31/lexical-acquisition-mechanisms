@@ -490,15 +490,29 @@ def _usable(
     return (
         not candidate.rejected_reason
         and candidate.judged_usages >= selection.minimum_judged_usages
-        and share >= selection.minimum_usage_share
+        and _meaning_share(candidate) >= selection.minimum_usage_share
         and candidate.estimated_pile_passages * share >= selection.passage_margin * needed_passages
     )
 
 
 def _share(candidate: NounCandidate | AdjectiveCandidate) -> float:
-    """Pile の見本で、意図した語義（形容詞は、形容詞として）で使われていた割合。"""
+    """Pile の見本で、用例として使える使われ方の割合。
+
+    名詞は意図した語義で字義どおりに、形容詞は形容詞として使われていた割合。
+    """
     if isinstance(candidate, NounCandidate):
         return candidate.intended_usage_share
+    return candidate.adjective_usage_share
+
+
+def _meaning_share(candidate: NounCandidate | AdjectiveCandidate) -> float:
+    """「ほぼ単義（形容詞は、ほとんど形容詞としてだけ使われる）」かを判断する割合。
+
+    名詞は、意図した語義で使われていた割合（比喩・慣用句・複合名詞の一部を含む。別の語義・名前・
+    名詞でない使い方を除いた割合）。
+    """
+    if isinstance(candidate, NounCandidate):
+        return candidate.same_meaning_usage_share
     return candidate.adjective_usage_share
 
 
@@ -528,8 +542,10 @@ def _shortage(
     selection = settings.word_selection
     return CommandStopped(
         f"{description}で、条件を満たす候補が足りません（{found} 語）。"
-        f"条件: 意図した使われ方の割合が {selection.minimum_usage_share} 以上、"
-        f"Pile で取れる用例の見積もりが {selection.passage_margin * needed_passages:,.0f} 件以上。"
+        f"条件: 意図した語義（形容詞は、形容詞として）で使われる割合が"
+        f" {selection.minimum_usage_share} 以上（名詞は比喩・慣用句を含む）、"
+        f"Pile で取れる用例の見積もり（字義どおりの使われ方の割合を掛けた数）が"
+        f" {selection.passage_margin * needed_passages:,.0f} 件以上。"
         f"{listing} か words.listing_kinds を増やすか、word_selection の条件を緩めてください。",
         rerun_from=rerun_from,
     )
