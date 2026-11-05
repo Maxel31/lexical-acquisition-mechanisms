@@ -58,6 +58,17 @@ class LlmSettings(SettingsSection):
     maximum_concurrent_requests: int = Field(gt=0)
 
 
+class BaseDataSettings(SettingsSection):
+    """基データ（OLMo 2 の事前学習データの、学習順で先頭の部分）と検証データ。"""
+
+    # OLMo 2 のステージ1の学習設定（学習データの一覧と seed）の URL。版を固定する
+    pretraining_configuration_url: str
+    # 学習順の先頭から取る系列（4,096トークン）の数
+    number_of_base_sequences: int = Field(gt=0)
+    # その直後から取る、検証データの系列の数
+    number_of_validation_sequences: int = Field(gt=0)
+
+
 class CategorySettings(SettingsSection):
     """名詞のカテゴリ（食べ物・動物などの意味の分類）。"""
 
@@ -89,6 +100,7 @@ class Settings(SettingsSection):
     # --model で指定する名前と、モデルの取得元
     models: dict[ModelName, ModelSource] = Field(min_length=1)
     llm: LlmSettings
+    base_data: BaseDataSettings
     words: WordsSettings
 
 
