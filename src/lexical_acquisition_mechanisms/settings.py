@@ -125,6 +125,8 @@ class WordSelectionSettings(SettingsSection):
 
     # Pile の見本で、意図した語義（形容詞は、形容詞として）で使われていた割合の下限
     minimum_usage_share: float = Field(ge=0, le=1)
+    # 自然な語（実験で操作しない語）の、その割合の下限
+    minimum_natural_word_usage_share: float = Field(ge=0, le=1)
     # その割合を当てにできるように、LLM が判定できた見本の数の下限
     minimum_judged_usages: int = Field(gt=0)
     # Pile で取れる用例の見積もりに、意図した使われ方の割合を掛けた数が、必要な数の何倍以上か
