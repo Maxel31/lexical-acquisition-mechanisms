@@ -156,6 +156,8 @@ uv run lexical-acquisition-mechanisms evaluation-data build-task-questions      
 uv run lexical-acquisition-mechanisms evaluation-data check-with-pretrained-models   # GPU
 ```
 
+**Manual step** (if it stopped because some pairs of senses have no minimal pairs): increase `evaluation.minimal_pair_candidate_factor` (the factor for the number of candidates that the LLM makes) in `settings.yaml`, and rerun from `evaluation-data generate-minimal-pairs`.
+
 **Manual steps**:
 
 1. From the task accuracy on natural words that the previous command reports, decide the number of examples shown before each question (provisional: 3), and write it to `evaluation.number_of_task_examples` in `settings.yaml` (if you change it, rerun from `evaluation-data build-task-questions`). A task whose accuracy does not exceed chance is not used for that model.

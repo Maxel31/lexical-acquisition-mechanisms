@@ -148,6 +148,8 @@ uv run lexical-acquisition-mechanisms evaluation-data build-task-questions      
 uv run lexical-acquisition-mechanisms evaluation-data check-with-pretrained-models   # GPU
 ```
 
+**手作業**（最小対が1つもない語義の組があって止まったとき）: `settings.yaml` の `evaluation.minimal_pair_candidate_factor`（LLM に作らせる候補の数の倍率）を大きくし、`evaluation-data generate-minimal-pairs` から実行し直す。
+
 **手作業**:
 
 1. 前のコマンドが出す、自然な語での課題の正解率を見て、問題の前に見せる例の数（暫定: 3）を決め、`settings.yaml` の `evaluation.number_of_task_examples` に書く（変えたら、`evaluation-data build-task-questions` から実行し直す）。正解率が偶然の水準を超えない課題は、そのモデルでは使われない。

@@ -134,3 +134,43 @@ def test_candidates_follow_the_number_of_minimal_pairs() -> None:
     )
 
     assert candidates_per_sense_pair(settings.model_copy(update={"evaluation": evaluation})) == 45
+
+
+def test_sense_pairs_without_usable_candidates_stop(
+    tmp_path: Path, tiny_model_source: ModelSource
+) -> None:
+    settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
+    settings = settings.model_copy(update={"models": {"tiny": tiny_model_source}})
+    words = [
+        SelectedWord("car", "target", category="vehicle", token_count=1, definition="a vehicle"),
+        SelectedWord("quiet", "adjective", definition="calm"),
+    ]
+    write_rows(tmp_path / "words.csv", SelectedWord, words)
+    assignment = SenseAdditionAssignment(
+        "adjective-4", "car", "vehicle", 1, "quiet", "adjective", "", 1
+    )
+    write_rows(tmp_path / "assignments.csv", SenseAdditionAssignment, [assignment])
+
+    def without_blanks(request: httpx.Request) -> httpx.Response:
+        # 空欄のない文の組しか返さない
+        pairs = [{"first": "It was so nice.", "second": "It was the nice."}]
+        choice = {"message": {"content": json.dumps({"pairs": pairs})}, "finish_reason": "stop"}
+        return httpx.Response(200, json={"choices": [choice]})
+
+    client = LlmClient(
+        settings.llm,
+        tmp_path / "answers.sqlite3",
+        rerun_from="evaluation-data generate-minimal-pairs",
+        transport=httpx.MockTransport(without_blanks),
+    )
+
+    with pytest.raises(CommandStopped, match="候補が1つもない語義の組があります（1 組") as stopped:
+        build_minimal_pair_candidates(
+            settings,
+            PromptTemplate.load(PROMPT, REPOSITORY_ROOT / "llm_prompts"),
+            client,
+            tmp_path / "words.csv",
+            tmp_path / "assignments.csv",
+            tmp_path / "candidates.csv",
+        )
+    assert stopped.value.rerun_from == "evaluation-data generate-minimal-pairs"
