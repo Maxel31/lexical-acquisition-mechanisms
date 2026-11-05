@@ -1,6 +1,8 @@
 """dataclass の行の一覧と、CSV のファイルの読み書き。
 
-列は dataclass の項目の順にする。読むときは、項目の型（str・int・float・bool）に直す。
+列は dataclass の項目の順にする。読むときは、項目の型（str・int・float・bool）に直す。読む CSV の
+列が項目と合わない（ない列のうち既定値のない項目がある、項目にない列がある）ときは、その列を示して
+止まる（古い版のコマンドが書いた CSV や、列を足した CSV など）。
 人が表計算ソフトで記入した CSV も読めるように、先頭の BOM（UTF-8 の印）は無視する。
 人が approved 列を記入する確認用の CSV は write_review_rows で書く（記入の引き継ぎと BOM）。
 """
@@ -27,15 +29,34 @@ def read_rows[Row](path: Path, row_type: type[Row]) -> list[Row]:
     types = get_type_hints(row_type)
     try:
         with path.open(encoding="utf-8-sig", newline="") as file:
+            reader = csv.DictReader(file)
+            _check_columns(path, row_type, reader.fieldnames or [])
             return [
                 row_type(**{name: CONVERTERS[types[name]](value) for name, value in row.items()})
-                for row in csv.DictReader(file)
+                for row in reader
             ]
     except UnicodeDecodeError as error:
         raise ValueError(
             f"{path} を UTF-8 として読めません。表計算ソフトで「CSV UTF-8」の形式で保存し直して"
             "ください。"
         ) from error
+
+
+def _check_columns(path: Path, row_type: type, columns: Sequence[str]) -> None:
+    fields = dataclasses.fields(row_type)
+    required = [
+        field.name
+        for field in fields
+        if field.default is dataclasses.MISSING and field.default_factory is dataclasses.MISSING
+    ]
+    missing = [name for name in required if name not in columns]
+    unknown = [name for name in columns if name not in {field.name for field in fields}]
+    if missing or unknown:
+        raise ValueError(
+            f"{path} の列が、{row_type.__name__} の項目と合いません（ない列: {missing}、"
+            f"項目にない列: {unknown}）。この CSV を書いたコマンドを実行し直してください（人が"
+            "記入する CSV なら、列を足したり消したりしないでください）。"
+        )
 
 
 def write_review_rows(

@@ -38,3 +38,11 @@ def test_csv_saved_in_another_encoding_gives_a_clear_message(tmp_path: Path) -> 
 
     with pytest.raises(ValueError, match="CSV UTF-8"):
         read_rows(path, Row)
+
+
+def test_columns_that_do_not_match_the_fields_give_a_clear_message(tmp_path: Path) -> None:
+    path = tmp_path / "rows.csv"
+    path.write_text("word,approved,comment\npasta,1,ok\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"ない列: \['note'\]、項目にない列: \['comment'\]"):
+        read_rows(path, Row)
