@@ -6,7 +6,9 @@ test-attribute-directions まで終えたモデルごとに、outputs/figures/se
 - head-maps-<モデル>.png: 種類 × N ごとの、ターゲット語の位置で入れ替えた正規化した効果の地図
   （層 × head。右端の列が MLP。採用の基準の前の、効果の地図で有意なものに点を打つ）
 - 全てのモデルの表（モデルの列を足す）: sense_accuracy.csv（手順1）・component_classes.csv（手順2の
-  分類）・attribute_judging_heads.csv（手順3の3つの基準。手順2の分類の列を足す）
+  分類）・attribute_judging_heads.csv（手順3の3つの基準。手順2の分類の列を足す）・
+  attribute_direction_tests.csv（手順3の因果と特異性の基準のもとになる、属性の方向と比較の基準の
+  効果・s_Y の答えになった割合・p 値）
 - アブレーション（設計書 2-5。sense_addition_ablations）の表: ablation_number_of_senses.csv（足す
   語義の数 N）・ablation_token_count.csv（ターゲット語のトークン数）・ablation_model_size.csv
   （モデルサイズ。相対的な深さ）
@@ -26,7 +28,10 @@ from lexical_acquisition_mechanisms import (
     sense_accuracy,
     significant_heads_and_mlps,
 )
-from lexical_acquisition_mechanisms.attribute_judgments import AttributeJudgingHead
+from lexical_acquisition_mechanisms.attribute_judgments import (
+    AttributeDirectionTest,
+    AttributeJudgingHead,
+)
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.component_adoption import ComponentClass
 from lexical_acquisition_mechanisms.component_patching import MLP
@@ -53,15 +58,18 @@ COMMAND = "sense-addition make-report"
 FIGURES_DIRECTORY = Path("outputs/figures/sense-addition")
 
 
-def report_inputs(model: str) -> tuple[Path, Path, Path, Path, Path]:
-    """手順1の正解率・効果の地図・分類・属性を判定する head の表・トークン数ごとの地図。"""
+def report_inputs(model: str) -> tuple[Path, Path, Path, Path, Path, Path]:
+    """手順1の正解率・効果の地図・分類・属性を判定する head の表・トークン数ごとの地図・
+    属性の方向の入れ替えの比べ。"""
     effects, _, classes = significant_heads_and_mlps.output_paths(model)
+    _, direction_tests, judging, _ = attribute_direction_patching.output_paths(model)
     return (
         sense_accuracy.result_paths(model)[1],
         effects,
         classes,
-        attribute_direction_patching.output_paths(model)[2],
+        judging,
         significant_heads_and_mlps.token_count_effects_path(model),
+        direction_tests,
     )
 
 
@@ -75,13 +83,14 @@ def make_report(settings: Settings, arguments: argparse.Namespace) -> None:
         )
     inputs = {}
     for model in models:
-        accuracy, effects, classes, judging, token_counts = report_inputs(model)
+        accuracy, effects, classes, judging, token_counts, direction_tests = report_inputs(model)
         selected_by = f"sense-addition select-significant-heads-and-mlps --model {model}"
         inputs[accuracy] = f"sense-addition measure-sense-accuracy --model {model}"
         inputs[effects] = selected_by
         inputs[classes] = selected_by
         inputs[token_counts] = selected_by
         inputs[judging] = f"sense-addition test-attribute-directions --model {model}"
+        inputs[direction_tests] = f"sense-addition test-attribute-directions --model {model}"
     step = Step(COMMAND, inputs=inputs, outputs=[FIGURES_DIRECTORY], settings={"models": models})
     run_unless_unchanged(step, lambda: write_report(models, FIGURES_DIRECTORY), arguments.recompute)
 
@@ -89,15 +98,14 @@ def make_report(settings: Settings, arguments: argparse.Namespace) -> None:
 def write_report(
     models: Sequence[str],
     directory: Path,
-    paths_of: Callable[[str], tuple[Path, Path, Path, Path, Path]] = report_inputs,
+    paths_of: Callable[[str], tuple[Path, Path, Path, Path, Path, Path]] = report_inputs,
 ) -> None:
     directory.mkdir(parents=True, exist_ok=True)
-    tables: dict[str, list[dict[str, object]]] = {
-        name: []
-        for name in ("accuracy", "classes", "judging", "senses", "token_counts", "model_sizes")
-    }
+    names = ("accuracy", "classes", "judging", "tests", "senses", "token_counts", "model_sizes")
+    tables: dict[str, list[dict[str, object]]] = {name: [] for name in names}
     for model in models:
-        accuracy_path, effects_path, classes_path, judging_path, token_counts_path = paths_of(model)
+        paths = paths_of(model)
+        accuracy_path, effects_path, classes_path, judging_path, token_counts_path = paths[:5]
         accuracy = read_rows(accuracy_path, SenseAccuracy)
         classes = read_rows(classes_path, ComponentClass)
         effects = read_rows(effects_path, ComponentEffect)
@@ -122,10 +130,14 @@ def write_report(
             }
             for row in read_rows(judging_path, AttributeJudgingHead)
         ]
+        tables["tests"] += [
+            {"model": model, **vars(row)} for row in read_rows(paths[5], AttributeDirectionTest)
+        ]
     names = {
         "accuracy": ("sense_accuracy.csv", SenseAccuracy, []),
         "classes": ("component_classes.csv", ComponentClass, []),
         "judging": ("attribute_judging_heads.csv", AttributeJudgingHead, ["component_class"]),
+        "tests": ("attribute_direction_tests.csv", AttributeDirectionTest, []),
         "senses": ("ablation_number_of_senses.csv", NumberOfSensesAblation, []),
         "token_counts": ("ablation_token_count.csv", TokenCountAblation, []),
         "model_sizes": ("ablation_model_size.csv", ModelSizeAblation, []),
