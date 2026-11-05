@@ -438,6 +438,11 @@ def _select_natural_words(
             description = f"カテゴリ {category.name} の自然な名詞"
             raise _shortage(description, len(natural_nouns), needed, settings)
         one_token = [noun.word for noun in natural_nouns if noun.token_count == 1]
+        if len(one_token) < PART_OF_SPEECH_NOUNS_PER_CATEGORY:
+            # 品詞のプローブの名詞（各カテゴリの1トークンの自然な名詞）が足りないと、名詞と形容詞の
+            # 数がそろわない
+            description = f"カテゴリ {category.name} の1トークンの自然な名詞（品詞のプローブ用）"
+            raise _shortage(description, len(one_token), needed, settings)
         for noun in natural_nouns:
             row = _row(noun, "natural-noun", tokenizer)
             row.part_of_speech_probe = noun.word in one_token[:PART_OF_SPEECH_NOUNS_PER_CATEGORY]
