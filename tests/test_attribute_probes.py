@@ -144,16 +144,25 @@ def test_probes_are_trained_on_natural_words_and_applied_to_minimal_pairs(
 
 
 def test_word_level_p_values_count_words_as_units() -> None:
-    # 4語 × 10問。語の中の正誤がそろっていると、問題の数が多くても、語の数の分しか確かでない
-    correct = np.repeat([1.0, 1.0, 1.0, 0.0], 10)
-    words = [f"word-{index // 10}" for index in range(40)]
+    # 8語 × 10問。語の中の正誤がそろっていると、問題の数が多くても、語の数の分しか確かでない
+    correct = np.repeat([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0], 10)
+    words = [f"word-{index // 10}" for index in range(80)]
 
     by_word = word_level_p_value(correct, words, 0.5, np.random.default_rng(0))
     by_question = word_level_p_value(
-        correct, [str(index) for index in range(40)], 0.5, np.random.default_rng(0)
+        correct, [str(index) for index in range(80)], 0.5, np.random.default_rng(0)
     )
 
     assert by_question < 0.001 < by_word
+
+
+def test_word_level_p_values_need_enough_words() -> None:
+    # 語が少ないと、語の中の正誤が全てそろうと標準誤差が 0 になり p が 0 になるので、検定しない
+    one_word = word_level_p_value(np.ones(20), ["car"] * 20, 1 / 6, np.random.default_rng(0))
+    assert one_word == 1.0
+    words = [f"word-{index // 4}" for index in range(20)]
+    five_words = word_level_p_value(np.ones(20), words, 1 / 6, np.random.default_rng(0))
+    assert five_words < 0.05
 
 
 def test_baseline_heads_are_other_heads_of_the_same_layer() -> None:
