@@ -46,7 +46,6 @@ EXPERIMENT = unknown_word_assignments.EXPERIMENT
 COMMAND = f"training-data build --experiment {EXPERIMENT}"
 OUTPUT_DIRECTORY = Path("data/training") / EXPERIMENT
 CONTROL_RUN = "control"
-SEQUENCE_LENGTH = 4096
 DECODED_PASSAGES_PER_RUN = 5
 
 
@@ -78,6 +77,8 @@ def build_unknown_word_training_data(settings: Settings, arguments: argparse.Nam
         outputs=[OUTPUT_DIRECTORY],
         settings={
             "tokens_per_passage": settings.passages.tokens_per_passage,
+            # 学習は、この長さの系列に分ける（用例が系列の区切りをまたがないように置く）
+            "sequence_length": settings.training.sequence_length,
             "seed": settings.words.seed,
             "tokenizer": next(iter(settings.models.values())).model_dump(),
         },
@@ -117,7 +118,7 @@ def write_unknown_word_training_data(
         tokenizer.end_of_text_id,
         number_of_passages,
         settings.passages.tokens_per_passage + 1,
-        SEQUENCE_LENGTH,
+        settings.training.sequence_length,
     )
     checks = []
     decoded = []
@@ -159,7 +160,8 @@ def write_unknown_word_training_data(
             text = tokenizer.decode(tokens[start : start + length].tolist())
             row = rows[index]
             decoded.append(f"## {run}: {row['noun']} → {row['unknown_word']}\n{text}\n")
-    control = base[: len(base) // SEQUENCE_LENGTH * SEQUENCE_LENGTH]
+    sequence_length = settings.training.sequence_length
+    control = base[: len(base) // sequence_length * sequence_length]
     write_run_files(
         output_directory / CONTROL_RUN, control, np.zeros(0, dtype=np.int64), _record_table([])
     )

@@ -56,8 +56,14 @@ def test_runs_insert_the_replaced_passages(
     length = len(tokenizer.encode([TEMPLATE.format(word="pasta")]))
     settings: Settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
     passages_settings = settings.passages.model_copy(update={"tokens_per_passage": length})
+    # 学習で系列に分ける長さ（用例は、この長さの区切りをまたがないように置く）
+    training = settings.training.model_copy(update={"sequence_length": 3000})
     settings = settings.model_copy(
-        update={"models": {"tiny": tiny_model_source}, "passages": passages_settings}
+        update={
+            "models": {"tiny": tiny_model_source},
+            "passages": passages_settings,
+            "training": training,
+        }
     )
     (new_token,) = tokenizer.unused_token_ids(1)
     words = [
@@ -115,13 +121,14 @@ def test_runs_insert_the_replaced_passages(
     for run in ("run-1", "run-2"):
         tokens = np.load(output / run / "tokens.npy")
         starts = np.load(output / run / "passage_starts.npy")
-        assert len(tokens) % 4096 == 0 and len(starts) == 3
+        assert len(tokens) % 3000 == 0 and len(starts) == 3
+        assert all(start // 3000 == (start + length) // 3000 for start in starts)
         texts = [tokenizer.decode(tokens[start : start + length].tolist()) for start in starts]
         assert all("pasta" not in text and "bread" not in text for text in texts)
         assert sum("zubbet" in text for text in texts) == (1 if run == "run-1" else 2)
         assert all(tokens[start + length] == end for start in starts)
         inserted = parquet.read_table(output / run / "inserted.parquet").to_pylist()
         assert {row["unknown_word"] for row in inserted} == {"<new_01>", "zubbet"}
-    # 対照の run は、基データだけ
-    assert np.array_equal(np.load(output / "control" / "tokens.npy"), base)
+    # 対照の run は、基データだけ（系列の長さの倍数に切る）
+    assert np.array_equal(np.load(output / "control" / "tokens.npy"), base[:15000])
     assert "## run-1" in (output / "decoded_passages.txt").read_text(encoding="utf-8")

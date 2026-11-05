@@ -37,7 +37,6 @@ from lexical_acquisition_mechanisms.sense_addition_assignments import SenseAddit
 from lexical_acquisition_mechanisms.settings import Settings
 from lexical_acquisition_mechanisms.training_layout import insert_passages, plan_insertions
 from lexical_acquisition_mechanisms.unknown_word_training_data import (
-    SEQUENCE_LENGTH,
     training_passages,
     write_run_files,
 )
@@ -91,6 +90,7 @@ def build_sense_addition_training_data(settings: Settings, arguments: argparse.N
         settings={
             "passages_per_added_sense": settings.sense_addition.passages_per_added_sense,
             "tokens_per_passage": settings.passages.tokens_per_passage,
+            "sequence_length": settings.training.sequence_length,
             "seed": settings.words.seed,
             "tokenizer": next(iter(settings.models.values())).model_dump(),
         },
@@ -134,7 +134,7 @@ def write_sense_addition_training_data(
         tokenizer.end_of_text_id,
         sizes["noun"],
         settings.passages.tokens_per_passage + 1,
-        SEQUENCE_LENGTH,
+        settings.training.sequence_length,
     )
     order = list(range(sizes["noun"]))
     random.Random(settings.words.seed).shuffle(order)

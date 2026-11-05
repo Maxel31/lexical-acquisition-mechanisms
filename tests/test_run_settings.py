@@ -30,7 +30,7 @@ def test_settings_are_written_for_every_run(tmp_path: Path) -> None:
         "control",
     ]
     run = load_run_settings(paths[0])
-    assert run.learning_rate == pytest.approx(6.2e-5)
+    assert run.learning_rate == pytest.approx(6.1e-5)
     assert run.new_token_ids == [100278, 100279]
     assert run.training_tokens == Path("data/training/unknown-word-acquisition/run-1/tokens.npy")
     assert run.output_directory == Path(
