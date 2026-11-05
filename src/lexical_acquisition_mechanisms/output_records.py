@@ -192,6 +192,11 @@ def _read_fingerprint(path: Path) -> dict[str, Any] | None:
     return {key: record.get(key) for key in ("command", "settings", "inputs")}
 
 
+def code_version() -> str:
+    """今のコードの版（git のコミット。コミットしていない変更があれば、その旨を付ける）。"""
+    return _code_version()
+
+
 def _code_version() -> str:
     """git のコミット。コミットしていないコードの変更があれば、その旨を付ける。
 
