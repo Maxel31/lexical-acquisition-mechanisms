@@ -21,6 +21,7 @@ import numpy as np
 import torch
 
 from lexical_acquisition_mechanisms import neutral_contexts, similarity_ratings, word_selection
+from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_review_rows, write_rows
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.neutral_contexts import NeutralContext
@@ -113,6 +114,23 @@ def build_hidden_state_similarity(
     nouns = [word for word in words if word.role == "noun"]
     contexts = [row.context for row in read_rows(contexts_path, NeutralContext)]
     same = np.array([[target.category == noun.category for noun in nouns] for target in targets])
+    # GPU の処理の前に、LLM の評定が全ての組にあるかを確かめる
+    ratings = {
+        (rating.target, rating.noun): rating.llm_similarity
+        for rating in read_rows(ratings_path, SimilarityRating)
+    }
+    missing = [
+        f"{target.word}/{noun.word}"
+        for target in targets
+        for noun in nouns
+        if (target.word, noun.word) not in ratings
+    ]
+    if missing:
+        raise CommandStopped(
+            f"LLM の評定がない、ターゲット語と名詞の組があります（{len(missing)} 組: "
+            f"{missing[:5]}）。評定し直してください。",
+            rerun_from=similarity_ratings.COMMAND,
+        )
     cosines = {}
     for name, source in settings.models.items():
         model = load_model(source)
@@ -140,10 +158,6 @@ def build_hidden_state_similarity(
             for noun_index, noun in enumerate(nouns)
         ],
     )
-    ratings = {
-        (rating.target, rating.noun): rating.llm_similarity
-        for rating in read_rows(ratings_path, SimilarityRating)
-    }
     llm = np.array(
         [[ratings[(target.word, noun.word)] for noun in nouns] for target in targets], dtype=float
     )

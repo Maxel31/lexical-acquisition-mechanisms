@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import write_rows
 from lexical_acquisition_mechanisms.hidden_state_similarity import build_hidden_state_similarity
 from lexical_acquisition_mechanisms.neutral_contexts import NeutralContext
@@ -112,3 +113,34 @@ def test_similarities_checks_and_review_rows(tmp_path: Path, settings: Settings)
         "soup": "",
     }
     assert all(row["approved"] == "" for row in review)
+
+
+def test_missing_ratings_stop_before_loading_models(tmp_path: Path, settings: Settings) -> None:
+    tokenizer = WordTokenizer.from_model(settings.models["tiny"])
+    words = [
+        SelectedWord(
+            word, role, category=category, token_ids=str(tokenizer.word_token_ids(word)[0])
+        )
+        for word, role, category, _ in WORDS
+    ]
+    write_rows(tmp_path / "selected_words.csv", SelectedWord, words)
+    write_rows(tmp_path / "neutral_contexts.csv", NeutralContext, [NeutralContext(0, "")])
+    # bunny の組の評定がない（words select を実行し直し、評定を飛ばした場合など）
+    ratings = [
+        SimilarityRating("bagel", "", noun, "", 3) for noun in ("pasta", "bread", "hog", "cat")
+    ]
+    write_rows(tmp_path / "similarity_ratings.csv", SimilarityRating, ratings)
+
+    def no_model(source):
+        raise AssertionError("重みを読んではいけない")
+
+    with pytest.raises(CommandStopped, match="LLM の評定がない") as stopped:
+        build_hidden_state_similarity(
+            settings,
+            no_model,
+            tmp_path / "selected_words.csv",
+            tmp_path / "neutral_contexts.csv",
+            tmp_path / "similarity_ratings.csv",
+            (tmp_path / "similarity.csv", tmp_path / "checks.csv", tmp_path / "review.csv"),
+        )
+    assert stopped.value.rerun_from == "words rate-similarity-with-llm"
