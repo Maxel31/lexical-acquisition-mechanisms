@@ -22,7 +22,12 @@ import torch
 
 from lexical_acquisition_mechanisms import neutral_contexts, similarity_ratings, word_selection
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
-from lexical_acquisition_mechanisms.csv_tables import read_rows, write_review_rows, write_rows
+from lexical_acquisition_mechanisms.csv_tables import (
+    read_rows,
+    require_readable,
+    write_review_rows,
+    write_rows,
+)
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.neutral_contexts import NeutralContext
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
@@ -74,6 +79,7 @@ class ReviewRow:
 
 
 def measure_hidden_state_similarity(settings: Settings, arguments: argparse.Namespace) -> None:
+    require_readable(REVIEW_PATH)
     step = Step(
         COMMAND,
         inputs={

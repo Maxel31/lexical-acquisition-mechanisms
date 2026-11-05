@@ -27,7 +27,12 @@ import torch
 from lexical_acquisition_mechanisms import minimal_pairs, task_questions, word_finalization
 from lexical_acquisition_mechanisms.bootstrap_statistics import SIGNIFICANCE_LEVEL
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
-from lexical_acquisition_mechanisms.csv_tables import read_rows, write_review_rows, write_rows
+from lexical_acquisition_mechanisms.csv_tables import (
+    read_rows,
+    require_readable,
+    write_review_rows,
+    write_rows,
+)
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.minimal_pairs import BLANK, MinimalPairCandidate
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
@@ -134,6 +139,7 @@ class CheckPaths:
 
 def check_with_pretrained_models(settings: Settings, arguments: argparse.Namespace) -> None:
     paths = CheckPaths()
+    require_readable(paths.review)
     step = Step(
         COMMAND,
         inputs={
