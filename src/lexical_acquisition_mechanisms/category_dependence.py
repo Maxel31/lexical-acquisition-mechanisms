@@ -11,8 +11,8 @@ head（test-attribute-directions の attribute_judging_heads の、属性が cat
   （random-head）と、同じ head の同じ次元数の無作為な方向（random-direction。
   test-attribute-directions と同じ方向）で、同じ無効化をする
 - d_未知: 未知語での低下（21条件の平均）。d_既知: 同じ問題の語を、割り当てた名詞に替えたときの低下
-- 依存度 = d_未知 / d_既知。d_既知 が MINIMUM_KNOWN_DROP 以下の組（その head が名詞にも効いていない
-  組）は、依存度を出さない（usable が偽）
+- 依存度（d_未知 / d_既知）と、依存度を出せる組か（d_既知 が下限より大きいか）は、fit-regression で
+  決める（下限を変えても、GPU での測定をやり直さないように）
 - 無効化する前の、未知語と名詞の課題2の正解率（21条件での割合）も記録する
 カテゴリを判定する head がなければ、何も測らずに空の表を書く。
 出力は outputs/results/dependence-on-category-judging-heads/<モデル>/dependence.parquet（run ×
@@ -67,8 +67,6 @@ from lexical_acquisition_mechanisms.word_selection import SelectedWord
 EXPERIMENT = "dependence-on-category-judging-heads"
 RESULTS_DIRECTORY = Path("outputs/results") / EXPERIMENT
 ABLATIONS = ("category-direction", "random-head", "random-direction")
-# 名詞での低下がこれ以下（自然対数の単位）なら、依存度を出さない
-MINIMUM_KNOWN_DROP = 0.05
 BATCH_SIZE = 16
 
 
@@ -116,7 +114,6 @@ def measure_dependence(settings: Settings, arguments: argparse.Namespace) -> Non
         settings={
             "checkpoints": checkpoint_states(list(checkpoints.values())),
             "seed": settings.words.seed,
-            "minimum_known_drop": MINIMUM_KNOWN_DROP,
         },
     )
     run_unless_unchanged(
@@ -215,7 +212,7 @@ def _measure_run(
     ablations: dict[str, tuple[SubspacePatch, ...]],
     words: dict[str, SelectedWord],
 ) -> list[dict[str, object]]:
-    """1つの run の、未知語 × 無効化の種類ごとの低下（条件で平均）と依存度。"""
+    """1つの run の、未知語 × 無効化の種類ごとの低下（条件で平均）。"""
     drops: dict[tuple[str, str], dict[str, list[np.ndarray]]] = {}
     for question in questions:
         candidates = choice_token_ids(question["choices"], model.tokenizer)
@@ -242,7 +239,6 @@ def _measure_run(
     for (unknown_word, noun), versions in drops.items():
         unknown, known = (np.mean(versions[version], axis=0) for version in ("unknown", "known"))
         for index, ablation in enumerate(ABLATIONS, start=1):
-            usable = bool(known[index] > MINIMUM_KNOWN_DROP)
             rows.append(
                 {
                     "run": run,
@@ -251,8 +247,6 @@ def _measure_run(
                     "ablation": ablation,
                     "unknown_drop": float(unknown[index]),
                     "known_drop": float(known[index]),
-                    "dependence": float(unknown[index] / known[index]) if usable else float("nan"),
-                    "usable": usable,
                     "unknown_accuracy": float(unknown[0]),
                     "known_accuracy": float(known[0]),
                     "conditions": len(versions["unknown"]),
