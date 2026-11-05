@@ -17,8 +17,9 @@ from lexical_acquisition_mechanisms.similarity_ratings import SimilarityRating
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-# 別カテゴリでも意味が近い組（並べ替えで避ける）
-CLOSE_PAIR = ("animal-target-1", "food-0")
+# 別カテゴリでも意味が近い組（並べ替えで避ける）。枠（food, 1トークン）の1番目の名詞 food-0 は、
+# 並べ替えなければ、building の1トークンのターゲット語に足す
+CLOSE_PAIR = ("building-target-1", "food-0")
 
 
 @pytest.fixture
@@ -122,3 +123,27 @@ def test_other_category_pairs_are_distant(tmp_path: Path, assignments) -> None:
     assert len(pairs) == 18 * 4
     assert all(pair.distant for pair in pairs)
     assert CLOSE_PAIR not in {(pair.target, pair.noun) for pair in pairs}
+
+
+def test_orders_of_donors_do_not_follow_their_frequency(
+    assignments: list[SenseAdditionAssignment],
+) -> None:
+    # 名詞の頻度（estimated_pile_count）はカテゴリの中の番号、形容詞は番号。並べ替えなければ、
+    # 1番目の donor は、どれも枠（ターゲット語に配った4語）の中で最も頻度が低い
+    first = [row for row in assignments if row.run == "same-category-1"]
+    ranks = []
+    for row in first:
+        # 同じ枠の4語（same-category-4 で、同じターゲット語に足す語）の中での、頻度の順位
+        slot = sorted(
+            (
+                other.donor
+                for other in assignments
+                if other.run == "same-category-4" and other.target == row.target
+            ),
+            key=lambda donor: int(donor.rsplit("-", 1)[1]),
+        )
+        ranks.append(slot.index(row.donor))
+    assert 1.0 < sum(ranks) / len(ranks) < 2.0
+    adjectives = [int(row.donor.split("-")[1]) for row in assignments if row.run == "adjective-1"]
+    # 頻度の下位18語（平均 8.5）ではなく、全体の平均（35.5）に近い
+    assert 25 < sum(adjectives) / len(adjectives) < 45
