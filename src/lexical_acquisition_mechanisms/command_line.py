@@ -36,6 +36,7 @@ from lexical_acquisition_mechanisms import (
     training_data,
     unknown_word_candidates,
     unknown_word_indicators,
+    unknown_word_report,
     word_finalization,
     word_selection,
     word_sense_judgment,
@@ -262,6 +263,12 @@ def all_actions() -> list[Action]:
             "3つの指標が獲得される順番を検定する",
             acquisition_order.analyze_acquisition_order,
             acquisition_order.add_arguments,
+        ),
+        Action(
+            "unknown-word-acquisition",
+            "make-report",
+            "図と表を outputs/figures/unknown-word-acquisition/ に作る",
+            unknown_word_report.make_report,
         ),
     ]
 
