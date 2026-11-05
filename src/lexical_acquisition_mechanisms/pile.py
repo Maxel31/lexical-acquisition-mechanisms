@@ -8,6 +8,7 @@ Pile は手元に保存しない。parquet の断片（1,650個、1つ約270MB�
 
 import multiprocessing
 import shutil
+import time
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
@@ -23,6 +24,11 @@ PILE_REVISION = "fcbfcfde4222cbb1acd1d33bad0be250ee14b1bb"
 NUMBER_OF_SHARDS = 1650
 DOWNLOAD_TIMEOUT = 30
 DOWNLOAD_ATTEMPTS = 20
+# 取り直す前に待つ秒数（取り直すたびに2倍にし、DOWNLOAD_MAXIMUM_WAIT 秒まで）
+DOWNLOAD_RETRY_WAIT = 2
+DOWNLOAD_MAXIMUM_WAIT = 60
+# 一時的な誤りとして取り直す応答（多すぎる問い合わせと、サーバの一時的な誤り）
+RETRIED_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 DOWNLOAD_DIRECTORY = Path("data/pile_download")
 
 
@@ -47,8 +53,9 @@ def shard_file_names() -> list[str]:
 def download_shard(file_name: str, directory: Path, client: httpx.Client | None = None) -> Path:
     """断片を directory にダウンロードし、そのパスを返す。
 
-    止まったり切れたりしたら、届いた所から続きを取り直す（DOWNLOAD_ATTEMPTS 回まで）。大きさが
-    Hugging Face の記録と合わなければ、誤りにする。
+    止まったり切れたり、一時的な誤りの応答（RETRIED_STATUS_CODES）が返ったりしたら、少し待ってから、
+    届いた所から続きを取り直す（DOWNLOAD_ATTEMPTS 回まで）。大きさが Hugging Face の記録と合わな
+    ければ、誤りにする。
     """
     url = hf_hub_url(PILE_REPOSITORY, file_name, repo_type="dataset", revision=PILE_REVISION)
     expected = get_hf_file_metadata(url).size
@@ -59,10 +66,12 @@ def download_shard(file_name: str, directory: Path, client: httpx.Client | None 
     owned = client is None
     client = client or httpx.Client(follow_redirects=True, timeout=DOWNLOAD_TIMEOUT)
     try:
-        for _ in range(DOWNLOAD_ATTEMPTS):
+        for attempt in range(DOWNLOAD_ATTEMPTS):
             received = partial_path.stat().st_size if partial_path.exists() else 0
             if received == expected:
                 break
+            if attempt:
+                time.sleep(min(DOWNLOAD_RETRY_WAIT * 2 ** (attempt - 1), DOWNLOAD_MAXIMUM_WAIT))
             headers = {"Range": f"bytes={received}-"} if received else {}
             try:
                 with client.stream("GET", url, headers=headers) as response:
@@ -74,6 +83,9 @@ def download_shard(file_name: str, directory: Path, client: httpx.Client | None 
                             file.write(chunk)
             except httpx.TransportError:
                 continue
+            except httpx.HTTPStatusError as error:
+                if error.response.status_code not in RETRIED_STATUS_CODES:
+                    raise
     finally:
         if owned:
             client.close()

@@ -90,8 +90,8 @@ uv run lexical-acquisition-mechanisms words finalize --review-csv data/words/rev
 #### 1-2. 用例
 
 ```bash
-# Pile から、選んだ語を含む用例の候補を切り出す（断片のダウンロードが進まなくなったら、止めて
-# HF_HUB_DISABLE_XET=1 を前に付けて実行し直す。読み終えた断片の続きから読む）
+# Pile から、選んだ語を含む用例の候補を切り出す（止まったら、同じコマンドで実行し直す。読み終えた
+# 断片の続きから読む）
 uv run lexical-acquisition-mechanisms passages collect
 
 # ほぼ同じ候補を除き、元の文書の単位で学習用と評価用に分ける

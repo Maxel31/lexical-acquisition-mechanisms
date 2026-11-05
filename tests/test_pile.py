@@ -83,6 +83,7 @@ def test_a_broken_download_continues_from_the_received_bytes(
     monkeypatch.setattr(
         pile, "get_hf_file_metadata", lambda url: SimpleNamespace(size=len(content))
     )
+    monkeypatch.setattr(pile.time, "sleep", lambda seconds: None)
     ranges = []
 
     def handle(request: httpx.Request) -> httpx.Response:
@@ -97,3 +98,36 @@ def test_a_broken_download_continues_from_the_received_bytes(
 
     assert path.read_bytes() == content
     assert ranges == [None, "bytes=3000-"]
+
+
+def test_temporary_server_errors_are_retried_after_waiting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    content = bytes(range(256)) * 4
+    monkeypatch.setattr(
+        pile, "get_hf_file_metadata", lambda url: SimpleNamespace(size=len(content))
+    )
+    waits = []
+    monkeypatch.setattr(pile.time, "sleep", waits.append)
+    responses = iter([503, 429, 200])
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        status = next(responses)
+        return httpx.Response(status, content=content if status == 200 else b"busy")
+
+    client = httpx.Client(transport=httpx.MockTransport(handle))
+    path = pile.download_shard("data/train-00000-of-01650.parquet", tmp_path, client)
+
+    assert path.read_bytes() == content
+    # 取り直すたびに、待つ秒数を2倍にする
+    assert waits == [2, 4]
+
+
+def test_other_error_responses_stop_the_download(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(pile, "get_hf_file_metadata", lambda url: SimpleNamespace(size=10))
+    client = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(404)))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        pile.download_shard("data/train-00000-of-01650.parquet", tmp_path, client)
