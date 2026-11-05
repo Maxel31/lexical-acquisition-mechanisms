@@ -228,6 +228,16 @@ def test_natural_words_are_the_remaining_words_of_each_token_count(
     assert probe_words == (natural_nouns & {"pasta", "soup"}) | {"dog", "quiet", "delicious"}
 
 
+def test_too_few_one_token_natural_nouns_stop(
+    tmp_path: Path, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 各カテゴリの1トークンの自然な名詞は1語しかない（品詞のプローブには2語要る）
+    monkeypatch.setattr(word_selection, "PART_OF_SPEECH_NOUNS_PER_CATEGORY", 2)
+
+    with pytest.raises(CommandStopped, match="1トークンの自然な名詞（品詞のプローブ用）"):
+        select(tmp_path, settings, [noun_candidate(*noun) for noun in NOUNS])
+
+
 def test_unknown_words_have_first_tokens_of_their_own(tmp_path: Path, settings: Settings) -> None:
     tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
     bread = tokenizer.word_token_ids("bread")[0]
