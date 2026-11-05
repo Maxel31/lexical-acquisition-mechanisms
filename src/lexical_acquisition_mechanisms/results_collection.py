@@ -9,13 +9,15 @@ experiment・model・run・word・condition・number_of_senses・indicator・lay
   （sense-accuracy-difference）、構成要素の効果（head-effect と head-effect-normalized。condition は
   入れ替えた位置。MLP の head は −1）、手順2で採用した構成要素（component-class。condition は
   分類、値は 1）、属性のプローブの確認用の語での正解率（attribute-probe-accuracy。condition は
-  属性）、属性の方向の入れ替えの比べ（condition は属性、indicator は「課題-値の名前」。例:
-  category-attribute-change・sense-random-head-p-value）、属性を判定する head の基準
+  属性）、属性の方向の入れ替えの比べ（condition は属性、number_of_senses は run の N、indicator は
+  「課題-値の名前」。例: category-attribute-change・sense-random-head-p-value）、属性を判定する head
+  の基準
   （attribute-judging-{encoding|causal|specificity|judging}。値は 0・1）
 - unknown-word-acquisition の獲得の順番（half-exposure-{指標} とその lower・upper、
-  reached-share-{指標}。condition は語の集まり）
+  reached-share-{指標}、{指標}-earlier-than-{相手}（相手より先に 0.5 に達した再抽出の割合）と
+  その -p-value。condition は語の集まり）
 - dependence-on-category-judging-heads: 依存度（dependence。condition は無効化の種類）と、回帰の
-  係数と p 値（regression-{項} と regression-{項}-p-value）
+  係数と 95% の区間と p 値（regression-{項}、その -lower・-upper・-p-value）
 - words: 語の共変量（base-data-count: 基データでの出現回数、token-count。condition は役割）
 図 outputs/figures/model_sizes.png: モデルごとの、3つの指標が 0.5 に達する露出回数（全体）・
 手順2の分類ごとの構成要素の数・依存度の回帰の、意味と統合の係数と 95% の区間。
