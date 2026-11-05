@@ -17,6 +17,7 @@ torchrun から、GPU ごとに1つのプロセスで動かす（GPU がなけ�
   （next_token_losses）。
 - 最適化器: AdamW（埋め込みには重みの減衰を掛けない）。学習率は、最初の warmup_fraction の step で
   0 から上げ、あとは一定（事前学習の最後の値のまま）。勾配のノルムを gradient_clipping に抑える。
+- 損失か勾配のノルムが有限でなくなったら（NaN・inf）、重みを更新する前に、全ての GPU で止まる。
 - 記録: step ごとに、損失（全体と、差し込んだ用例のトークンだけ）・学習率・勾配のノルムを、
   出力のディレクトリの metrics.jsonl に書き、W&B にも送る（環境変数 WANDB_MODE=disabled なら
   送らない）。最初から学習するときは、metrics.jsonl を書き直し、新しい W&B の run を始める。
@@ -199,6 +200,15 @@ def train(run: RunSettings, recompute: bool = False, command: str = "training ru
                 group["lr"] = learning_rate
             totals = _train_step(model, batches, step, run, process)
             norm = torch.nn.utils.clip_grad_norm_(model.parameters(), run.gradient_clipping)
+            # 損失は全ての GPU で足し合わせ、ノルムも全体の値なので、全ての GPU で同じ判断になる
+            gradient_norm = float(_full(norm))
+            loss = totals["loss"] / totals["tokens"]
+            if not (math.isfinite(loss) and math.isfinite(gradient_norm)):
+                raise CommandStopped(
+                    f"{step + 1} step 目で、損失か勾配のノルムが有限でなくなりました（損失 {loss}・"
+                    f"ノルム {gradient_norm}）。学習率などの設定を見直して、学習し直してください。",
+                    rerun_from=f"{command} --recompute",
+                )
             optimizer.step()
             optimizer.zero_grad(set_to_none=True)
             if process.rank == 0:
@@ -207,13 +217,13 @@ def train(run: RunSettings, recompute: bool = False, command: str = "training ru
                     {
                         "step": step + 1,
                         "steps": batches.number_of_steps,
-                        "loss": totals["loss"] / totals["tokens"],
+                        "loss": loss,
                         # 差し込んだトークンがない step（対照の run など）は null
                         "inserted_loss": totals["inserted_loss"] / totals["inserted_tokens"]
                         if totals["inserted_tokens"]
                         else None,
                         "learning_rate": learning_rate,
-                        "gradient_norm": float(_full(norm)),
+                        "gradient_norm": gradient_norm,
                         "seconds": time.time() - started,
                     },
                 )
