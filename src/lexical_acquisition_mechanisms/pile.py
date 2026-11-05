@@ -2,6 +2,8 @@
 
 Pile は手元に保存しない。parquet の断片（1,650個、1つ約270MB）を1つずつダウンロードして読み、
 読み終えたら消す。データの版は固定し、文書は（断片の番号, 断片の中の行の番号）で指す。
+断片は、版を固定した URL から流しながら書く（huggingface_hub の取得では、接続が途中で止まったまま
+進まないことがあった）。DOWNLOAD_TIMEOUT 秒のあいだ何も届かなければ、届いた所から取り直す。
 """
 
 import multiprocessing
@@ -12,12 +14,15 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
+import httpx
 import pyarrow.parquet as parquet
-from huggingface_hub import HfApi, hf_hub_download
+from huggingface_hub import HfApi, get_hf_file_metadata, hf_hub_url
 
 PILE_REPOSITORY = "EleutherAI/the_pile_deduplicated"
 PILE_REVISION = "fcbfcfde4222cbb1acd1d33bad0be250ee14b1bb"
 NUMBER_OF_SHARDS = 1650
+DOWNLOAD_TIMEOUT = 30
+DOWNLOAD_ATTEMPTS = 20
 DOWNLOAD_DIRECTORY = Path("data/pile_download")
 
 
@@ -39,17 +44,46 @@ def shard_file_names() -> list[str]:
     return names
 
 
-def download_shard(file_name: str, directory: Path) -> Path:
-    """断片を directory にダウンロードし、そのパスを返す。"""
-    return Path(
-        hf_hub_download(
-            PILE_REPOSITORY,
-            file_name,
-            repo_type="dataset",
-            revision=PILE_REVISION,
-            local_dir=directory,
+def download_shard(file_name: str, directory: Path, client: httpx.Client | None = None) -> Path:
+    """断片を directory にダウンロードし、そのパスを返す。
+
+    止まったり切れたりしたら、届いた所から続きを取り直す（DOWNLOAD_ATTEMPTS 回まで）。大きさが
+    Hugging Face の記録と合わなければ、誤りにする。
+    """
+    url = hf_hub_url(PILE_REPOSITORY, file_name, repo_type="dataset", revision=PILE_REVISION)
+    expected = get_hf_file_metadata(url).size
+    path = directory / file_name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    partial_path = path.with_name(path.name + ".partial")
+    partial_path.unlink(missing_ok=True)
+    owned = client is None
+    client = client or httpx.Client(follow_redirects=True, timeout=DOWNLOAD_TIMEOUT)
+    try:
+        for _ in range(DOWNLOAD_ATTEMPTS):
+            received = partial_path.stat().st_size if partial_path.exists() else 0
+            if received == expected:
+                break
+            headers = {"Range": f"bytes={received}-"} if received else {}
+            try:
+                with client.stream("GET", url, headers=headers) as response:
+                    response.raise_for_status()
+                    # 続きを返さないサーバなら、初めから書き直す
+                    mode = "ab" if received and response.status_code == 206 else "wb"
+                    with partial_path.open(mode) as file:
+                        for chunk in response.iter_bytes():
+                            file.write(chunk)
+            except httpx.TransportError:
+                continue
+    finally:
+        if owned:
+            client.close()
+    received = partial_path.stat().st_size if partial_path.exists() else 0
+    if received != expected:
+        raise RuntimeError(
+            f"Pile の断片 {file_name} を落とせませんでした（{received} / {expected} バイト）。"
         )
-    )
+    partial_path.replace(path)
+    return path
 
 
 def documents_in_shard(
