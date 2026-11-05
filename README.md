@@ -35,6 +35,8 @@ VLLM_USE_DEEP_GEMM=0 VLLM_MOE_USE_DEEP_GEMM=0 CUDA_VISIBLE_DEVICES=0,1 \
   --tensor-parallel-size 2 --port 8000
 ```
 
+GPU が4枚空いていれば、`CUDA_VISIBLE_DEVICES=0,1,2,3` と `--data-parallel-size 2` を足すと、同じモデルを2つ並べて動かし、用例の判定などが速くなります。
+
 ## 使い方
 
 - リポジトリの最上位のディレクトリで、`uv run lexical-acquisition-mechanisms <段階> <処理>` の形で実行します（`--help` で説明が出ます）。設定はすべて `settings.yaml` にあります。

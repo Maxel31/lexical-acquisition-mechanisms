@@ -19,8 +19,9 @@ llm:
   server_url: http://localhost:8000/v1
   model: Qwen/Qwen3-Next-80B-A3B-Instruct-FP8
   # 同時に送る問いの数（128 では、サーバの KV キャッシュを 7% ほどしか使わず、同時に処理する数で
-  # 速さが決まっていた。答えは変わらない）
-  maximum_concurrent_requests: 512
+  # 速さが決まっていた。サーバを2つ並べたとき（README）にも、1つあたり約512件になるようにする。
+  # サーバが1つなら、超えた分はサーバの中で待つ。答えは変わらない）
+  maximum_concurrent_requests: 1024
 
 # 基データ（OLMo 2 の事前学習データの、学習順で先頭の部分）と検証データ
 base_data:
