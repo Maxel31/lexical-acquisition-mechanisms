@@ -26,7 +26,9 @@ def pair(donor: str, kind: str, donor_sentence: str, target_sentence: str) -> Ch
     )
 
 
-def finalize(tmp_path: Path, approvals: tuple[str, str]) -> Path:
+def finalize(
+    tmp_path: Path, approvals: tuple[str, str], checked: list[CheckedMinimalPair] | None = None
+) -> Path:
     settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
     evaluation = settings.evaluation.model_copy(update={"number_of_task_examples": 1})
     settings = settings.model_copy(update={"evaluation": evaluation})
@@ -43,7 +45,7 @@ def finalize(tmp_path: Path, approvals: tuple[str, str]) -> Path:
         SenseAdditionAssignment("adjective-1", "car", "vehicle", 1, "quiet", "adjective", "", 1),
     ]
     write_rows(tmp_path / "assignments.csv", SenseAdditionAssignment, assignments)
-    checked = [
+    checked = checked or [
         pair("pasta", "other-category", "She cooked the ___.", "She parked the ___."),
         pair("pasta", "other-category", "He ate the ___.", "He drove the ___."),
         pair("quiet", "adjective", "It was so ___.", "It was the ___."),
@@ -111,6 +113,20 @@ def test_rejected_pairs_are_removed_and_questions_are_built(tmp_path: Path) -> N
     sense = next(question for question in questions if question["task"] == "sense")
     assert sorted(sense["choices"]) == ["automobile", "pasta"]
     assert "the {word}." in sense["prompt_template"].split("\n\n")[-1]
+
+
+def test_review_rows_are_matched_with_both_sentences(tmp_path: Path) -> None:
+    # donor の文が同じで、ターゲット語の文が違う2組。人が 0 にしたのは1組目（parked）
+    checked = [
+        pair("pasta", "other-category", "She cooked the ___.", "She parked the ___."),
+        pair("pasta", "other-category", "She cooked the ___.", "She drove the ___."),
+        pair("quiet", "adjective", "It was so ___.", "It was the ___."),
+    ]
+
+    finalize(tmp_path, ("0", "1"), checked)
+
+    pairs = read_rows(tmp_path / "pairs.csv", CheckedMinimalPair)
+    assert [pair.target_sentence for pair in pairs] == ["She drove the ___.", "It was the ___."]
 
 
 def test_both_sentences_of_a_pair_share_examples_and_choices(tmp_path: Path) -> None:

@@ -100,11 +100,17 @@ def write_final_evaluation_data(
     checked = read_rows(checked_path, CheckedMinimalPair)
     review = read_rows(review_path, MinimalPairReviewRow)
     rerun = f"{COMMAND} --review-csv {review_path}"
+    # 2文の組ごとに照合する（donor の文が同じで、ターゲット語の文が違う組もある）
     filled = {
-        (pair.target, pair.donor, pair.donor_sentence.replace(BLANK, pair.target)): pair
+        (
+            pair.target,
+            pair.donor,
+            pair.donor_sentence.replace(BLANK, pair.target),
+            pair.target_sentence.replace(BLANK, pair.target),
+        ): pair
         for pair in checked
     }
-    unknown = [row for row in review if (row.target, row.donor, row.donor_sentence) not in filled]
+    unknown = [row for row in review if _review_key(row) not in filled]
     if unknown:
         raise CommandStopped(
             f"{review_path} に、確認に通った最小対と合わない行があります（{len(unknown)} 行）。"
@@ -118,11 +124,7 @@ def write_final_evaluation_data(
             "記入してください。",
             rerun_from=rerun,
         )
-    rejected = {
-        id(filled[(row.target, row.donor, row.donor_sentence)])
-        for row in review
-        if row.approved.strip() == "0"
-    }
+    rejected = {id(filled[_review_key(row)]) for row in review if row.approved.strip() == "0"}
     pairs = [pair for pair in checked if id(pair) not in rejected]
     write_rows(output_paths[0], CheckedMinimalPair, pairs)
     examples = {}
@@ -133,6 +135,10 @@ def write_final_evaluation_data(
     assignments = read_rows(assignments_path, SenseAdditionAssignment)
     questions = sense_addition_questions(settings, words, pairs, assignments, paraphrases, examples)
     parquet.write_table(arrow.Table.from_pylist(questions), output_paths[1])
+
+
+def _review_key(row: MinimalPairReviewRow) -> tuple[str, str, str, str]:
+    return row.target, row.donor, row.donor_sentence, row.target_sentence
 
 
 def sense_addition_questions(
