@@ -176,4 +176,17 @@ def test_frequency_of_first_donors_is_the_same_for_every_token_count(
     nouns = mean_by_token_count("same-category-1", slot_rank)
     adjectives = mean_by_token_count("adjective-1", lambda row: int(row.donor.split("-")[1]))
     assert len(set(nouns.values())) == 1
-    assert len(set(adjectives.values())) == 1
+    # 形容詞は、配る順（1〜18・18〜1）があるので、ほぼそろう（72語の番号で1以内）
+    assert max(adjectives.values()) - min(adjectives.values()) <= 1
+
+
+def test_frequency_of_adjective_donors_does_not_follow_the_number_of_senses(
+    assignments: list[SenseAdditionAssignment],
+) -> None:
+    # N と donor の頻度が一緒に動かない: どの N でも、形容詞の番号（頻度の順）の平均が、全体の平均
+    # （35.5）から1以内
+    for number in (1, 2, 4):
+        numbers = [
+            int(row.donor.split("-")[1]) for row in assignments if row.run == f"adjective-{number}"
+        ]
+        assert abs(sum(numbers) / len(numbers) - 35.5) <= 1
