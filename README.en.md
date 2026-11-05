@@ -360,7 +360,11 @@ uv run lexical-acquisition-mechanisms results collect
 ## Tests
 
 ```bash
+# Tests of each step
 uv run pytest
+# A test that runs every command, from the assignments to collecting all results,
+# one after another (about 15 minutes on CPU)
+uv run pytest -m slow
 ```
 
 The tests check that every command runs to the end without GPUs or the LLM server.

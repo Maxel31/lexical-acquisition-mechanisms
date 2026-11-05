@@ -44,3 +44,6 @@ select = ["E", "F", "I", "B", "UP"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# 通しのテスト（CPU で約15分）は、uv run pytest -m slow で別に実行する
+markers = ["slow: 全てのコマンドを続けて実行する通しのテスト"]
+addopts = "-m 'not slow'"
