@@ -132,8 +132,11 @@ def test_candidates_are_judged_until_enough_pass(
         outputs,
     )
 
-    # 評価用の候補は、合格する必要がある数の 2.5 倍に届かないので、表示する
-    assert "pasta（evaluation 1 / 1 件）, quiet（evaluation 1 / 1 件）" in capsys.readouterr().out
+    # 評価用は、合格する見込み（候補の数 × usage_share）が必要な数の 2.5 倍に届かないので表示する。
+    # 学習用（9件 × 0.9 = 8.1 件。必要な数 3 件の 2.5 倍は 7.5 件）は表示しない
+    out = capsys.readouterr().out
+    assert "pasta（evaluation 1 / 1 件）, quiet（evaluation 1 / 1 件）" in out
+    assert "pasta（training" not in out
     summary = {(row.word, row.split): row for row in read_rows(outputs[1], JudgmentSummary)}
     # 1回目は 3 × 1.2 ÷ 0.9 → 4 件（合格 2）、2回目は 1 × 1.2 ÷ 0.5 → 3 件
     # （"pasta brand" と "pasta dish" の2つの出現がある6番目は、1つが不合格なので不合格）
