@@ -1,5 +1,6 @@
 """学習前のモデルでの評価データの確認のテスト。モデルは、決まった対数確率を返す部品で置き換える。"""
 
+import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -8,6 +9,8 @@ import pyarrow as arrow
 import pyarrow.parquet as parquet
 import pytest
 
+from lexical_acquisition_mechanisms import pretrained_model_checks
+from lexical_acquisition_mechanisms.bootstrap_statistics import SIGNIFICANCE_LEVEL
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.minimal_pairs import MinimalPairCandidate
@@ -198,3 +201,18 @@ def test_commands_stop_on_tasks_that_the_model_cannot_solve(tmp_path: Path) -> N
     require_usable_tasks("tiny", ["sense"], "command", path)
     with pytest.raises(CommandStopped, match="category"):
         require_usable_tasks("tiny", ["sense", "category"], "command", path)
+
+
+def test_record_has_the_significance_level(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 有意水準を変えたら、使える課題の判定をやり直す
+    steps = []
+    monkeypatch.setattr(
+        pretrained_model_checks,
+        "run_unless_unchanged",
+        lambda step, compute, recompute: steps.append(step),
+    )
+    settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
+    pretrained_model_checks.check_with_pretrained_models(
+        settings, argparse.Namespace(recompute=False)
+    )
+    assert steps[0].settings["significance_level"] == SIGNIFICANCE_LEVEL
