@@ -391,17 +391,19 @@ class _Resampling:
 def _half_exposure(means: np.ndarray, exposures: Sequence[int]) -> float:
     """平均の曲線が 0.5 に初めて達する露出回数。
 
-    水準の間は、log10(1 + 露出回数) に対して直線で結ぶ。達しなければ inf。
+    値のない（nan の）水準は除き、残った水準の間を、log10(1 + 露出回数) に対して直線で結ぶ
+    （再抽出で、ある水準の値が全て nan になっても、その水準をまたぐ到達を見落とさないように）。
+    最初の水準で達していれば、その露出回数。達しなければ inf。
     """
-    positions = np.log10(1 + np.array(exposures, dtype=float))
-    for index in range(1, len(means)):
-        before, after = means[index - 1], means[index]
-        if np.isnan(before) or np.isnan(after):
-            continue
+    finite = np.isfinite(np.asarray(means, dtype=float))
+    values = np.asarray(means, dtype=float)[finite]
+    positions = np.log10(1 + np.array(exposures, dtype=float))[finite]
+    for index in range(1, len(values)):
+        before, after = values[index - 1], values[index]
         if before < HALF <= after:
             share = (HALF - before) / (after - before)
             position = positions[index - 1] + share * (positions[index] - positions[index - 1])
             return float(10**position - 1)
-    if len(means) and means[0] >= HALF:
-        return 0.0
+    if len(values) and values[0] >= HALF:
+        return float(10 ** positions[0] - 1)
     return math.inf

@@ -3,6 +3,7 @@
 import math
 from pathlib import Path
 
+import numpy as np
 import pyarrow as arrow
 import pyarrow.parquet as parquet
 import pytest
@@ -10,6 +11,7 @@ import pytest
 from lexical_acquisition_mechanisms.acquisition_order import (
     AcquisitionCurvePoint,
     AcquisitionOrder,
+    _half_exposure,
     normalize,
     write_acquisition_order,
 )
@@ -178,3 +180,12 @@ def test_groups_without_values_of_an_indicator_leave_it_out(tmp_path: Path) -> N
     }
     # 2トークンの語の集まりと全体には、形への慣れがある
     assert {row.indicator for row in read_rows(outputs[2], AcquisitionOrder)} >= {"form"}
+
+
+def test_half_exposure_crosses_levels_without_values() -> None:
+    # 露出 10 回の値がない（nan）ときは、露出 0 回と 100 回の間で 0.5 に達する
+    reached = _half_exposure(np.array([0.0, np.nan, 1.0]), [0, 10, 100])
+    assert reached == pytest.approx(10 ** (math.log10(101) * 0.5) - 1)
+    assert _half_exposure(np.array([0.0, np.nan, 0.4]), [0, 10, 100]) == math.inf
+    # 最初の水準で達していれば、その露出回数
+    assert _half_exposure(np.array([np.nan, 0.6, 1.0]), [0, 10, 100]) == pytest.approx(10)
