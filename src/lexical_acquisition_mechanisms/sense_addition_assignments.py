@@ -4,7 +4,9 @@ run ごとに、各ターゲット語に、どの語（donor）の語義を足�
 ターゲット語に置き換えて差し込む。
 1. 各カテゴリの名詞12語を、ターゲット語のトークン数（1・2・3）ごとに4語ずつの「枠」に分ける
    （未知語の獲得で、名詞をトークン数に分けたのと同じ分け方）。形容詞72語は、頻度の順に、
-   ターゲット語18語へ 1〜18・18〜1・… の順に4語ずつ配る。
+   ターゲット語18語へ 1〜18・18〜1・… の順に4語ずつ配る。枠の中と、配った4語の中の順番
+   （1〜4番目）は、頻度の低い順から、枠（ターゲット語）ごとに1つずつずらす（どの番目でも頻度が
+   そろうように。N と donor の頻度が一緒に動くと、N の比較に頻度が交絡するので）。
 2. 足す語義の種類と数 N（1・2・4）ごとの run で、カテゴリ k・トークン数 j のターゲット語に、
    - 同カテゴリ（same-category-N）: 枠 (k, j) の1〜N番目
    - 別カテゴリ（other-category-N）: 枠 (k+1, j) の1番目、枠 (k+2, j) の2番目、…、枠 (k+N, j) の
@@ -122,6 +124,7 @@ def write_sense_addition_assignments(
     for token_count in TOKEN_COUNTS:
         for index, category in enumerate(categories):
             nouns = [noun for noun in partition[token_count] if noun.category == category]
+            nouns = _rotated(nouns, len(slots))
             # 枠 (k, j) の n 番目の名詞は、別カテゴリで、ターゲット語 (k - n, j) に足す
             partners = [
                 targets[(categories[(index - order) % len(categories)], token_count)]
@@ -217,7 +220,9 @@ def _order_slot(
 def _deal_adjectives(
     words: Sequence[SelectedWord], targets: Sequence[SelectedWord]
 ) -> dict[str, list[SelectedWord]]:
-    """形容詞を頻度の順に、ターゲット語へ 1〜18・18〜1・… の順に配る。"""
+    """形容詞を頻度の順に、ターゲット語へ 1〜18・18〜1・… の順に配る（順番は、ターゲット語ごとに
+    ずらす）。
+    """
     adjectives = sorted(
         (word for word in words if word.role == "adjective"),
         key=lambda adjective: (adjective.estimated_pile_count, adjective.word),
@@ -226,4 +231,12 @@ def _deal_adjectives(
     snake = [*targets, *reversed(targets)]
     for index, adjective in enumerate(adjectives):
         dealt[snake[index % len(snake)].word].append(adjective)
-    return dealt
+    return {
+        target.word: _rotated(dealt[target.word], number) for number, target in enumerate(targets)
+    }
+
+
+def _rotated(words: Sequence[SelectedWord], shift: int) -> list[SelectedWord]:
+    """頻度の低い順の語を、shift だけずらした順（shift 番目の語が1番目になる）。"""
+    start = shift % len(words) if words else 0
+    return [*words[start:], *words[:start]]
