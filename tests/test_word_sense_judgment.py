@@ -213,6 +213,13 @@ def test_rejudging_reuses_previous_results_with_the_same_prompts(
     # --recompute（reuse=False）なら、前回の結果は使わない
     judge(tmp_path / "recompute.sqlite3", reuse=False)
     assert requested
+    # 同じ断片・行・始まりでも、窓の中身が変わった候補は、問い合わせ直す
+    requested.clear()
+    changed = list(candidates)
+    changed[1] = candidate(tokenizer, "pasta", "training", 0.1, "A pasta brand was made.")
+    parquet.write_table(arrow.Table.from_pylist(changed, schema=schema), tmp_path / "split.parquet")
+    judge(tmp_path / "window.sqlite3")
+    assert requested and all("was made" in passage for passage in requested)
     # 語の語義の説明が変わると、前回の結果は使わない
     requested.clear()
     judge(tmp_path / "same-definition.sqlite3")
