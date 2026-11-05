@@ -122,6 +122,10 @@ evaluation:
   probe_words_per_token_count: 100
   # 未知語の指標の正規化の基準にする、トークン数（2・3）ごとの既知の名詞の数
   normalization_nouns_per_token_count: 30
+  # 語義の組（ターゲット語の元の語義と、足す語義）ごとの最小対の数（暫定）と、
+  # LLM に作らせる候補の数（学習前のモデルでの確認で落ちる分を見込む）
+  minimal_pairs_per_sense_pair: 20
+  minimal_pair_candidates_per_sense_pair: 40
   # 中立文脈（語の意味を示さない文の書き出し。直後に語を置く）の候補。前から順に、条件に合うものを使う。
   # 前の20種は設計書の付録Eの候補、後の10種は、足りないときに使う同じ形の文
   neutral_context_candidates:
