@@ -21,12 +21,12 @@ from lexical_acquisition_mechanisms.unknown_word_assignments import UnknownWordA
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-# 言い換えの候補（語そのもの・大文字・2語・管理対象の語は使わない）
+# 言い換えの候補（語そのもの・大文字・2語・管理対象の語・カテゴリ名・上位語は使わない）
 PARAPHRASES = {
     "soup": ["soup", "Meal", "two words", "pasta", "broth"],
     "cat": ["kitty"],
-    "dog": ["stallion", "puppy"],
-    "car": ["automobile"],
+    "dog": ["animal", "canine", "stallion", "puppy"],
+    "car": ["vehicle", "automobile"],
 }
 
 
@@ -56,13 +56,25 @@ def test_examples_and_natural_word_questions(
     ]
     words = [
         SelectedWord(
-            word, "natural-noun", category=category, token_count=1, part_of_speech_probe=True
+            word,
+            "natural-noun",
+            category=category,
+            token_count=1,
+            synset=f"{word}.n.01",
+            part_of_speech_probe=True,
         )
         for word, category in natural
     ]
     words += [
         SelectedWord("quiet", "natural-adjective", token_count=1, part_of_speech_probe=True),
-        SelectedWord("car", "target", category="vehicle", token_count=1, definition="a vehicle"),
+        SelectedWord(
+            "car",
+            "target",
+            category="vehicle",
+            token_count=1,
+            synset="car.n.01",
+            definition="a vehicle",
+        ),
         SelectedWord("pasta", "noun", category="food", token_count=1),
         SelectedWord("tiger", "noun", category="animal", token_count=1),
         SelectedWord("truck", "noun", category="vehicle", token_count=1),
