@@ -16,6 +16,10 @@ from typing import Any, get_type_hints
 CONVERTERS = {str: str, int: int, float: float, bool: lambda text: text == "True"}
 
 
+class UnreadableEncodingError(ValueError):
+    """CSV を UTF-8 として読めない（表計算ソフトで別の文字コードで保存したときなど）。"""
+
+
 def write_rows(path: Path, row_type: type, rows: Iterable[Any], encoding: str = "utf-8") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fields = [field.name for field in dataclasses.fields(row_type)]
@@ -36,7 +40,7 @@ def read_rows[Row](path: Path, row_type: type[Row]) -> list[Row]:
                 for row in reader
             ]
     except UnicodeDecodeError as error:
-        raise ValueError(
+        raise UnreadableEncodingError(
             f"{path} を UTF-8 として読めません。表計算ソフトで「CSV UTF-8」の形式で保存し直して"
             "ください。"
         ) from error
@@ -66,15 +70,18 @@ def write_review_rows(
 
     書き直す前の CSV に、key_fields が同じ行があれば、記入済みの approved を引き継ぐ（語や用例を
     1つ差し替えるたびに、全ての行を確認し直さなくてよいように）。日本語の表計算ソフトが UTF-8 と
-    して開けるように、先頭に BOM を付ける。
+    して開けるように、先頭に BOM を付ける。書き直す前の CSV を UTF-8 として読めないときは、記入を
+    捨てないように止まる。列が変わった古い CSV は、引き継がずに、そのことを表示する。
     """
     previous: dict[tuple, str] = {}
     if path.exists():
         try:
             for row in read_rows(path, row_type):
                 previous[tuple(getattr(row, name) for name in key_fields)] = row.approved
-        except (ValueError, TypeError, KeyError):
-            # 列が変わった古い CSV は、引き継がない
+        except UnreadableEncodingError:
+            raise
+        except (ValueError, TypeError, KeyError) as error:
+            print(f"{path} の記入済みの approved を引き継ぎません（{error}）。")
             previous = {}
     for row in rows:
         if not row.approved:
