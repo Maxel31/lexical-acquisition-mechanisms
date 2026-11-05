@@ -31,11 +31,20 @@ class SettingsSection(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+class ModelSource(SettingsSection):
+    """モデルの取得元。"""
+
+    # Hugging Face のリポジトリ（またはローカルのディレクトリ）
+    repository: str
+    # リポジトリの版（ブランチ・タグ・コミット）。書かなければ、既定のブランチ（main）
+    revision: str | None = None
+
+
 class Settings(SettingsSection):
     """settings.yaml の全体。"""
 
-    # --model で指定する名前と、Hugging Face のリポジトリ（またはローカルのディレクトリ）
-    models: dict[ModelName, str] = Field(min_length=1)
+    # --model で指定する名前と、モデルの取得元
+    models: dict[ModelName, ModelSource] = Field(min_length=1)
 
 
 def load_settings(path: Path = Path(SETTINGS_FILE_NAME)) -> Settings:
@@ -86,6 +95,7 @@ _PROBLEM_DESCRIPTIONS = {
     "missing": "必要な項目がありません",
     "extra_forbidden": "知らない項目です（書き間違いでないか確かめてください）",
     "dict_type": "「名前: 値」の組を並べてください",
+    "model_type": "「項目名: 値」の組を並べてください",
     "string_type": "文字列にしてください",
     "too_short": "1つ以上書いてください",
     "string_pattern_mismatch": f"使えない文字があります（{MODEL_NAME_RULE}）",
