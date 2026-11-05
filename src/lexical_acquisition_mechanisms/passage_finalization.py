@@ -1,11 +1,14 @@
 """判定の精度を確かめ、合格した用例を、学習用・評価用の用例として書き出す（passages finalize）。
 
-1. 人が確認用の CSV（passages sample-for-review が書く data/passages/review.csv）の approved 列に
+1. 語と分け方（学習用・評価用）ごとに、合格した用例が必要な数あるかを確かめる（足りない語は、
+   精度を確かめずに外すので、先に確かめる）。足りない語があれば止まる。
+   - Pile の出現を全て残しても足りない語は、data/words/excluded_words.csv に足す（words select
+     から選び直すと、代わりの語が選ばれる）。
+   - 残した出現が残す数に届いた語（Pile にはさらに出現がありうる）は外さず、
+     passages.collection_factor を大きくして passages collect からやり直すように示す。
+2. 人が確認用の CSV（passages sample-for-review が書く data/passages/review.csv）の approved 列に
    記入した値から、語ごとに LLM の判定の精度（合格とした用例のうち、人も 1 とした割合）を出す。
    精度が下限に届かない語があれば止まる（指示文を直して、passages judge-word-sense からやり直す）。
-2. 語と分け方（学習用・評価用）ごとに、合格した用例が必要な数あるかを確かめる。足りない語は、
-   data/words/excluded_words.csv に足して止まる（words select から選び直すと、代わりの語が
-   選ばれる）。
 3. 合格した用例を data/passages/passages.parquet に、語ごとの精度と数を
    data/passages/passage_summary.csv に書く。
 """
@@ -18,6 +21,7 @@ from pathlib import Path
 import pyarrow.parquet as parquet
 
 from lexical_acquisition_mechanisms import (
+    passage_collection,
     passage_review,
     word_finalization,
     word_selection,
@@ -26,6 +30,7 @@ from lexical_acquisition_mechanisms import (
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
+from lexical_acquisition_mechanisms.passage_collection import CollectionSummary
 from lexical_acquisition_mechanisms.passage_review import PassageReviewRow
 from lexical_acquisition_mechanisms.settings import Settings
 from lexical_acquisition_mechanisms.word_selection import ExcludedWord, SelectedWord
@@ -62,6 +67,7 @@ def finalize_passages(settings: Settings, arguments: argparse.Namespace) -> None
         COMMAND,
         inputs={
             word_finalization.OUTPUT_PATH: word_finalization.COMMAND,
+            passage_collection.SUMMARY_PATH: passage_collection.COMMAND,
             word_sense_judgment.JUDGMENTS_PATH: word_sense_judgment.COMMAND,
             review_path: passage_review.COMMAND,
         },
@@ -84,6 +90,7 @@ def finalize_passages(settings: Settings, arguments: argparse.Namespace) -> None
         lambda: build_passages(
             settings,
             word_finalization.OUTPUT_PATH,
+            passage_collection.SUMMARY_PATH,
             word_sense_judgment.JUDGMENTS_PATH,
             review_path,
             word_selection.EXCLUDED_WORDS_PATH,
@@ -96,6 +103,7 @@ def finalize_passages(settings: Settings, arguments: argparse.Namespace) -> None
 def build_passages(
     settings: Settings,
     words_path: Path,
+    collection_summary_path: Path,
     judgments_path: Path,
     review_path: Path,
     excluded_words_path: Path,
@@ -103,6 +111,19 @@ def build_passages(
 ) -> None:
     passages_path, summary_path = output_paths
     words = [word for word in read_rows(words_path, SelectedWord) if word.role != "unknown"]
+    judgments = parquet.read_table(judgments_path)
+    passed = judgments.filter(judgments.column("passed")).drop_columns(["passed", "reasons"])
+    counts = Counter(
+        zip(passed.column("word").to_pylist(), passed.column("split").to_pylist(), strict=True)
+    )
+    short = []
+    for word in words:
+        for split in SPLITS:
+            needed = needed_passing_passages(word.role, split, settings)
+            if counts[(word.word, split)] < needed:
+                short.append((word, split, counts[(word.word, split)], needed))
+    if short:
+        _stop_for_shortage(short, collection_summary_path, excluded_words_path)
     review = read_rows(review_path, PassageReviewRow)
     rerun = f"{COMMAND} --review-csv {review_path}"
     reviewed = {word.word for word in words if word.role in passage_review.REVIEWED_ROLES}
@@ -132,27 +153,6 @@ def build_passages(
             "直してください。",
             rerun_from=word_sense_judgment.COMMAND,
         )
-    judgments = parquet.read_table(judgments_path)
-    passed = judgments.filter(judgments.column("passed")).drop_columns(["passed", "reasons"])
-    counts = Counter(
-        zip(passed.column("word").to_pylist(), passed.column("split").to_pylist(), strict=True)
-    )
-    short = []
-    for word in words:
-        for split in SPLITS:
-            needed = needed_passing_passages(word.role, split, settings)
-            if counts[(word.word, split)] < needed:
-                short.append((word, split, counts[(word.word, split)], needed))
-    if short:
-        _exclude(excluded_words_path, short)
-        listed = ", ".join(
-            f"{word.word}（{split} {found} / {needed} 件）" for word, split, found, needed in short
-        )
-        raise CommandStopped(
-            f"判定に合格した用例が足りない語を、{excluded_words_path} に足しました（{listed}）。"
-            "words select から実行し直すと、代わりの語が選ばれます。",
-            rerun_from=word_selection.COMMAND,
-        )
     order = [("word", "ascending"), ("split", "ascending"), ("key", "ascending")]
     parquet.write_table(passed.sort_by(order), passages_path)
     summaries = [
@@ -168,12 +168,50 @@ def build_passages(
     write_rows(summary_path, PassageSummary, summaries)
 
 
-def _exclude(excluded_words_path: Path, short: list) -> None:
-    excluded = word_selection.read_excluded_words(excluded_words_path)
-    known = {(row.word, row.role) for row in excluded}
-    for word, split, found, needed in short:
-        if (word.word, word.role) not in known:
-            reason = f"判定に合格した用例が足りない（{split} {found} / {needed} 件）"
-            excluded.append(ExcludedWord(word.word, word.role, reason))
-            known.add((word.word, word.role))
-    write_rows(excluded_words_path, ExcludedWord, excluded)
+def _stop_for_shortage(
+    short: list[tuple[SelectedWord, str, int, int]],
+    collection_summary_path: Path,
+    excluded_words_path: Path,
+) -> None:
+    """合格した用例が足りない語で止まる。Pile にさらに出現がありうる語は外さない。"""
+    at_limit = {
+        row.word
+        for row in read_rows(collection_summary_path, CollectionSummary)
+        if row.reached_limit
+    }
+    exhausted = [item for item in short if item[0].word not in at_limit]
+    more_in_pile = [item for item in short if item[0].word in at_limit]
+    messages = []
+    if exhausted:
+        word_selection.add_excluded_words(
+            excluded_words_path,
+            [
+                ExcludedWord(
+                    word.word,
+                    word.role,
+                    f"判定に合格した用例が足りない（{split} {found} / {needed} 件）",
+                )
+                for word, split, found, needed in exhausted
+            ],
+        )
+        messages.append(
+            f"Pile の出現を全て残しても、判定に合格した用例が足りない語を、{excluded_words_path} に"
+            f"足しました（{_listed(exhausted)}）。words select から実行し直すと、代わりの語が"
+            "選ばれます。"
+        )
+    if more_in_pile:
+        messages.append(
+            f"判定に合格した用例が足りない語のうち、Pile にさらに出現がありうる語は外していません"
+            f"（{_listed(more_in_pile)}）。settings.yaml の passages.collection_factor を大きくして"
+            f"ください（外すときは、{excluded_words_path} に足して words select から）。"
+        )
+    raise CommandStopped(
+        "".join(messages),
+        rerun_from=word_selection.COMMAND if exhausted else passage_collection.COMMAND,
+    )
+
+
+def _listed(short: list[tuple[SelectedWord, str, int, int]]) -> str:
+    return ", ".join(
+        f"{word.word}（{split} {found} / {needed} 件）" for word, split, found, needed in short
+    )

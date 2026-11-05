@@ -8,7 +8,7 @@ import pytest
 
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
-from lexical_acquisition_mechanisms.passage_collection import CANDIDATE_SCHEMA
+from lexical_acquisition_mechanisms.passage_collection import CANDIDATE_SCHEMA, CollectionSummary
 from lexical_acquisition_mechanisms.passage_finalization import PassageSummary, build_passages
 from lexical_acquisition_mechanisms.passage_review import PassageReviewRow
 from lexical_acquisition_mechanisms.settings import Settings, load_settings
@@ -54,13 +54,28 @@ def judgment(word: str, split: str, row: int, passed: bool) -> dict:
     }
 
 
-def finalize(tmp_path: Path, settings: Settings, approved: list[str], pasta_training: int = 3):
+def finalize(
+    tmp_path: Path,
+    settings: Settings,
+    approved: list[str],
+    pasta_training: int = 3,
+    pasta_evaluation: int = 1,
+    pasta_reached_limit: bool = False,
+):
+    """pasta の合格は学習用 pasta_training 件・評価用 pasta_evaluation 件、quiet は評価用 1 件。"""
     words = [SelectedWord("pasta", "noun"), SelectedWord("quiet", "natural-adjective")]
     write_rows(tmp_path / "words.csv", SelectedWord, words)
+    collection = [
+        CollectionSummary("pasta", "noun", 4, 10, 10, "", pasta_reached_limit),
+        CollectionSummary("quiet", "natural-adjective", 1, 2, 2, "", True),
+    ]
+    write_rows(tmp_path / "collection_summary.csv", CollectionSummary, collection)
     judgments = [judgment("pasta", "training", row, True) for row in range(pasta_training)]
     judgments += [
+        judgment("pasta", "evaluation", 60 + row, True) for row in range(pasta_evaluation)
+    ]
+    judgments += [
         judgment("pasta", "training", 50, False),
-        judgment("pasta", "evaluation", 60, True),
         judgment("quiet", "evaluation", 70, True),
     ]
     table = arrow.Table.from_pylist(judgments, schema=JUDGMENT_SCHEMA)
@@ -73,6 +88,7 @@ def finalize(tmp_path: Path, settings: Settings, approved: list[str], pasta_trai
     build_passages(
         settings,
         tmp_path / "words.csv",
+        tmp_path / "collection_summary.csv",
         tmp_path / "judgments.parquet",
         tmp_path / "review.csv",
         tmp_path / "excluded_words.csv",
@@ -98,12 +114,32 @@ def test_imprecise_judgments_stop(tmp_path: Path, settings: Settings) -> None:
 
 
 def test_word_without_enough_passages_is_excluded(tmp_path: Path, settings: Settings) -> None:
+    # 外す語の精度（0.50）は確かめない
     with pytest.raises(CommandStopped, match="pasta（training 2 / 3 件）") as stopped:
-        finalize(tmp_path, settings, ["1", "1"], pasta_training=2)
+        finalize(tmp_path, settings, ["1", "0"], pasta_training=2)
 
     assert stopped.value.rerun_from == "words select"
     excluded = read_rows(tmp_path / "excluded_words.csv", ExcludedWord)
     assert [(row.word, row.role) for row in excluded] == [("pasta", "noun")]
+
+
+def test_word_without_passed_passages_is_excluded(tmp_path: Path, settings: Settings) -> None:
+    # 合格が0件の語は、確認用の CSV に行がない
+    with pytest.raises(
+        CommandStopped, match="pasta（training 0 / 3 件）, pasta（evaluation 0 / 1 件）"
+    ):
+        finalize(tmp_path, settings, [], pasta_training=0, pasta_evaluation=0)
+
+    excluded = read_rows(tmp_path / "excluded_words.csv", ExcludedWord)
+    assert [(row.word, row.role) for row in excluded] == [("pasta", "noun")]
+
+
+def test_word_with_more_occurrences_in_the_pile_is_kept(tmp_path: Path, settings: Settings) -> None:
+    with pytest.raises(CommandStopped, match="passages.collection_factor") as stopped:
+        finalize(tmp_path, settings, ["1", "1"], pasta_training=2, pasta_reached_limit=True)
+
+    assert stopped.value.rerun_from == "passages collect"
+    assert not (tmp_path / "excluded_words.csv").exists()
 
 
 def test_unfilled_rows_stop(tmp_path: Path, settings: Settings) -> None:

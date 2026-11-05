@@ -196,6 +196,17 @@ def read_excluded_words(path: Path = EXCLUDED_WORDS_PATH) -> list[ExcludedWord]:
     return read_rows(path, ExcludedWord) if path.exists() else []
 
 
+def add_excluded_words(path: Path, words: Iterable[ExcludedWord]) -> None:
+    """外す語を足す（同じ語と役割の組が既にあれば、足さない）。"""
+    excluded = read_excluded_words(path)
+    known = {(row.word, row.role) for row in excluded}
+    for word in words:
+        if (word.word, word.role) not in known:
+            excluded.append(word)
+            known.add((word.word, word.role))
+    write_rows(path, ExcludedWord, excluded)
+
+
 def _select_nouns(
     candidates: Sequence[NounCandidate], settings: Settings, chosen: ChosenWords
 ) -> list[NounCandidate]:

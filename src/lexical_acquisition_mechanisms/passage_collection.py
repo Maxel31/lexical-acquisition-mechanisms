@@ -94,6 +94,9 @@ class CollectionSummary:
     candidates: int
     # 窓を使わなかった理由と、その数
     rejected: str
+    # 残した出現が、残す数（必要な数 × passages.collection_factor）に届いたか（届いていれば、Pile
+    # にはさらに出現がありうる。届かなければ、Pile の出現を全て残した）
+    reached_limit: bool
 
 
 class Occurrence(NamedTuple):
@@ -117,9 +120,21 @@ def needed_passages(word: SelectedWord, settings: Settings) -> int:
     return settings.evaluation.passages_per_natural_word
 
 
+def kept_number(word: SelectedWord, settings: Settings) -> int:
+    """語ごとに残す出現の数（判定に合格する必要がある数 × passages.collection_factor）。"""
+    return math.ceil(needed_passages(word, settings) * settings.passages.collection_factor)
+
+
 def collect_passages(settings: Settings, arguments: argparse.Namespace) -> None:
     record_settings = {
-        "passages": settings.passages.model_dump(),
+        "passages": settings.passages.model_dump(
+            include={
+                "tokens_per_passage",
+                "maximum_passages_per_document",
+                "evaluation_passages_per_word",
+                "collection_factor",
+            }
+        ),
         "unknown_word_acquisition": settings.unknown_word_acquisition.model_dump(
             include={"exposure_levels"}
         ),
@@ -198,6 +213,7 @@ def _write_candidates(
             found[word.word],
             kept[word.word],
             ", ".join(f"{reason}: {number}" for reason, number in rejected[word.word].items()),
+            found[word.word] >= kept_number(word, settings),
         )
         for word in words
     ]
@@ -213,10 +229,7 @@ def build_occurrences(
     download: Callable[[str, Path], Path],
 ) -> None:
     """語ごとに、鍵の小さい出現を残し、前後の文字列を書く。"""
-    factor = settings.passages.collection_factor
-    kept_numbers = {
-        word.word: math.ceil(needed_passages(word, settings) * factor) for word in words
-    }
+    kept_numbers = {word.word: kept_number(word, settings) for word in words}
     key_limits = {
         word.word: min(
             1.0, KEY_LIMIT_MARGIN * kept_numbers[word.word] / max(word.estimated_pile_passages, 1)
