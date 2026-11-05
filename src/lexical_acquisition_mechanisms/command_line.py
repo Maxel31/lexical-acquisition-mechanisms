@@ -34,6 +34,7 @@ from lexical_acquisition_mechanisms import (
     task_questions,
     training_data,
     unknown_word_candidates,
+    unknown_word_indicators,
     word_finalization,
     word_selection,
     word_sense_judgment,
@@ -244,6 +245,14 @@ def all_actions() -> list[Action]:
             "正解率を出す",
             real_word_probes.train_real_word_probes,
             real_word_probes.add_arguments,
+        ),
+        Action(
+            "unknown-word-acquisition",
+            "measure-indicators",
+            "各 run のモデルで、未知語の3つの指標（形への慣れ・意味・語としての統合）を"
+            "層ごとに測る",
+            unknown_word_indicators.measure_indicators,
+            unknown_word_indicators.add_arguments,
         ),
     ]
 
