@@ -56,7 +56,8 @@ GPU が4枚空いていれば、`CUDA_VISIBLE_DEVICES=0,1,2,3` と `--data-paral
 # その直後の約1,000万トークン（検証データ）をダウンロードする
 uv run lexical-acquisition-mechanisms base-data download
 
-# 語の候補を作る: 名詞と形容詞は LLM が挙げ、Pile での使われ方（その語義・品詞で使われる割合）も
+# 語の候補を作る: 名詞と形容詞は LLM が挙げ（名詞は、WordNet でカテゴリの下にある語も足し、
+# そのカテゴリかを LLM が確かめる）、Pile での使われ方（その語義・品詞で使われる割合）も
 # LLM が判定する。未知語は、OLMo 2 の事前学習データと Pile に一度も現れない文字列から作る
 uv run lexical-acquisition-mechanisms words generate-noun-candidates                # LLM
 uv run lexical-acquisition-mechanisms words generate-adjective-candidates           # LLM
