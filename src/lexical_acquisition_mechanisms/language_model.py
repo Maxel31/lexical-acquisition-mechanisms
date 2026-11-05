@@ -7,6 +7,7 @@
 """
 
 from collections.abc import Iterator, Sequence
+from functools import partial
 
 import numpy as np
 import torch
@@ -88,6 +89,59 @@ class LanguageModel:
             for handle in handles:
                 handle.remove()
         return torch.stack(captured, dim=1)
+
+    def head_outputs(
+        self,
+        inputs: Sequence[Sequence[int]],
+        positions: Sequence[int],
+        heads: Sequence[tuple[int, int]],
+    ) -> np.ndarray:
+        """各入力の指定した位置での、指定した（層, head）の出力。
+
+        head の出力は、注意の重みで値を混ぜた、その head の部分（出力の射影 o_proj に入る前の値）。
+        形は (入力の数, head の数, head の次元)。
+        """
+        self._check_inputs(inputs, positions)
+        config = self.model.config
+        size = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
+        results = np.zeros((len(inputs), len(heads), size), dtype=np.float32)
+        layers = sorted({layer for layer, _ in heads})
+        for indices, token_ids, attention_mask in self._batches(inputs):
+            rows, columns = self._rows_and_columns(indices, positions)
+            captured = self._head_inputs(token_ids, attention_mask, rows, columns, layers)
+            for number, (layer, head) in enumerate(heads):
+                values = captured[layer][:, head * size : (head + 1) * size]
+                results[indices, number] = values.numpy()
+        return results
+
+    def _head_inputs(
+        self,
+        token_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        rows: torch.Tensor,
+        columns: torch.Tensor,
+        layers: Sequence[int],
+    ) -> dict[int, torch.Tensor]:
+        """指定した層の出力の射影の入力を、指定した行と位置で取り出す（層ごとに、行 × 次元）。"""
+        captured: dict[int, torch.Tensor] = {}
+
+        def capture(layer: int, module, arguments) -> None:
+            captured[layer] = arguments[0][rows, columns].float().cpu()
+
+        blocks = self.model.model.layers
+        handles = [
+            blocks[layer].self_attn.o_proj.register_forward_pre_hook(partial(capture, layer))
+            for layer in layers
+        ]
+        try:
+            with torch.inference_mode():
+                self.model.model(
+                    input_ids=token_ids, attention_mask=attention_mask, use_cache=False
+                )
+        finally:
+            for handle in handles:
+                handle.remove()
+        return captured
 
     def next_token_log_probabilities(
         self,

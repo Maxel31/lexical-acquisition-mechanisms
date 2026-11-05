@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 import torch
 
+from lexical_acquisition_mechanisms.component_patching import outputs_and_gradients
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.settings import ModelSource
 
@@ -57,6 +58,26 @@ def test_residual_streams_match_unbatched_forward(
         np.testing.assert_allclose(
             streams[index, -1], last_layer_output[0, column].numpy(), rtol=1e-4, atol=1e-5
         )
+
+
+def test_head_outputs_match_unbatched_capture(
+    language_model: LanguageModel, inputs: list[list[int]]
+) -> None:
+    positions = [len(token_ids) - 1 for token_ids in inputs]
+    heads = [(1, 3), (0, 0)]
+
+    outputs = language_model.head_outputs(inputs, positions, heads)
+
+    assert outputs.shape == (3, 2, 8)
+    for index, token_ids in enumerate(inputs):
+        # 詰め物のない1つの入力で、全ての構成要素の出力を取り出したものと同じ
+        choice = (token_ids[0], token_ids[0])
+        _, alone, _ = outputs_and_gradients(
+            language_model, [token_ids], [positions[index]], [choice]
+        )
+        for number, (layer, head) in enumerate(heads):
+            expected = alone[0].heads[layer, head, 0].numpy()
+            np.testing.assert_allclose(outputs[index, number], expected, rtol=1e-4, atol=1e-5)
 
 
 def test_next_token_log_probabilities_match_unbatched_forward(
