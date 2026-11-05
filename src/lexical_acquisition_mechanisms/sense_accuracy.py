@@ -31,6 +31,7 @@ from lexical_acquisition_mechanisms.bootstrap_statistics import SIGNIFICANCE_LEV
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
+from lexical_acquisition_mechanisms.run_results import RunResults
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings
 from lexical_acquisition_mechanisms.task_accuracy import (
     answer_questions,
@@ -95,6 +96,7 @@ def measure_sense_accuracy(settings: Settings, arguments: argparse.Namespace) ->
         outputs=list(result_paths(model)),
         settings={"checkpoints": checkpoint_states(list(checkpoints.values()))},
     )
+    results = RunResults(step, arguments.recompute)
     run_unless_unchanged(
         step,
         lambda: write_sense_accuracy(
@@ -103,9 +105,11 @@ def measure_sense_accuracy(settings: Settings, arguments: argparse.Namespace) ->
             word_finalization.OUTPUT_PATH,
             evaluation_finalization.QUESTIONS_PATH,
             result_paths(model),
+            results,
         ),
         arguments.recompute,
     )
+    results.clear()
 
 
 def write_sense_accuracy(
@@ -114,7 +118,12 @@ def write_sense_accuracy(
     words_path: Path,
     questions_path: Path,
     output_paths: tuple[Path, Path],
+    results: RunResults | None = None,
 ) -> None:
+    """run ごとの答えと正解率を書く。
+
+    results があれば、答え終えた run の結果を残し、残っていれば使う。
+    """
     answers_path, accuracy_path = output_paths
     words = {word.word: word for word in read_rows(words_path, SelectedWord)}
     questions = parquet.read_table(questions_path).to_pylist()
@@ -127,6 +136,10 @@ def write_sense_accuracy(
         ]
         if not chosen:
             continue
+        done = results.get(run) if results is not None else None
+        if done is not None:
+            answers += done
+            continue
         model = load_model(ModelSource(repository=str(checkpoint)))
         replies = answer_questions(
             model,
@@ -137,10 +150,13 @@ def write_sense_accuracy(
             ],
             [question["choices"] for _, question in chosen],
         )
-        answers += [
+        run_answers = [
             {"run": run, "question": index, "answer": reply, "correct": reply == question["answer"]}
             for (index, question), reply in zip(chosen, replies, strict=True)
         ]
+        answers += run_answers
+        if results is not None:
+            results.put(run, run_answers)
         del model
         gc.collect()
         torch.cuda.empty_cache()

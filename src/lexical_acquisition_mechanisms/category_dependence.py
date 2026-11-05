@@ -56,6 +56,7 @@ from lexical_acquisition_mechanisms.csv_tables import read_rows
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.logistic_probes import LogisticProbe
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
+from lexical_acquisition_mechanisms.run_results import RunResults
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings
 from lexical_acquisition_mechanisms.task_prompts import (
     choice_token_ids,
@@ -119,6 +120,7 @@ def measure_dependence(settings: Settings, arguments: argparse.Namespace) -> Non
             "seed": settings.words.seed,
         },
     )
+    results = RunResults(step, arguments.recompute)
     run_unless_unchanged(
         step,
         lambda: write_dependence(
@@ -127,9 +129,11 @@ def measure_dependence(settings: Settings, arguments: argparse.Namespace) -> Non
             tuple(inputs),
             dependence_path(model),
             settings.words.seed,
+            results,
         ),
         arguments.recompute,
     )
+    results.clear()
 
 
 def write_dependence(
@@ -138,7 +142,9 @@ def write_dependence(
     input_paths: Sequence[Path],
     output: Path,
     seed: int,
+    results: RunResults | None = None,
 ) -> None:
+    """run ごとの低下を書く。results があれば、測り終えた run の結果を残し、残っていれば使う。"""
     judging_path, directions_path, classes_path, probes_path, *rest = input_paths
     questions_path, assignments_path, words_path, natural_path = rest
     heads = sorted(
@@ -157,6 +163,10 @@ def write_dependence(
             row for row in parquet.read_table(natural_path).to_pylist() if row["task"] == "category"
         ]
         for run, checkpoint in checkpoints.items():
+            done = results.get(run) if results is not None else None
+            if done is not None:
+                rows += done
+                continue
             model = load_model(ModelSource(repository=str(checkpoint)))
             baselines = baseline_heads(adopted, model.model.config.num_attention_heads, seed)
             means = _natural_means(model, natural, [*heads, *baselines.values()])
@@ -166,7 +176,10 @@ def write_dependence(
                 for question in questions
                 if question["run"] == run and question["task"] == "category"
             ]
-            rows += _measure_run(model, run, run_questions, ablations, words)
+            run_rows = _measure_run(model, run, run_questions, ablations, words)
+            rows += run_rows
+            if results is not None:
+                results.put(run, run_rows)
             # 次の run の重みを読む前に、この重みを GPU から消す
             del model
             gc.collect()

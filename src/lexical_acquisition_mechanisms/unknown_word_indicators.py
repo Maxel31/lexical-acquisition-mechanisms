@@ -38,6 +38,7 @@ from lexical_acquisition_mechanisms.logistic_probes import LogisticProbe
 from lexical_acquisition_mechanisms.neutral_contexts import NeutralContext
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.probe_and_normalization_words import NormalizationWord
+from lexical_acquisition_mechanisms.run_results import RunResults
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings
 from lexical_acquisition_mechanisms.training_checkpoints import final_directories
 from lexical_acquisition_mechanisms.unknown_word_assignments import UnknownWordAssignment
@@ -80,6 +81,7 @@ def measure_indicators(settings: Settings, arguments: argparse.Namespace) -> Non
         # 学習した重みには処理の記録がないので、ファイルの大きさと更新時刻を設定として記録する
         settings={"checkpoints": checkpoint_states(checkpoints)},
     )
+    results = RunResults(step, arguments.recompute)
     run_unless_unchanged(
         step,
         lambda: write_indicators(
@@ -87,9 +89,11 @@ def measure_indicators(settings: Settings, arguments: argparse.Namespace) -> Non
             lambda source: LanguageModel.load(source, batch_size=BATCH_SIZE),
             probes_path,
             indicators_path(model),
+            results=results,
         ),
         arguments.recompute,
     )
+    results.clear()
 
 
 def read_real_word_probes(path: Path) -> dict[str, LogisticProbe]:
@@ -127,7 +131,9 @@ def write_indicators(
         neutral_contexts.CONTEXTS_PATH,
         probe_and_normalization_words.NORMALIZATION_WORDS_PATH,
     ),
+    results: RunResults | None = None,
 ) -> None:
+    """run ごとの指標を書く。results があれば、測り終えた run の結果を残し、残っていれば使う。"""
     words_path, assignments_path, contexts_path, normalization_path = input_paths
     words = {word.word: word for word in read_rows(words_path, SelectedWord)}
     assignments = read_rows(assignments_path, UnknownWordAssignment)
@@ -136,9 +142,16 @@ def write_indicators(
     probes = read_real_word_probes(probes_path)
     rows = []
     for run, checkpoint in checkpoints.items():
+        done = results.get(run) if results is not None else None
+        if done is not None:
+            rows += done
+            continue
         model = load_model(ModelSource(repository=str(checkpoint)))
         run_assignments = [row for row in assignments if row.run == run]
-        rows += _measure_run(model, run, run_assignments, words, references, contexts, probes)
+        run_rows = _measure_run(model, run, run_assignments, words, references, contexts, probes)
+        rows += run_rows
+        if results is not None:
+            results.put(run, run_rows)
         del model
         gc.collect()
         torch.cuda.empty_cache()
