@@ -41,7 +41,8 @@ asked_prompts: list[str] = []
 
 def answer_like_the_llm(request: httpx.Request) -> httpx.Response:
     content = json.loads(request.content)["messages"][0]["content"]
-    asked_prompts.append("adjective" if "(an adjective)" in content else "noun")
+    # 形容詞の指示文は、品詞を先に書かず（引きずられないように）、形容詞かどうかを問う
+    asked_prompts.append("adjective" if "is an adjective here" in content else "noun")
     passage = content.split("Passage:")[1]
     answer = {"intended": "]] brand" not in passage, "reason": "stub"}
     choice = {"message": {"content": json.dumps(answer)}, "finish_reason": "stop"}

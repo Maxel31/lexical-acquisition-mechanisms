@@ -58,10 +58,12 @@ LISTING_SCHEMA = {
     "required": ["adjectives"],
     "additionalProperties": False,
 }
+# 理由を先に書かせる（品詞を書いてから決めるほうが、名詞の使い方（a government official）を
+# 見分けやすい）
 USAGE_SCHEMA = {
     "type": "object",
-    "properties": {"adjective": {"type": "boolean"}, "reason": {"type": "string"}},
-    "required": ["adjective", "reason"],
+    "properties": {"reason": {"type": "string"}, "adjective": {"type": "boolean"}},
+    "required": ["reason", "adjective"],
     "additionalProperties": False,
 }
 
