@@ -234,11 +234,15 @@ def test_code_version_counts_new_source_files_but_not_settings(
     monkeypatch.chdir(tmp_path)
 
     (tmp_path / "settings.yaml").write_text("models: {tiny: ./tiny}\n", encoding="utf-8")
-    assert not output_records._code_version().endswith("（コミットしていない変更あり）")
+    assert "コミットしていない変更あり" not in output_records._code_version()
 
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "new_module.py").write_text("", encoding="utf-8")
-    assert output_records._code_version().endswith("（コミットしていない変更あり）")
+    first = output_records._code_version()
+    assert "コミットしていない変更あり" in first
+    # コミットしないまま、もう一度直すと、別の版になる
+    (tmp_path / "src" / "new_module.py").write_text("VALUE = 1\n", encoding="utf-8")
+    assert output_records._code_version() not in (first, "不明")
 
 
 def test_files_people_fill_in_are_recorded_by_their_content(tmp_path: Path) -> None:
