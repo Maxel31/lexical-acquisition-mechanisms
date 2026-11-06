@@ -139,6 +139,62 @@ def test_missing_answers_stop_instead_of_dropping_sense_pairs(
         )
 
 
+def test_sense_pairs_short_of_candidates_are_asked_again_with_other_numbers(
+    tmp_path: Path, tiny_model_source: ModelSource
+) -> None:
+    settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
+    settings = settings.model_copy(update={"models": {"tiny": tiny_model_source}})
+    words = [
+        SelectedWord("car", "target", category="vehicle", token_count=1, definition="a vehicle"),
+        SelectedWord("pasta", "noun", category="food", definition="a dish"),
+    ]
+    write_rows(tmp_path / "words.csv", SelectedWord, words)
+    assignment = SenseAdditionAssignment(
+        "other-category-4", "car", "vehicle", 1, "pasta", "noun", "food", 1
+    )
+    write_rows(tmp_path / "assignments.csv", SenseAdditionAssignment, [assignment])
+    number = candidates_per_sense_pair(settings)
+    asked_numbers = []
+
+    def short_at_first(request: httpx.Request) -> httpx.Response:
+        content = json.loads(request.content)["messages"][0]["content"]
+        asked = int(content.rsplit("Write ", 1)[1].split()[0])
+        asked_numbers.append(asked)
+        # 最初は、2つの手がかりが同じ語の1組だけを返す（使えない）
+        pairs = (
+            [{"sentence": "She moved the ___.", "first_cue": "moved", "second_cue": "moved"}]
+            if asked == number
+            else PAIRS
+        )
+        choice = {"message": {"content": json.dumps({"pairs": pairs})}, "finish_reason": "stop"}
+        return httpx.Response(200, json={"choices": [choice]})
+
+    client = LlmClient(
+        settings.llm,
+        tmp_path / "answers.sqlite3",
+        rerun_from="evaluation-data generate-minimal-pairs",
+        transport=httpx.MockTransport(short_at_first),
+    )
+
+    build_minimal_pair_candidates(
+        settings,
+        PromptTemplate.load(PROMPT, REPOSITORY_ROOT / "llm_prompts"),
+        client,
+        tmp_path / "words.csv",
+        tmp_path / "assignments.csv",
+        tmp_path / "candidates.csv",
+    )
+
+    # 使える候補が最小対の数に届かない間、頼む数を変えて3回まで問い直し、重ならない候補だけを足す
+    step = minimal_pairs.ASK_AGAIN_STEP
+    assert asked_numbers == [number, number + step, number + 2 * step, number + 3 * step]
+    candidates = read_rows(tmp_path / "candidates.csv", MinimalPairCandidate)
+    assert [(row.donor_cue, row.target_cue) for row in candidates] == [
+        ("cooked", "parked"),
+        ("ate", "drove"),
+    ]
+
+
 def test_candidates_follow_the_number_of_minimal_pairs() -> None:
     # 最小対の数を増やすと、LLM に作らせる候補も増える（README の手作業のとおりに作り直せる）
     settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
