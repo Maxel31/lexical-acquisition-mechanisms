@@ -7,8 +7,8 @@
    問題。evaluation-data build-task-questions が書いた natural_word_questions.parquet）を使う。
    語の単位で、クラスごとに HELD_OUT_SHARE の語を確認用に分ける。
 2. (a) 確認用の語での正解率と、偶然の水準（1 ÷ クラスの数）を超えるかの片側の検定（同じ語の問題の
-   正誤は相関するので、語を単位にした2段のブートストラップの標準誤差を使い、自由度が「語の数 − 1」の
-   t 分布で検定する。語の数が、偶然の水準から決めた下限より少なければ検定しない）。
+   正誤は相関するので、語ごとの正解率を単位にした1標本の t 検定（自由度は語の数 − 1）。語の数が、
+   偶然の水準から決めた下限より少なければ検定しない）。
    比較の基準（test-attribute-directions で使う）として、採用した head ごとに、同じ層の採用して
    いない head を1つ無作為に選び、そのプローブも学習する（表の baseline が真）。
 3. (b) 語義を足した各 run（対照を除く）の最後の重みで、その run の条件の最小対の課題2の問題（名詞を
@@ -35,7 +35,6 @@ import torch
 from scipy import stats
 
 from lexical_acquisition_mechanisms import (
-    bootstrap_statistics,
     evaluation_finalization,
     real_word_probes,
     sense_accuracy,
@@ -65,8 +64,7 @@ from lexical_acquisition_mechanisms.word_selection import SelectedWord
 HELD_OUT_SHARE = 0.2
 # 語を単位にした検定（word_level_p_value）の決め方（記録に入れる）
 WORD_LEVEL_TEST = {
-    "error": "two-stage bootstrap over words",
-    "distribution": "t with words - 1 degrees of freedom, error scaled to the sample variance",
+    "test": "one-sample t test on the mean accuracy of each word, words - 1 degrees of freedom",
     "minimum_words": "chance ** words < significance level",
 }
 BATCH_SIZE = 32
@@ -182,7 +180,6 @@ def train_attribute_probes(settings: Settings, arguments: argparse.Namespace) ->
             categories,
             transfer_paths,
             transfer_output,
-            settings.words.seed,
         )
 
     run_unless_unchanged(step, compute, arguments.recompute)
@@ -229,7 +226,6 @@ def write_attribute_probes(
                         (held_out, [row["word"] for row in rows]),
                         (layer, head, attribute),
                         baseline,
-                        seed,
                     )
                 )
         del model
@@ -256,7 +252,6 @@ def write_probe_transfer(
     categories: Sequence[str],
     input_paths: tuple[Path, Path, Path],
     output: Path,
-    seed: int,
 ) -> None:
     """(b) 語義を足した各 run で、最小対の課題2の問題のターゲット語に当てた正解率を書く。"""
     questions_path, accuracy_path, words_path = input_paths
@@ -308,8 +303,7 @@ def write_probe_transfer(
                 targets = [
                     question["target"] for question, own in zip(chosen, mine, strict=True) if own
                 ]
-                random_numbers = np.random.default_rng([seed, layer, head, CUES.index(cue)])
-                p_value = word_level_p_value(correct[mine], targets, chance, random_numbers)
+                p_value = word_level_p_value(correct[mine], targets, chance)
                 results.append(
                     AttributeProbeTransfer(
                         run,
@@ -328,25 +322,23 @@ def write_probe_transfer(
     write_rows(output, AttributeProbeTransfer, results)
 
 
-def word_level_p_value(
-    correct: np.ndarray, words: Sequence[str], chance: float, random_numbers: np.random.Generator
-) -> float:
+def word_level_p_value(correct: np.ndarray, words: Sequence[str], chance: float) -> float:
     """正解率が偶然の水準を超えるという、片側の p 値。
 
-    同じ語の問題の正誤は相関するので、語を単位にした2段のブートストラップ（語の中の問題も再抽出
-    する）の標準誤差を使い、自由度が「語の数 − 1」の t 分布で検定する（語が少ないときに、正規近似
-    より甘くならないように）。語の数が minimum_test_words(chance) より少ないときは検定しない
-    （1 を返す）。標準誤差が 0（語の中の正誤が全てそろう）なら、平均が正のとき 0。
+    同じ語の問題の正誤は相関するので、語ごとの正解率と偶然の水準の差を単位にした1標本の t 検定
+    （自由度は語の数 − 1）にする（乱数を使わないので、境目の場合も結果が決まる）。語の数が
+    minimum_test_words(chance) より少ないときは検定しない（1 を返す）。語ごとの差が全てそろう
+    （標準誤差が 0）なら、差が正のとき 0。
     """
-    number_of_words = len(set(words))
+    by_word: dict[str, list[float]] = {}
+    for value, word in zip(np.asarray(correct, dtype=float), words, strict=True):
+        by_word.setdefault(word, []).append(float(value))
+    number_of_words = len(by_word)
     if number_of_words < minimum_test_words(chance):
         return 1.0
-    differences = (np.asarray(correct, dtype=float) - chance)[:, None]
-    mean, error = bootstrap_statistics.mean_and_error(list(words), differences, random_numbers)
-    # ブートストラップの標準偏差は、母分散の式（語の数で割る）なので、標本分散の式（語の数 − 1 で
-    # 割る）にそろえる（t 分布に当てると、ふつうの t 検定より甘くならないように）
-    correction = math.sqrt(number_of_words / (number_of_words - 1))
-    mean, error = float(mean[0]), float(error[0]) * correction
+    differences = np.array([np.mean(values) for values in by_word.values()]) - chance
+    mean = float(differences.mean())
+    error = float(differences.std(ddof=1)) / math.sqrt(number_of_words)
     if error == 0:
         return 0.0 if mean > 0 else 1.0
     return float(stats.t.sf(mean / error, df=number_of_words - 1))
@@ -428,7 +420,6 @@ def _accuracy_row(
     held_out_and_words: tuple[np.ndarray, Sequence[str]],
     key: tuple[int, int, str],
     baseline: bool,
-    seed: int,
 ) -> AttributeProbeAccuracy:
     """held_out_and_words は、問題ごとの、確認用か（真偽）と、問題の語。"""
     held_out, words = held_out_and_words
@@ -436,8 +427,7 @@ def _accuracy_row(
     chance = 1 / len(probe.biases)
     held_out_words = [word for word, chosen in zip(words, held_out, strict=True) if chosen]
     layer, head, attribute = key
-    random_numbers = np.random.default_rng([seed, layer, head, ATTRIBUTES.index(attribute)])
-    p_value = word_level_p_value(predicted[held_out], held_out_words, chance, random_numbers)
+    p_value = word_level_p_value(predicted[held_out], held_out_words, chance)
     return AttributeProbeAccuracy(
         *key,
         float(predicted[~held_out].mean()),
