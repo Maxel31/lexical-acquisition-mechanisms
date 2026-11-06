@@ -133,6 +133,8 @@ class WordSelectionSettings(SettingsSection):
     passage_margin: float = Field(ge=1)
     # 形容詞72語の、どのカテゴリとの結びつきの評定（1〜7）も、これ以下にする
     maximum_category_association: int = Field(ge=1, le=7)
+    # 名詞72語の中で、互いに同義語の名詞を選んでよいカテゴリ（条件を満たす語が少ないカテゴリ）
+    categories_allowing_synonyms: list[str]
 
 
 class PassageSettings(SettingsSection):
@@ -283,6 +285,17 @@ class Settings(SettingsSection):
             raise ValueError(
                 f"sense_addition.passages_per_added_sense（K）は、露出回数の最大（{largest}）以下に"
                 "してください。"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _categories_allowing_synonyms_are_known(self) -> "Settings":
+        names = {category.name for category in self.words.categories}
+        unknown = sorted(set(self.word_selection.categories_allowing_synonyms) - names)
+        if unknown:
+            raise ValueError(
+                f"word_selection.categories_allowing_synonyms の {unknown} は、"
+                "words.categories にありません。"
             )
         return self
 

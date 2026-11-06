@@ -176,6 +176,22 @@ def test_nouns_match_in_frequency_across_categories_without_synonyms(
     assert rows["cheese"]["base_data_count"] == "1"
 
 
+def test_nouns_of_a_category_allowing_synonyms_may_be_synonyms(
+    tmp_path: Path, settings: Settings
+) -> None:
+    selection = settings.word_selection.model_copy(
+        update={"categories_allowing_synonyms": ["animal"]}
+    )
+    settings = settings.model_copy(update={"word_selection": selection})
+
+    rows = select(tmp_path, settings, [noun_candidate(*noun) for noun in NOUNS])
+
+    # 動物では、hog の同義語の pig も選べる（目標の値 10^5.51 に、cat より近い）
+    assert words_with_role(rows, "noun") == {"bread", "cheese", "hog", "pig"}
+    # ターゲット語は、名詞の同義語にしない（この候補には、名詞の同義語がない）
+    assert not words_with_role(rows, "target") & {"pig", "hog"}
+
+
 def test_excluded_words_are_replaced(tmp_path: Path, settings: Settings) -> None:
     excluded = [ExcludedWord("bread", "noun", "確認で approved を 0 にした")]
     write_rows(tmp_path / "excluded_words.csv", ExcludedWord, excluded)
