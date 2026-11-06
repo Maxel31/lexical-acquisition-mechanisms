@@ -7,8 +7,8 @@
    問題。evaluation-data build-task-questions が書いた natural_word_questions.parquet）を使う。
    語の単位で、クラスごとに HELD_OUT_SHARE の語を確認用に分ける。
 2. (a) 確認用の語での正解率と、偶然の水準（1 ÷ クラスの数）を超えるかの片側の検定（同じ語の問題の
-   正誤は相関するので、語を単位にした t 検定（自由度は語の数 − 1）。語の数が、偶然の水準から
-   決めた下限より少なければ検定しない）。
+   正誤は相関するので、語ごとの正解率を単位にした1標本の t 検定（自由度は語の数 − 1）。語の数が、
+   偶然の水準から決めた下限より少なければ検定しない）。
    比較の基準（test-attribute-directions で使う）として、採用した head ごとに、同じ層の採用して
    いない head を1つ無作為に選び、そのプローブも学習する（表の baseline が真）。
 3. (b) 語義を足した各 run（対照を除く）の最後の重みで、その run の条件の最小対の課題2の問題（名詞を
@@ -64,9 +64,7 @@ from lexical_acquisition_mechanisms.word_selection import SelectedWord
 HELD_OUT_SHARE = 0.2
 # 語を単位にした検定（word_level_p_value）の決め方（記録に入れる）
 WORD_LEVEL_TEST = {
-    "test": "t test on the accuracy over all questions, words - 1 degrees of freedom",
-    "standard_error": "residuals summed per word, times words / (words - 1)",
-    "minimum_standard_error": "independent questions at the chance level",
+    "test": "one-sample t test on the mean accuracy of each word, words - 1 degrees of freedom",
     "minimum_words": "chance ** words < significance level",
 }
 BATCH_SIZE = 32
@@ -325,32 +323,25 @@ def write_probe_transfer(
 
 
 def word_level_p_value(correct: np.ndarray, words: Sequence[str], chance: float) -> float:
-    """全ての問題をまとめた正解率（行に書く正解率）が偶然の水準を超えるという、片側の p 値。
+    """正解率が偶然の水準を超えるという、片側の p 値。
 
-    同じ語の問題の正誤は相関するので、語を単位にした t 検定（自由度は語の数 − 1）にする。
-    標準誤差は、語ごとにまとめた残差（正解の数 − 正解率 × 問題の数）から求める（語ごとの問題の数が
-    同じなら、語ごとの正解率の1標本の t 検定と同じ）。乱数を使わないので、境目の場合も結果が決まる。
-    標準誤差は、問題が互いに独立で偶然の水準で当たるときの値より小さくしない（語ごとの正解率が
-    たまたまそろうと 0 になり、わずかな差でも有意になるので）。語の数が minimum_test_words(chance)
-    より少ないときは検定しない（1 を返す）。
+    同じ語の問題の正誤は相関するので、語ごとの正解率と偶然の水準の差を単位にした1標本の t 検定
+    （自由度は語の数 − 1）にする（乱数を使わないので、境目の場合も結果が決まる）。語の数が
+    minimum_test_words(chance) より少ないときは検定しない（1 を返す）。語ごとの差が全てそろう
+    （標準誤差が 0）なら、差が正のとき 0。
     """
     by_word: dict[str, list[float]] = {}
     for value, word in zip(np.asarray(correct, dtype=float), words, strict=True):
-        counts = by_word.setdefault(word, [0.0, 0.0])
-        counts[0] += float(value)
-        counts[1] += 1
+        by_word.setdefault(word, []).append(float(value))
     number_of_words = len(by_word)
     if number_of_words < minimum_test_words(chance):
         return 1.0
-    corrects, questions = np.array(list(by_word.values())).T
-    accuracy = corrects.sum() / questions.sum()
-    residuals = corrects - accuracy * questions
-    clustered = math.sqrt(
-        number_of_words / (number_of_words - 1) * float(np.sum(residuals**2))
-    ) / float(questions.sum())
-    independent = math.sqrt(chance * (1 - chance) / float(questions.sum()))
-    error = max(clustered, independent)
-    return float(stats.t.sf((accuracy - chance) / error, df=number_of_words - 1))
+    differences = np.array([np.mean(values) for values in by_word.values()]) - chance
+    mean = float(differences.mean())
+    error = float(differences.std(ddof=1)) / math.sqrt(number_of_words)
+    if error == 0:
+        return 0.0 if mean > 0 else 1.0
+    return float(stats.t.sf(mean / error, df=number_of_words - 1))
 
 
 def minimum_test_words(chance: float) -> int:
