@@ -118,6 +118,9 @@ word_selection:
   # ほぼ単義の名詞が、同義語（couch と sofa、carpet と rug）を除くと12語に足りない
   # （ターゲット語は、どのカテゴリでも名詞72語の同義語にしない）
   categories_allowing_synonyms: [furniture]
+  # 自然な名詞（設計書は各カテゴリ30語）の候補が30語に足りないカテゴリで、選んでよい最も少ない数。
+  # 家具は、条件を満たす候補が29語（語義の判定が説明と合わない box を外した後）
+  minimum_natural_nouns_per_category: 25
 
 # 用例（管理対象の語を含む、Pile から切り出した文章）
 passages:

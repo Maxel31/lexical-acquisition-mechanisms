@@ -122,7 +122,11 @@ def settings(
     monkeypatch.setattr(word_selection, "PART_OF_SPEECH_NOUNS", 2)
     settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
     words = settings.words.model_copy(update={"categories": settings.words.categories[:2]})
-    return settings.model_copy(update={"models": {"tiny": tiny_model_source}, "words": words})
+    # 自然な名詞を各3語にするので、足りないときに選んでよい数の下限も3語にする
+    selection = settings.word_selection.model_copy(update={"minimum_natural_nouns_per_category": 3})
+    return settings.model_copy(
+        update={"models": {"tiny": tiny_model_source}, "words": words, "word_selection": selection}
+    )
 
 
 def select(
@@ -228,6 +232,32 @@ def test_adjectives_match_the_noun_frequencies(tmp_path: Path, settings: Setting
     assert words_with_role(rows, "adjective") == {"big", "green", "happy", "bright"}
     assert rows["happy"]["category"] == ""
     assert float(rows["happy"]["usage_share"]) == pytest.approx(0.95)
+
+
+@pytest.mark.parametrize("minimum, stops", [(3, False), (10, True)])
+def test_categories_short_of_natural_nouns_keep_the_ones_found(
+    tmp_path: Path,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    minimum: int,
+    stops: bool,
+) -> None:
+    # 自然な名詞を各10語選ぼうとしても、候補は各カテゴリ3〜4語しかない
+    monkeypatch.setattr(word_selection, "NATURAL_NOUNS_PER_CATEGORY", 10)
+    selection = settings.word_selection.model_copy(
+        update={"minimum_natural_nouns_per_category": minimum}
+    )
+    settings = settings.model_copy(update={"word_selection": selection})
+    nouns = [noun_candidate(*noun) for noun in NOUNS]
+
+    if stops:
+        with pytest.raises(CommandStopped, match="自然な名詞"):
+            select(tmp_path, settings, nouns)
+        return
+    rows = select(tmp_path, settings, nouns)
+    for category in ("food", "animal"):
+        found = [row for row in rows.values() if row["role"] == "natural-noun"]
+        assert len([row for row in found if row["category"] == category]) >= minimum
 
 
 def test_the_adjective_share_has_its_own_minimum(tmp_path: Path, settings: Settings) -> None:

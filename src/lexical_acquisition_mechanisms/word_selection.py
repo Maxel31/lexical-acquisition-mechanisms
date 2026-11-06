@@ -433,7 +433,11 @@ def _select_natural_words(
     chosen: ChosenWords,
     tokenizer: WordTokenizer,
 ) -> list[SelectedWord]:
-    """自然な名詞（各カテゴリ30語。品詞のプローブ用に足す語を除く）と形容詞（60語）を、無作為に選ぶ。"""
+    """自然な名詞（各カテゴリ30語。品詞のプローブ用に足す語を除く）と形容詞（60語）を、無作為に選ぶ。
+
+    自然な名詞の候補が30語に足りないカテゴリは、word_selection.minimum_natural_nouns_per_category
+    語以上あれば、あるだけ選んで表示する（それより少なければ止まる）。
+    """
     needed = settings.evaluation.passages_per_natural_word
     random_numbers = random.Random(settings.words.seed)
     natural: dict[str, list[NounCandidate]] = {}
@@ -451,10 +455,15 @@ def _select_natural_words(
             random_numbers.shuffle(bucket)
             buckets.append(bucket)
         natural[category.name] = _take_in_turn(buckets, NATURAL_NOUNS_PER_CATEGORY, chosen)
-        if len(natural[category.name]) < NATURAL_NOUNS_PER_CATEGORY:
+        found = len(natural[category.name])
+        if found < settings.word_selection.minimum_natural_nouns_per_category:
             description = f"カテゴリ {category.name} の自然な名詞"
-            found = len(natural[category.name])
             raise _shortage(description, found, needed, settings, natural=True)
+        if found < NATURAL_NOUNS_PER_CATEGORY:
+            print(
+                f"カテゴリ {category.name} の自然な名詞は、条件を満たす候補が {found} 語で、"
+                f"{NATURAL_NOUNS_PER_CATEGORY} 語に足りないので、{found} 語を選びます。"
+            )
         # _take_in_turn が取らずに残した、1トークンの候補
         spare_one_token.append(buckets[0])
     probe_nouns = _take_in_turn(

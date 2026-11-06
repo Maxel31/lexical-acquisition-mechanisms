@@ -137,6 +137,8 @@ class WordSelectionSettings(SettingsSection):
     maximum_category_association: int = Field(ge=1, le=7)
     # 名詞72語の中で、互いに同義語の名詞を選んでよいカテゴリ（条件を満たす語が少ないカテゴリ）
     categories_allowing_synonyms: list[str]
+    # 自然な名詞の候補が30語（設計書の数）に足りないカテゴリで、選んでよい最も少ない数
+    minimum_natural_nouns_per_category: int = Field(gt=0)
 
 
 class PassageSettings(SettingsSection):
