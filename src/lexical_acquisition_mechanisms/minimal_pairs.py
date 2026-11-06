@@ -5,7 +5,7 @@
 文（空欄 ___ と、その前の手がかり）と、手がかりを置き換える語を書き、ターゲット語の文は、手がかりを
 置き換えて作る（2文を別々に書かせると、手がかり以外も違う文になりやすいので）。
 - 名詞を足す組（同カテゴリ・別カテゴリ）: 手がかりは、一方のものにだけ合う語
-  （例: She cooked the ___ / She parked the ___）。
+  （例: grape と car なら She peeled the ___ / She parked the ___）。
 - 形容詞を足す組: 手がかりは、空欄を形容詞か名詞に決める語（例: It was so ___ / It was the ___）。
 次の候補は使わない。
 - 空欄（前が空白で、後に英数字が続かない、ちょうど3本の下線 ___）がちょうど1つでない、または
@@ -57,10 +57,12 @@ PUNCTUATION = ".,;:!?\"'()"
 # 空欄: 前が空白で、ちょうど3本の下線（文の先頭なら、問題文では "Sentence:" の後の空白の後）。
 # 後に英数字が続く空欄（___s など）は、語の形を変えるので使わない
 BLANK_PATTERN = re.compile(r"(?<=\s)___(?![_\w])")
+# 1組の答えに許す長さ（トークン）
+MAXIMUM_TOKENS_PER_PAIR = 60
 CUE_INSTRUCTIONS = {
     "noun": (
         "The cue is a word (such as a verb) that fits one of the two kinds of things and not the"
-        ' other. For example, for "pasta" and "car": {"sentence": "She peeled the ___.",'
+        ' other. For example, for "grape" and "car": {"sentence": "She peeled the ___.",'
         ' "first_cue": "peeled", "second_cue": "parked"}.'
     ),
     "adjective": (
@@ -122,8 +124,11 @@ def generate_minimal_pairs(settings: Settings, arguments: argparse.Namespace) ->
             **prompt_record_settings(settings.llm, [prompt]),
             "candidates": candidates_per_sense_pair(settings),
             "tokenizer": next(iter(settings.models.values())).model_dump(),
-            # 問い合わせの本文と、手がかりを探す決まりも、出力を変える
+            # 問い合わせの本文・答えの形・長さの上限と、空欄・手がかりを探す決まりも、出力を変える
             "cue_instructions": CUE_INSTRUCTIONS,
+            "schema": SCHEMA,
+            "maximum_tokens_per_pair": MAXIMUM_TOKENS_PER_PAIR,
+            "blank_pattern": BLANK_PATTERN.pattern,
             "cue_punctuation": PUNCTUATION,
         },
     )
@@ -179,7 +184,7 @@ def build_minimal_pair_candidates(
                 "number": str(number),
             },
             with_maximum_items(SCHEMA, "pairs", number),
-            maximum_tokens=60 * number,
+            maximum_tokens=MAXIMUM_TOKENS_PER_PAIR * number,
         )
         for row, _ in sense_pairs
     ]
