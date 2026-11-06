@@ -168,8 +168,10 @@ def test_word_level_p_values_need_enough_words() -> None:
     assert p_value([1.0] * 4, 1 / 2) == 1.0
     assert p_value([1.0] * 2, 1 / 6) < 0.05
     assert p_value([1.0] * 5, 1 / 2) < 0.05
-    # 語が少ないときは t 分布で検定する（5語のうち4語が正しいだけでは、偶然の水準 1/2 を超えない）
+    # 語が少ないときは t 分布で検定する（5語のうち4語・6語のうち5語が正しいだけでは、偶然の水準
+    # 1/2 を超えない）
     assert p_value([1.0, 1.0, 1.0, 1.0, 0.0], 1 / 2) > 0.05
+    assert p_value([1.0, 1.0, 1.0, 1.0, 1.0, 0.0], 1 / 2) > 0.05
 
 
 def test_baseline_heads_are_other_heads_of_the_same_layer() -> None:

@@ -7,7 +7,8 @@
    問題。evaluation-data build-task-questions が書いた natural_word_questions.parquet）を使う。
    語の単位で、クラスごとに HELD_OUT_SHARE の語を確認用に分ける。
 2. (a) 確認用の語での正解率と、偶然の水準（1 ÷ クラスの数）を超えるかの片側の検定（同じ語の問題の
-   正誤は相関するので、語を単位にした2段のブートストラップの標準誤差による正規近似）。
+   正誤は相関するので、語を単位にした2段のブートストラップの標準誤差を使い、自由度が「語の数 − 1」の
+   t 分布で検定する。語の数が、偶然の水準から決めた下限より少なければ検定しない）。
    比較の基準（test-attribute-directions で使う）として、採用した head ごとに、同じ層の採用して
    いない head を1つ無作為に選び、そのプローブも学習する（表の baseline が真）。
 3. (b) 語義を足した各 run（対照を除く）の最後の重みで、その run の条件の最小対の課題2の問題（名詞を
@@ -65,7 +66,7 @@ HELD_OUT_SHARE = 0.2
 # 語を単位にした検定（word_level_p_value）の決め方（記録に入れる）
 WORD_LEVEL_TEST = {
     "error": "two-stage bootstrap over words",
-    "distribution": "t with words - 1 degrees of freedom",
+    "distribution": "t with words - 1 degrees of freedom, error scaled to the sample variance",
     "minimum_words": "chance ** words < significance level",
 }
 BATCH_SIZE = 32
@@ -342,7 +343,10 @@ def word_level_p_value(
         return 1.0
     differences = (np.asarray(correct, dtype=float) - chance)[:, None]
     mean, error = bootstrap_statistics.mean_and_error(list(words), differences, random_numbers)
-    mean, error = float(mean[0]), float(error[0])
+    # ブートストラップの標準偏差は、母分散の式（語の数で割る）なので、標本分散の式（語の数 − 1 で
+    # 割る）にそろえる（t 分布に当てると、ふつうの t 検定より甘くならないように）
+    correction = math.sqrt(number_of_words / (number_of_words - 1))
+    mean, error = float(mean[0]), float(error[0]) * correction
     if error == 0:
         return 0.0 if mean > 0 else 1.0
     return float(stats.t.sf(mean / error, df=number_of_words - 1))
