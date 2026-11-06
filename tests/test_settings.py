@@ -50,6 +50,14 @@ def test_category_names_must_be_unique() -> None:
         Settings.model_validate(content)
 
 
+def test_categories_allowing_synonyms_must_be_known_categories() -> None:
+    content = load_settings(REPOSITORY_ROOT / "settings.yaml").model_dump()
+    content["word_selection"]["categories_allowing_synonyms"] = ["furniture", "tool"]
+
+    with pytest.raises(ValueError, match=r"\['tool'\] は、words.categories にありません"):
+        Settings.model_validate(content)
+
+
 def test_bounds_are_explained(tmp_path: Path) -> None:
     text = (REPOSITORY_ROOT / "settings.yaml").read_text(encoding="utf-8")
     path = write_settings(

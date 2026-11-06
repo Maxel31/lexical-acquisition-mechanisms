@@ -132,8 +132,14 @@ class ChosenWords:
         self._words: set[str] = set(excluded)
         self._synsets: set[str] = set()
 
-    def can_take(self, word: str) -> bool:
-        return word not in self._words and not self._senses(word) & self._synsets
+    def can_take(self, word: str, allowed_synsets: frozenset[str] = frozenset()) -> bool:
+        """allowed_synsets の語義は、選んだ語と重なっても選んでよい（同義語を許すときに使う）。"""
+        overlap = (self._senses(word) & self._synsets) - allowed_synsets
+        return word not in self._words and not overlap
+
+    @property
+    def synsets(self) -> frozenset[str]:
+        return frozenset(self._synsets)
 
     def take(self, word: str) -> None:
         self._words.add(word)
@@ -246,9 +252,14 @@ def _select_nouns(
         for index in range(NOUNS_PER_CATEGORY)
     ]
     nouns = []
+    allowing_synonyms = settings.word_selection.categories_allowing_synonyms
     for name, usable in by_category.items():
+        before = chosen.synsets
         for picked, goal in enumerate(goals):
-            remaining = [candidate for candidate in usable if chosen.can_take(candidate.word)]
+            # 同義語を許すカテゴリでは、このカテゴリで選んだ名詞の語義だけは重なってもよい
+            # （ほかのカテゴリの語の同義語は選ばない）
+            own = chosen.synsets - before if name in allowing_synonyms else frozenset()
+            remaining = [candidate for candidate in usable if chosen.can_take(candidate.word, own)]
             if not remaining:
                 description = f"カテゴリ {name} の名詞（同義語を除く）"
                 raise _shortage(description, picked, needed, settings)
