@@ -121,6 +121,10 @@ word_selection:
   # 自然な名詞（設計書は各カテゴリ30語）の候補が30語に足りないカテゴリで、選んでよい最も少ない数。
   # 家具は、条件を満たす候補が29語（語義の判定が説明と合わない box を外した後）
   minimum_natural_nouns_per_category: 25
+  # 用例か文が足りない自然な語は、外して続ける（設計書は自然な語に数だけを決めているので）。そのとき、
+  # 自然な名詞はカテゴリごとに minimum_natural_nouns_per_category 語、自然な形容詞はこの数を残す
+  # （下回るときは止まる）
+  minimum_natural_adjectives: 50
 
 # 用例（管理対象の語を含む、Pile から切り出した文章）
 passages:

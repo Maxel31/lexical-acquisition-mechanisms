@@ -231,7 +231,10 @@ def _check_candidates(
     managed = [word for word in words.values() if word.role != "unknown"]
     counts = {group: len(indices) for group, indices in remaining.items()}
     if shortages := passage_shortage.find_shortages(managed, counts, settings):
-        passage_shortage.stop_for_shortage(shortages, "判定に回す候補", *shortage_paths)
+        # 自然な語だけなら、判定できる候補を判定して続ける（passages finalize で外す）
+        passage_shortage.drop_natural_words_or_stop(
+            shortages, managed, "判定に回す候補", shortage_paths, settings
+        )
     factor = settings.passages.collection_factor
     few = []
     for word in managed:

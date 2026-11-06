@@ -7,7 +7,12 @@ import pytest
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.passage_collection import CollectionSummary
-from lexical_acquisition_mechanisms.passage_shortage import find_shortages, stop_for_shortage
+from lexical_acquisition_mechanisms.passage_shortage import (
+    drop_natural_words_or_stop,
+    find_shortages,
+    natural_word_problems,
+    stop_for_shortage,
+)
 from lexical_acquisition_mechanisms.settings import Settings, load_settings
 from lexical_acquisition_mechanisms.word_selection import ExcludedWord, SelectedWord
 
@@ -58,3 +63,60 @@ def test_only_words_without_more_occurrences_are_excluded(
     assert [(row.word, row.reason) for row in excluded] == [
         ("pasta", "候補が足りない（training 1 / 3 件）")
     ]
+
+
+def natural_words_settings(settings: Settings, nouns: int, adjectives: int) -> Settings:
+    selection = settings.word_selection.model_copy(
+        update={
+            "minimum_natural_nouns_per_category": nouns,
+            "minimum_natural_adjectives": adjectives,
+        }
+    )
+    evaluation = settings.evaluation.model_copy(update={"passages_per_natural_word": 1})
+    return settings.model_copy(update={"word_selection": selection, "evaluation": evaluation})
+
+
+NATURAL_WORDS = [
+    SelectedWord("soup", "natural-noun", category="food"),
+    SelectedWord("stew", "natural-noun", category="food"),
+    SelectedWord("calm", "natural-adjective"),
+    SelectedWord("quiet", "natural-adjective"),
+]
+
+
+def test_short_natural_words_are_dropped_while_enough_are_left(
+    tmp_path: Path, settings: Settings
+) -> None:
+    settings = natural_words_settings(settings, nouns=1, adjectives=1)
+    counts = {("stew", "evaluation"): 1, ("calm", "evaluation"): 1}
+    shortages = find_shortages(NATURAL_WORDS, counts, settings)
+    paths = (tmp_path / "collection_summary.csv", tmp_path / "excluded.csv")
+
+    dropped = drop_natural_words_or_stop(shortages, NATURAL_WORDS, "用例", paths, settings)
+
+    assert dropped == {"soup", "quiet"}
+    assert not paths[1].exists()
+
+
+@pytest.mark.parametrize(
+    "nouns, adjectives, problem",
+    [(2, 1, "カテゴリ food の自然な名詞 1 語"), (1, 2, "自然な形容詞 1 語")],
+)
+def test_natural_words_below_the_minimum_stop(
+    tmp_path: Path, settings: Settings, nouns: int, adjectives: int, problem: str
+) -> None:
+    settings = natural_words_settings(settings, nouns, adjectives)
+    counts = {("stew", "evaluation"): 1, ("calm", "evaluation"): 1}
+    shortages = find_shortages(NATURAL_WORDS, counts, settings)
+    summary = [CollectionSummary(word.word, word.role, 1, 2, 2, "", True) for word in NATURAL_WORDS]
+    write_rows(tmp_path / "collection_summary.csv", CollectionSummary, summary)
+
+    assert natural_word_problems(NATURAL_WORDS, {"soup", "quiet"}, settings) == [problem]
+    with pytest.raises(CommandStopped, match="soup（evaluation 0 / 1 件）"):
+        drop_natural_words_or_stop(
+            shortages,
+            NATURAL_WORDS,
+            "用例",
+            (tmp_path / "collection_summary.csv", tmp_path / "excluded.csv"),
+            settings,
+        )

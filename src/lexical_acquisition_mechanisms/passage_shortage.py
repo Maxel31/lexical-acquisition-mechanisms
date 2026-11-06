@@ -6,8 +6,11 @@ passages judge-word-sense（判定に回す候補の数を、判定の前に）�
   選び直すと、代わりの語が選ばれる）。
 - 残した出現が残す数に届いた語（Pile にはさらに出現がありうる）は外さず、
   passages.occurrence_margin を大きくして passages collect からやり直すように示す。
+足りないのが自然な語だけなら、外して続ける（natural_word_problems: 自然な語を外すと、残す数の下限を
+下回るときは止まる）。
 """
 
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,6 +63,44 @@ def find_shortages(
                 found = counts.get((word.word, split), 0)
                 shortages.append(Shortage(word.word, word.role, split, found, needed))
     return shortages
+
+
+def natural_word_problems(
+    words: Sequence[SelectedWord], dropped: set[str], settings: Settings
+) -> list[str]:
+    """dropped の自然な語を外すと、数が下限を下回るもの。
+
+    自然な名詞はカテゴリごと、自然な形容詞は全体の数を見る。
+    """
+    selection = settings.word_selection
+    natural_nouns = [word for word in words if word.role == "natural-noun"]
+    left = Counter(word.category for word in natural_nouns if word.word not in dropped)
+    problems = [
+        f"カテゴリ {category} の自然な名詞 {left[category]} 語"
+        for category in sorted({word.category for word in natural_nouns})
+        if left[category] < selection.minimum_natural_nouns_per_category
+    ]
+    natural_adjectives = [word for word in words if word.role == "natural-adjective"]
+    left_adjectives = sum(word.word not in dropped for word in natural_adjectives)
+    if natural_adjectives and left_adjectives < selection.minimum_natural_adjectives:
+        problems.append(f"自然な形容詞 {left_adjectives} 語")
+    return problems
+
+
+def drop_natural_words_or_stop(
+    shortages: Sequence[Shortage],
+    words: Sequence[SelectedWord],
+    what: str,
+    shortage_paths: tuple[Path, Path],
+    settings: Settings,
+) -> set[str]:
+    """足りないのが自然な語だけで、外しても下限を下回らなければ、外す語を返す。そうでなければ止まる。"""
+    dropped = {shortage.word for shortage in shortages if shortage.role.startswith("natural-")}
+    others = [shortage for shortage in shortages if not shortage.role.startswith("natural-")]
+    if others or natural_word_problems(words, dropped, settings):
+        stop_for_shortage(shortages, what, *shortage_paths)
+    print(f"{what}が足りない自然な語を外して続けます（{listed(shortages)}）。")
+    return dropped
 
 
 def stop_for_shortage(
