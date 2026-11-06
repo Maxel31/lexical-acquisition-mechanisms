@@ -30,6 +30,14 @@ DOWNLOAD_MAXIMUM_WAIT = 60
 # 一時的な誤りとして取り直す応答（多すぎる問い合わせと、サーバの一時的な誤り）
 RETRIED_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 DOWNLOAD_DIRECTORY = Path("data/pile_download")
+# 届く速さがこれより遅い接続は、切って取り直す（同じ所から、1秒に数十 KB しか届かない接続がある）。
+# SLOW_DOWNLOAD_SECONDS 秒ごとに、その間に届いたバイト数で判断する
+MINIMUM_BYTES_PER_SECOND = 512 * 1024
+SLOW_DOWNLOAD_SECONDS = 60
+
+
+class _SlowDownload(Exception):
+    """接続が遅すぎるので、切って取り直す。"""
 
 
 @dataclass(frozen=True)
@@ -53,8 +61,9 @@ def shard_file_names() -> list[str]:
 def download_shard(file_name: str, directory: Path, client: httpx.Client | None = None) -> Path:
     """断片を directory にダウンロードし、そのパスを返す。
 
-    止まったり切れたり、一時的な誤りの応答（RETRIED_STATUS_CODES）が返ったりしたら、少し待ってから、
-    届いた所から続きを取り直す（DOWNLOAD_ATTEMPTS 回まで）。大きさが Hugging Face の記録と合わな
+    止まったり切れたり、一時的な誤りの応答（RETRIED_STATUS_CODES）が返ったり、届く速さが
+    MINIMUM_BYTES_PER_SECOND より遅かったりしたら、少し待ってから、届いた所から続きを取り直す
+    （DOWNLOAD_ATTEMPTS 回まで）。大きさが Hugging Face の記録と合わな
     ければ、誤りにする。
     """
     url = hf_hub_url(PILE_REPOSITORY, file_name, repo_type="dataset", revision=PILE_REVISION)
@@ -80,9 +89,17 @@ def download_shard(file_name: str, directory: Path, client: httpx.Client | None 
                     # 続きを返さないサーバなら、初めから書き直す
                     mode = "ab" if received and response.status_code == 206 else "wb"
                     with partial_path.open(mode) as file:
+                        window_start = time.monotonic()
+                        window_bytes = 0
                         for chunk in response.iter_bytes():
                             file.write(chunk)
-            except httpx.TransportError:
+                            window_bytes += len(chunk)
+                            elapsed = time.monotonic() - window_start
+                            if elapsed >= SLOW_DOWNLOAD_SECONDS:
+                                if window_bytes < MINIMUM_BYTES_PER_SECOND * elapsed:
+                                    raise _SlowDownload
+                                window_start, window_bytes = time.monotonic(), 0
+            except (httpx.TransportError, _SlowDownload):
                 continue
             except httpx.HTTPStatusError as error:
                 if error.response.status_code not in RETRIED_STATUS_CODES:
