@@ -16,7 +16,10 @@
 - 空欄にターゲット語を入れたとき、課題の問題文の中（"Sentence: " の後）で、2文のトークン数が違う
   （head の出力を位置ごとに入れ替えるため）
 - 同じ組の、ほかの候補と同じ
-使える候補が1つもない語義の組があれば止まる（その語義が、後の全ての分析から黙って消えないように）。
+使える候補が最小対の数に届かない語義の組は、頼む数を ASK_AGAIN_STEP ずつ変えて、ASK_AGAIN_TIMES 回
+まで問い直し、使える候補を足す（温度0の LLM は、組によって短い答えや、2つの手がかりが同じ語の答えを
+返すことがあり、頼む数を変えると別の答えになるので）。
+それでも使える候補が1つもない語義の組があれば止まる（その語義が、後の全ての分析から黙って消えないように）。
 語義の組ごとに、最小対の数（evaluation.minimal_pairs_per_sense_pair）×
 evaluation.minimal_pair_candidate_factor 個まで残し、data/evaluation/minimal_pair_candidates.csv に
 書く（学習前のモデルで確かめるのは、evaluation-data check-with-pretrained-models）。
@@ -59,6 +62,9 @@ PUNCTUATION = ".,;:!?\"'()"
 BLANK_PATTERN = re.compile(r"(?<=\s)___(?![_\w])")
 # 1組の答えに許す長さ（トークン）
 MAXIMUM_TOKENS_PER_PAIR = 60
+# 使える候補が最小対の数に届かない組を、問い直す回数と、問い直すたびに頼む数に足す数
+ASK_AGAIN_TIMES = 3
+ASK_AGAIN_STEP = 5
 CUE_INSTRUCTIONS = {
     "noun": (
         "The cue is a word (such as a verb) that fits one of the two kinds of things and not the"
@@ -131,6 +137,8 @@ def generate_minimal_pairs(settings: Settings, arguments: argparse.Namespace) ->
             "cue_instructions": CUE_INSTRUCTIONS,
             "schema": SCHEMA,
             "maximum_tokens_per_pair": MAXIMUM_TOKENS_PER_PAIR,
+            "ask_again": {"times": ASK_AGAIN_TIMES, "step": ASK_AGAIN_STEP},
+            "minimal_pairs_per_sense_pair": settings.evaluation.minimal_pairs_per_sense_pair,
             "blank_pattern": BLANK_PATTERN.pattern,
             "cue_punctuation": PUNCTUATION,
         },
@@ -175,8 +183,9 @@ def build_minimal_pair_candidates(
         if row.run.endswith(f"-{largest}")
     ]
     number = candidates_per_sense_pair(settings)
-    requests = [
-        LlmRequest(
+
+    def request(row: SenseAdditionAssignment, asked: int) -> LlmRequest:
+        return LlmRequest(
             prompt,
             {
                 "donor": row.donor,
@@ -184,53 +193,38 @@ def build_minimal_pair_candidates(
                 "target": row.target,
                 "target_definition": words[row.target].definition,
                 "cue_instruction": CUE_INSTRUCTIONS[row.donor_role],
-                "number": str(number),
+                "number": str(asked),
             },
-            with_maximum_items(SCHEMA, "pairs", number),
-            maximum_tokens=MAXIMUM_TOKENS_PER_PAIR * number,
+            with_maximum_items(SCHEMA, "pairs", asked),
+            maximum_tokens=MAXIMUM_TOKENS_PER_PAIR * asked,
         )
-        for row, _ in sense_pairs
-    ]
+
     managed = [word for word in words.values() if word.role in MANAGED_ROLES]
     excluded = frozenset(
         form for word in managed for form in (word.word, *inflected_forms(word.word, word.role))
     )
-    candidates = []
-    empty = []
-    answers = client.ask_all(requests)
+    answers = client.ask_all([request(row, number) for row, _ in sense_pairs])
     # 答えがない語義の組は、最小対が1つもなくなり、後の分析から黙って消えるので止まる
     require_answers(answers, "最小対", COMMAND)
-    for (row, kind), answer in zip(sense_pairs, answers, strict=True):
-        kept: list[MinimalPairCandidate] = []
-        for pair in (answer or {"pairs": []})["pairs"]:
-            sentences = swapped_cue_sentences(
-                pair["sentence"], pair["first_cue"], pair["second_cue"]
-            )
-            if sentences is None or len(kept) == number:
-                continue
-            cues = _cues(*sentences, row.target, tokenizer, excluded)
-            if cues is None:
-                continue
-            candidate = MinimalPairCandidate(
-                row.target,
-                row.target_category,
-                row.target_token_count,
-                row.donor,
-                row.donor_role,
-                kind,
-                *sentences,
-                *cues,
-            )
-            # 後の処理は、最小対を donor の文で見分けるので、片方の文だけが同じ候補も使わない
-            if all(
-                other.donor_sentence != candidate.donor_sentence
-                and other.target_sentence != candidate.target_sentence
-                for other in kept
-            ):
-                kept.append(candidate)
-        if not kept:
-            empty.append(f"{row.target}/{row.donor}")
-        candidates += kept
+    kept: list[list[MinimalPairCandidate]] = [[] for _ in sense_pairs]
+    for found, (row, kind), answer in zip(kept, sense_pairs, answers, strict=True):
+        _keep_usable(found, answer, row, kind, number, tokenizer, excluded)
+    wanted = settings.evaluation.minimal_pairs_per_sense_pair
+    for attempt in range(1, ASK_AGAIN_TIMES + 1):
+        short = [index for index, found in enumerate(kept) if len(found) < wanted]
+        if not short:
+            break
+        asked = number + attempt * ASK_AGAIN_STEP
+        again = client.ask_all([request(sense_pairs[index][0], asked) for index in short])
+        for index, answer in zip(short, again, strict=True):
+            row, kind = sense_pairs[index]
+            _keep_usable(kept[index], answer, row, kind, number, tokenizer, excluded)
+    empty = [
+        f"{row.target}/{row.donor}"
+        for found, (row, _) in zip(kept, sense_pairs, strict=True)
+        if not found
+    ]
+    candidates = [candidate for found in kept for candidate in found]
     if empty:
         raise CommandStopped(
             f"使える候補が1つもない語義の組があります（{len(empty)} 組: {empty[:10]}）。"
@@ -239,6 +233,44 @@ def build_minimal_pair_candidates(
             rerun_from=COMMAND,
         )
     write_rows(output_path, MinimalPairCandidate, candidates)
+
+
+def _keep_usable(
+    kept: list[MinimalPairCandidate],
+    answer: dict | None,
+    row: SenseAdditionAssignment,
+    kind: str,
+    number: int,
+    tokenizer: WordTokenizer,
+    excluded: frozenset[str],
+) -> None:
+    """答えの候補のうち、最小対の条件に合い、kept の候補と重ならないものを、number 個まで足す。"""
+    for pair in (answer or {"pairs": []})["pairs"]:
+        if len(kept) == number:
+            return
+        sentences = swapped_cue_sentences(pair["sentence"], pair["first_cue"], pair["second_cue"])
+        if sentences is None:
+            continue
+        cues = _cues(*sentences, row.target, tokenizer, excluded)
+        if cues is None:
+            continue
+        candidate = MinimalPairCandidate(
+            row.target,
+            row.target_category,
+            row.target_token_count,
+            row.donor,
+            row.donor_role,
+            kind,
+            *sentences,
+            *cues,
+        )
+        # 後の処理は、最小対を donor の文で見分けるので、片方の文だけが同じ候補も使わない
+        if all(
+            other.donor_sentence != candidate.donor_sentence
+            and other.target_sentence != candidate.target_sentence
+            for other in kept
+        ):
+            kept.append(candidate)
 
 
 def swapped_cue_sentences(sentence: str, first_cue: str, second_cue: str) -> tuple[str, str] | None:
