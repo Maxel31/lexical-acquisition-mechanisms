@@ -62,15 +62,18 @@ MAXIMUM_TOKENS_PER_PAIR = 60
 CUE_INSTRUCTIONS = {
     "noun": (
         "The cue is a word (such as a verb) that fits one of the two kinds of things and not the"
-        ' other. For example, for "grape" and "car": {"sentence": "She peeled the ___.",'
-        ' "first_cue": "peeled", "second_cue": "parked"}.'
+        ' other. Start the sentence with who does something (such as "She", "They" or "The'
+        ' farmer"), then the cue verb, then the blank. For example, for "grape" and "car":'
+        ' {"sentence": "She peeled the ___.", "first_cue": "peeled", "second_cue": "parked"}.'
     ),
     "adjective": (
-        "In the first sentence the blank is an adjective: the first cue word is an adverb such"
-        ' as "so", "very", "too" or "quite", right before the blank. The second cue word is a word'
-        ' such as "the", "a", "his" or "her", which makes the blank a noun. For example, for'
-        ' "quiet" and "car": {"sentence": "It was so ___.", "first_cue": "so", "second_cue":'
-        ' "the"} (the second sentence is "It was the ___.").'
+        "In the first sentence the blank is an adjective: write an adverb such as"
+        ' "so", "very", "too" or "quite" in the sentence, right before the blank ("so ___"); this'
+        ' adverb is the first cue word. The second cue word is a word such as "the", "a", "his"'
+        ' or "her", which makes the blank a noun. For example, for "quiet" and "car":'
+        ' {"sentence": "It was so ___.", "first_cue": "so", "second_cue": "the"} (the second'
+        ' sentence is "It was the ___."), and {"sentence": "She looked at his very ___ face."} is'
+        ' wrong, because "the ___ face" does not make the blank a noun.'
     ),
 }
 SCHEMA = {
