@@ -205,7 +205,7 @@ def test_the_target_sentence_swaps_only_the_cue_word() -> None:
 
 
 def test_record_has_the_cue_instructions(monkeypatch: pytest.MonkeyPatch) -> None:
-    # 指示文の .md を変えずに、手がかりの指示や記号の決まりだけを直しても、作り直す
+    # 指示文の .md を変えずに、手がかりの指示・答えの形・空欄や記号の決まりだけを直しても、作り直す
     steps = []
     monkeypatch.setattr(
         minimal_pairs, "run_unless_unchanged", lambda step, compute, recompute: steps.append(step)
@@ -215,3 +215,6 @@ def test_record_has_the_cue_instructions(monkeypatch: pytest.MonkeyPatch) -> Non
     )
     assert steps[0].settings["cue_instructions"] == minimal_pairs.CUE_INSTRUCTIONS
     assert steps[0].settings["cue_punctuation"] == minimal_pairs.PUNCTUATION
+    assert steps[0].settings["schema"] == minimal_pairs.SCHEMA
+    assert steps[0].settings["blank_pattern"] == minimal_pairs.BLANK_PATTERN.pattern
+    assert steps[0].settings["maximum_tokens_per_pair"] == minimal_pairs.MAXIMUM_TOKENS_PER_PAIR
