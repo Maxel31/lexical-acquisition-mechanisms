@@ -230,6 +230,16 @@ def test_adjectives_match_the_noun_frequencies(tmp_path: Path, settings: Setting
     assert float(rows["happy"]["usage_share"]) == pytest.approx(0.95)
 
 
+def test_the_adjective_share_has_its_own_minimum(tmp_path: Path, settings: Settings) -> None:
+    # 名詞の下限を下げても、形容詞は形容詞の下限（0.85）で選ぶ（cold は 0.5 なので選ばない）
+    selection = settings.word_selection.model_copy(update={"minimum_usage_share": 0.4})
+    settings = settings.model_copy(update={"word_selection": selection})
+
+    rows = select(tmp_path, settings, [noun_candidate(*noun) for noun in NOUNS])
+
+    assert "cold" not in words_with_role(rows, "adjective")
+
+
 def test_natural_words_are_the_remaining_words_of_each_token_count(
     tmp_path: Path, settings: Settings
 ) -> None:

@@ -525,9 +525,7 @@ def _usable(
     """候補が使えるか。natural なら、自然な語の割合の下限で判断する。"""
     selection = settings.word_selection
     share = _share(candidate)
-    minimum_share = (
-        selection.minimum_natural_word_usage_share if natural else selection.minimum_usage_share
-    )
+    minimum_share = _minimum_share(settings, isinstance(candidate, AdjectiveCandidate), natural)
     return (
         not candidate.rejected_reason
         and candidate.judged_usages >= selection.minimum_judged_usages
@@ -572,6 +570,16 @@ def _nearest[Candidate: (NounCandidate, AdjectiveCandidate)](
     return min(candidates, key=lambda candidate: (_distance(candidate, goal), candidate.word))
 
 
+def _minimum_share(settings: Settings, adjective: bool, natural: bool) -> float:
+    """意図した語義（形容詞は、形容詞として）で使われる割合の下限。"""
+    selection = settings.word_selection
+    if natural:
+        return selection.minimum_natural_word_usage_share
+    if adjective:
+        return selection.minimum_adjective_usage_share
+    return selection.minimum_usage_share
+
+
 def _shortage(
     description: str,
     found: int,
@@ -582,9 +590,8 @@ def _shortage(
     natural: bool = False,
 ) -> CommandStopped:
     selection = settings.word_selection
-    minimum_share = (
-        selection.minimum_natural_word_usage_share if natural else selection.minimum_usage_share
-    )
+    adjective = listing == "words.adjectives_per_listing"
+    minimum_share = _minimum_share(settings, adjective, natural)
     return CommandStopped(
         f"{description}で、条件を満たす候補が足りません（{found} 語）。"
         f"条件: 意図した語義（形容詞は、形容詞として）で使われる割合が"

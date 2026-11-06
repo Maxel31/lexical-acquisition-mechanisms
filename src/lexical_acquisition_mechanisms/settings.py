@@ -123,8 +123,10 @@ class UnknownWordSettings(SettingsSection):
 class WordSelectionSettings(SettingsSection):
     """候補から語を選ぶときの条件（words select）。"""
 
-    # Pile の見本で、意図した語義（形容詞は、形容詞として）で使われていた割合の下限
+    # Pile の見本で、名詞72語・ターゲット語が意図した語義で使われていた割合の下限
     minimum_usage_share: float = Field(ge=0, le=1)
+    # 形容詞72語が、形容詞として使われていた割合の下限
+    minimum_adjective_usage_share: float = Field(ge=0, le=1)
     # 自然な語（実験で操作しない語）の、その割合の下限
     minimum_natural_word_usage_share: float = Field(ge=0, le=1)
     # その割合を当てにできるように、LLM が判定できた見本の数の下限
