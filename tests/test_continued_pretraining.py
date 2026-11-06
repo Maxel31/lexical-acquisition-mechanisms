@@ -51,6 +51,7 @@ def run_settings(tmp_path: Path, model: ModelSource, sequences: int = 5) -> RunS
             "sequence_length": SEQUENCE_LENGTH,
             "learning_rate_by_model": {"tiny": 1e-3},
             "sequences_per_device_by_model": {"tiny": 1},
+            "gradient_checkpointing_by_model": {"tiny": True},
         }
     )
     settings = settings.model_copy(update={"models": {"tiny": model}, "training": training})
@@ -107,6 +108,31 @@ def test_training_writes_metrics_for_every_step(
     assert [record["step"] for record in validation] == [0, 2, 3]
     assert validation[0]["validation_change"] == 0
     assert all(record["validation_perplexity"] > 1 for record in validation)
+
+
+def test_gradient_checkpointing_follows_the_setting_and_keeps_the_losses(
+    tmp_path: Path, tiny_model_source, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    load_model = continued_pretraining._load_model
+    used = []
+
+    def recording_load_model(run: RunSettings, process):
+        model = load_model(run, process)
+        used.append(model.is_gradient_checkpointing)
+        return model
+
+    monkeypatch.setattr(continued_pretraining, "_load_model", recording_load_model)
+    losses = []
+    for checkpointing in (True, False):
+        monkeypatch.setenv("MASTER_PORT", str(free_port()))
+        run = run_settings(tmp_path / str(checkpointing), tiny_model_source)
+        train(run.model_copy(update={"gradient_checkpointing": checkpointing}))
+        losses.append([record["loss"] for record in metrics_of(run) if "loss" in record])
+
+    assert used == [True, False]
+    # 順伝播を計算し直しても、しなくても、学習は同じ
+    assert losses[0] == pytest.approx(losses[1], rel=1e-5)
 
 
 def test_runs_without_inserted_passages_are_trained(

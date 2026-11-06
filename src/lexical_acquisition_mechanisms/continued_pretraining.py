@@ -363,7 +363,8 @@ def _load_model(run: RunSettings, process: Process) -> PreTrainedModel:
         run.model_source.repository, revision=run.model_source.revision, dtype=torch.float32
     )
     initialize_new_tokens(model, run)
-    model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+    if run.gradient_checkpointing:
+        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     model.to(process.device)
     policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32)
     # メッシュ（プロセスの並び）を、このプロセスの機器で作って渡す（渡さないと、GPU が見えるときは
