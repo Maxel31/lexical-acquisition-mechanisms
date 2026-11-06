@@ -263,8 +263,12 @@ def test_a_client_waits_while_another_command_writes_to_the_database(tmp_path: P
     assert answers[0]["passed"] is True
 
 
-def test_the_write_lock_is_not_held_while_waiting_for_answers(tmp_path: Path) -> None:
-    # 答えを待っている間は、ほかのコマンドがすぐに書き込みの鍵を取れる
+def test_the_write_lock_is_not_held_while_waiting_for_answers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 答えを待っている間は、ほかのコマンドがすぐに書き込みの鍵を取れる。2件ごとに書くので、
+    # lamp を待つ間には、pasta と bread の答えを書き終えている（書いた後に鍵を離しているか）
+    monkeypatch.setattr(llm_client, "COMMIT_EVERY", 2)
     path = tmp_path / "answers.sqlite3"
     make_client(tmp_path, StubServer()).ask_all(requests_for("car"))
     could_write = []
@@ -290,3 +294,5 @@ def test_the_write_lock_is_not_held_while_waiting_for_answers(tmp_path: Path) ->
     client.ask_all(requests_for("pasta", "bread", "rice", "lamp"))
 
     assert could_write == [True]
+    saved = sqlite3.connect(path).execute("SELECT COUNT(*) FROM answers").fetchone()[0]
+    assert saved == 5
