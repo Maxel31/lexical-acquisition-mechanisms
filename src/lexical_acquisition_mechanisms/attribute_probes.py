@@ -7,8 +7,9 @@
    問題。evaluation-data build-task-questions が書いた natural_word_questions.parquet）を使う。
    語の単位で、クラスごとに HELD_OUT_SHARE の語を確認用に分ける。
 2. (a) 確認用の語での正解率と、偶然の水準（1 ÷ クラスの数）を超えるかの片側の検定（同じ語の問題の
-   正誤は相関するので、語ごとの正解率を単位にした1標本の t 検定（自由度は語の数 − 1）。語の数が、
-   偶然の水準から決めた下限より少なければ検定しない）。
+   正誤は相関するので、語を単位にする: 正解率は語ごとの正解率の平均で、検定は語ごとの正解率の
+   1標本の t 検定（自由度は語の数 − 1）。語の数が、偶然の水準から決めた下限より少なければ
+   検定しない）。
    比較の基準（test-attribute-directions で使う）として、採用した head ごとに、同じ層の採用して
    いない head を1つ無作為に選び、そのプローブも学習する（表の baseline が真）。
 3. (b) 語義を足した各 run（対照を除く）の最後の重みで、その run の条件の最小対の課題2の問題（名詞を
@@ -65,6 +66,8 @@ HELD_OUT_SHARE = 0.2
 # 語を単位にした検定（word_level_p_value）の決め方（記録に入れる）
 WORD_LEVEL_TEST = {
     "test": "one-sample t test on the mean accuracy of each word, words - 1 degrees of freedom",
+    "accuracy": "mean of the accuracies of the words",
+    "minimum_standard_error": "independent questions at the chance level",
     "minimum_words": "chance ** words < significance level",
 }
 BATCH_SIZE = 32
@@ -80,6 +83,7 @@ class AttributeProbeAccuracy:
     head: int
     # 当てる属性（category か part-of-speech）
     attribute: str
+    # 正解率は、語ごとの正解率の平均（検定と同じく、語を単位にする）
     training_accuracy: float
     held_out_accuracy: float
     held_out_questions: int
@@ -103,6 +107,7 @@ class AttributeProbeTransfer:
     questions: int
     # 検定の単位にした、ターゲット語の数
     targets: int
+    # ターゲット語ごとの正解率の平均
     accuracy: float
     chance: float
     p_value: float
@@ -313,7 +318,7 @@ def write_probe_transfer(
                         cue,
                         int(mine.sum()),
                         len(set(targets)),
-                        float(correct[mine].mean()),
+                        word_mean_accuracy(correct[mine], targets),
                         chance,
                         p_value,
                         p_value < SIGNIFICANCE_LEVEL,
@@ -323,25 +328,42 @@ def write_probe_transfer(
 
 
 def word_level_p_value(correct: np.ndarray, words: Sequence[str], chance: float) -> float:
-    """正解率が偶然の水準を超えるという、片側の p 値。
+    """語ごとの正解率の平均（word_mean_accuracy）が偶然の水準を超えるという、片側の p 値。
 
     同じ語の問題の正誤は相関するので、語ごとの正解率と偶然の水準の差を単位にした1標本の t 検定
-    （自由度は語の数 − 1）にする（乱数を使わないので、境目の場合も結果が決まる）。語の数が
-    minimum_test_words(chance) より少ないときは検定しない（1 を返す）。語ごとの差が全てそろう
-    （標準誤差が 0）なら、差が正のとき 0。
+    （自由度は語の数 − 1）にする（乱数を使わないので、境目の場合も結果が決まる）。標準誤差は、
+    問題が互いに独立で偶然の水準で当たるときの値（√(語ごとの chance × (1 − chance) ÷ 問題の数 の和)
+    ÷ 語の数）より小さくしない（語ごとの正解率がたまたまそろうと 0 になり、わずかな差でも有意に
+    なるので）。語の数が minimum_test_words(chance) より少ないときは検定しない（1 を返す）。
     """
-    by_word: dict[str, list[float]] = {}
-    for value, word in zip(np.asarray(correct, dtype=float), words, strict=True):
-        by_word.setdefault(word, []).append(float(value))
-    number_of_words = len(by_word)
+    accuracies, questions = _word_accuracies(correct, words)
+    number_of_words = len(accuracies)
     if number_of_words < minimum_test_words(chance):
         return 1.0
-    differences = np.array([np.mean(values) for values in by_word.values()]) - chance
-    mean = float(differences.mean())
-    error = float(differences.std(ddof=1)) / math.sqrt(number_of_words)
-    if error == 0:
-        return 0.0 if mean > 0 else 1.0
-    return float(stats.t.sf(mean / error, df=number_of_words - 1))
+    differences = accuracies - chance
+    sample = float(differences.std(ddof=1)) / math.sqrt(number_of_words)
+    independent = math.sqrt(float(np.sum(chance * (1 - chance) / questions))) / number_of_words
+    error = max(sample, independent)
+    return float(stats.t.sf(float(differences.mean()) / error, df=number_of_words - 1))
+
+
+def word_mean_accuracy(correct: np.ndarray, words: Sequence[str]) -> float:
+    """語ごとの正解率の平均（問題がなければ nan）。"""
+    accuracies, _ = _word_accuracies(correct, words)
+    return float(accuracies.mean()) if len(accuracies) else float("nan")
+
+
+def _word_accuracies(correct: np.ndarray, words: Sequence[str]) -> tuple[np.ndarray, np.ndarray]:
+    """語ごとの正解率と、問題の数。"""
+    by_word: dict[str, list[float]] = {}
+    for value, word in zip(np.asarray(correct, dtype=float), words, strict=True):
+        counts = by_word.setdefault(word, [0.0, 0.0])
+        counts[0] += float(value)
+        counts[1] += 1
+    if not by_word:
+        return np.array([]), np.array([])
+    corrects, questions = np.array(list(by_word.values())).T
+    return corrects / questions, questions
 
 
 def minimum_test_words(chance: float) -> int:
@@ -426,12 +448,12 @@ def _accuracy_row(
     predicted = probe.probabilities(features).argmax(axis=1) == labels
     chance = 1 / len(probe.biases)
     held_out_words = [word for word, chosen in zip(words, held_out, strict=True) if chosen]
-    layer, head, attribute = key
+    training_words = [word for word, chosen in zip(words, held_out, strict=True) if not chosen]
     p_value = word_level_p_value(predicted[held_out], held_out_words, chance)
     return AttributeProbeAccuracy(
         *key,
-        float(predicted[~held_out].mean()),
-        float(predicted[held_out].mean()) if held_out.any() else float("nan"),
+        word_mean_accuracy(predicted[~held_out], training_words),
+        word_mean_accuracy(predicted[held_out], held_out_words),
         int(held_out.sum()),
         len(set(held_out_words)),
         chance,

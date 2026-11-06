@@ -12,6 +12,7 @@ from lexical_acquisition_mechanisms.attribute_probes import (
     AttributeProbeTransfer,
     baseline_heads,
     word_level_p_value,
+    word_mean_accuracy,
     write_attribute_probes,
     write_probe_transfer,
 )
@@ -170,6 +171,22 @@ def test_word_level_p_values_need_enough_words() -> None:
     # sqrt(1/6 / 6)、t = 2.0、自由度 5 で p = 0.051
     assert p_value([1.0, 1.0, 1.0, 1.0, 0.0], 1 / 2) > 0.05
     assert p_value([1.0, 1.0, 1.0, 1.0, 1.0, 0.0], 1 / 2) == pytest.approx(0.0510, abs=1e-4)
+
+
+def test_word_level_p_values_are_not_made_small_by_equal_word_accuracies() -> None:
+    # 語ごとの正解率がたまたまそろっても（標本の標準誤差が 0）、わずかな差では有意にしない:
+    # 2語 × 20問で、どちらも 4問正しい（0.2。偶然の水準 1/6）
+    correct = np.array(([1.0] * 4 + [0.0] * 16) * 2)
+    words = ["word-0"] * 20 + ["word-1"] * 20
+    assert word_level_p_value(correct, words, 1 / 6) > 0.3
+
+
+def test_accuracy_is_the_mean_over_words_as_in_the_test() -> None:
+    # 行に書く正解率は、検定するものと同じ、語ごとの正解率の平均（問題の多い語に引っぱられない）
+    correct = np.array([1.0] * 6 + [0.0] * 40)
+    words = [f"word-{index}" for index in range(6)] + ["word-6"] * 40
+    assert word_mean_accuracy(correct, words) == pytest.approx(6 / 7)
+    assert np.isnan(word_mean_accuracy(np.array([]), []))
 
 
 def test_baseline_heads_are_other_heads_of_the_same_layer() -> None:
