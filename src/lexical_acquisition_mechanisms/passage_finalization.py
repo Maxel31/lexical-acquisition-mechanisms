@@ -2,6 +2,7 @@
 
 1. 語と分け方（学習用・評価用）ごとに、合格した用例が必要な数あるかを確かめる（足りない語は、
    精度を確かめずに外すので、先に確かめる）。足りない語があれば止まる（passage_shortage）。
+   足りないのが自然な語だけで、外しても数の下限を下回らなければ、その語の用例を書かずに続ける。
 2. 人が確認用の CSV（passages sample-for-review が書く data/passages/review.csv）の approved 列に
    記入した値から、語ごとに LLM の判定の精度（合格とした用例のうち、人も 1 とした割合）を出す。
    精度が下限に届かない語があれば止まる（指示文を直して、passages judge-word-sense からやり直す）。
@@ -14,6 +15,8 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
+import pyarrow as arrow
+import pyarrow.compute as compute
 import pyarrow.parquet as parquet
 
 from lexical_acquisition_mechanisms import (
@@ -83,6 +86,9 @@ def finalize_passages(settings: Settings, arguments: argparse.Namespace) -> None
                 include={"passages_per_added_sense"}
             ),
             "evaluation": settings.evaluation.model_dump(include={"passages_per_natural_word"}),
+            "word_selection": settings.word_selection.model_dump(
+                include={"minimum_natural_nouns_per_category", "minimum_natural_adjectives"}
+            ),
         },
     )
     run_unless_unchanged(
@@ -117,8 +123,16 @@ def build_passages(
         zip(passed.column("word").to_pylist(), passed.column("split").to_pylist(), strict=True)
     )
     if shortages := passage_shortage.find_shortages(words, counts, settings):
-        passage_shortage.stop_for_shortage(
-            shortages, "判定に合格した用例", collection_summary_path, excluded_words_path
+        # 足りないのが自然な語だけなら、その語の用例を書かずに続ける
+        dropped = passage_shortage.drop_natural_words_or_stop(
+            shortages,
+            words,
+            "判定に合格した用例",
+            (collection_summary_path, excluded_words_path),
+            settings,
+        )
+        passed = passed.filter(
+            compute.invert(compute.is_in(passed.column("word"), arrow.array(sorted(dropped))))
         )
     review = read_rows(review_path, PassageReviewRow)
     rerun = f"{ACTION} --review-csv {review_path}"

@@ -8,7 +8,9 @@
   語の数が MINIMUM_WORDS〜MAXIMUM_WORDS でない文は使わない。
 語ごとに evaluation.sentences_per_natural_word 文まで取り、
 data/evaluation/natural_word_sentences.csv に書く。語ごとの文の数は natural_word_sentence_counts.csv
-に書く。足りない語があれば、書いた後に止まる（用例を増やすか、語を選び直す）。
+に書く。文が足りない語（passages finalize で外した、用例のない語を含む）は外して続ける。外すと、
+自然な語の数が下限（word_selection.minimum_natural_nouns_per_category・minimum_natural_adjectives）を
+下回るときは、書いた後に止まる（用例を増やすか、語を選び直す）。
 """
 
 import argparse
@@ -21,6 +23,7 @@ import pyarrow.parquet as parquet
 
 from lexical_acquisition_mechanisms import (
     passage_finalization,
+    passage_shortage,
     word_finalization,
     word_selection,
 )
@@ -70,6 +73,9 @@ def extract_natural_word_sentences(settings: Settings, arguments: argparse.Names
         outputs=[SENTENCES_PATH, COUNTS_PATH],
         settings={
             "sentences_per_natural_word": settings.evaluation.sentences_per_natural_word,
+            "word_selection": settings.word_selection.model_dump(
+                include={"minimum_natural_nouns_per_category", "minimum_natural_adjectives"}
+            ),
             "tokenizer": next(iter(settings.models.values())).model_dump(),
         },
     )
@@ -110,13 +116,20 @@ def build_natural_word_sentences(
                 found.append(NaturalWordSentence(word.word, word.role, word.category, *extracted))
         sentences += found
         counts.append(NaturalWordSentenceCount(word.word, word.role, passages.num_rows, len(found)))
+    short = [count.word for count in counts if count.sentences < wanted]
+    problems = passage_shortage.natural_word_problems(words, set(short), settings)
+    if short and not problems:
+        print(
+            f"文が {wanted} 文に届かなかった自然な語を外して続けます（{len(short)} 語: {short}）。"
+        )
+        sentences = [sentence for sentence in sentences if sentence.word not in short]
     write_rows(sentences_path, NaturalWordSentence, sentences)
     write_rows(counts_path, NaturalWordSentenceCount, counts)
-    short = [count.word for count in counts if count.sentences < wanted]
-    if short:
+    if short and problems:
         raise CommandStopped(
             f"文が {wanted} 文に届かなかった自然な語があります（{len(short)} 語: {short[:10]}。"
-            f"数は {counts_path}）。その語を data/words/excluded_words.csv に足すか、"
+            f"数は {counts_path}。外すと {', '.join(problems)} で、下限を下回ります）。"
+            "その語を data/words/excluded_words.csv に足すか、"
             "settings.yaml の evaluation.passages_per_natural_word を増やしてください。どちらも、"
             "自然な語を選び直すことになるので、words select から実行し直してください。",
             rerun_from=word_selection.COMMAND,

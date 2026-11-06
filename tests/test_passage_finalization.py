@@ -61,23 +61,31 @@ def finalize(
     pasta_training: int = 3,
     pasta_evaluation: int = 1,
     pasta_reached_limit: bool = False,
+    natural_adjectives: dict[str, int] | None = None,
 ):
-    """pasta の合格は学習用 pasta_training 件・評価用 pasta_evaluation 件、quiet は評価用 1 件。"""
-    words = [SelectedWord("pasta", "noun"), SelectedWord("quiet", "natural-adjective")]
+    """pasta の合格は学習用 pasta_training 件・評価用 pasta_evaluation 件。
+
+    自然な形容詞の合格は、natural_adjectives（語 → 評価用の件数。既定は quiet が 1 件）。
+    """
+    natural_adjectives = natural_adjectives or {"quiet": 1}
+    words = [SelectedWord("pasta", "noun")]
+    words += [SelectedWord(word, "natural-adjective") for word in natural_adjectives]
     write_rows(tmp_path / "words.csv", SelectedWord, words)
-    collection = [
-        CollectionSummary("pasta", "noun", 4, 10, 10, "", pasta_reached_limit),
-        CollectionSummary("quiet", "natural-adjective", 1, 2, 2, "", True),
+    collection = [CollectionSummary("pasta", "noun", 4, 10, 10, "", pasta_reached_limit)]
+    collection += [
+        CollectionSummary(word, "natural-adjective", 1, 2, 2, "", True)
+        for word in natural_adjectives
     ]
     write_rows(tmp_path / "collection_summary.csv", CollectionSummary, collection)
     judgments = [judgment("pasta", "training", row, True) for row in range(pasta_training)]
     judgments += [
         judgment("pasta", "evaluation", 60 + row, True) for row in range(pasta_evaluation)
     ]
-    judgments += [
-        judgment("pasta", "training", 50, False),
-        judgment("quiet", "evaluation", 70, True),
-    ]
+    judgments += [judgment("pasta", "training", 50, False)]
+    for number, (word, passed) in enumerate(natural_adjectives.items()):
+        judgments += [
+            judgment(word, "evaluation", 70 + number * 10 + row, True) for row in range(passed)
+        ]
     table = arrow.Table.from_pylist(judgments, schema=JUDGMENT_SCHEMA)
     parquet.write_table(table, tmp_path / "judgments.parquet")
     review = [
@@ -139,6 +147,22 @@ def test_word_with_more_occurrences_in_the_pile_is_kept(tmp_path: Path, settings
         finalize(tmp_path, settings, ["1", "1"], pasta_training=2, pasta_reached_limit=True)
 
     assert stopped.value.rerun_from == "passages collect"
+    assert not (tmp_path / "excluded_words.csv").exists()
+
+
+def test_natural_words_without_enough_passages_are_dropped(
+    tmp_path: Path, settings: Settings
+) -> None:
+    selection = settings.word_selection.model_copy(update={"minimum_natural_adjectives": 1})
+    settings = settings.model_copy(update={"word_selection": selection})
+
+    finalize(tmp_path, settings, ["1", "1"], natural_adjectives={"quiet": 0, "calm": 1})
+
+    # 自然な語が足りないだけなら止まらず、その語の用例を書かない
+    passages = parquet.read_table(tmp_path / "passages.parquet")
+    assert set(passages.column("word").to_pylist()) == {"pasta", "calm"}
+    summary = {row.word: row for row in read_rows(tmp_path / "summary.csv", PassageSummary)}
+    assert summary["quiet"].evaluation == 0
     assert not (tmp_path / "excluded_words.csv").exists()
 
 
