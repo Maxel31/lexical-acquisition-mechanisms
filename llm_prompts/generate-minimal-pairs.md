@@ -7,6 +7,7 @@ Rules:
 - Write the blank as ___ exactly once. The first cue word must appear exactly once in the sentence, before ___.
 - Each cue word is one common word without spaces or hyphens, and the two cue words are different.
 - Both sentences must be natural: the sentence as written, with "$donor" in the blank, and the sentence with the second cue word, with "$target" in the blank.
+- Apart from the cue word, the sentence must fit both meanings: no other word may suggest either one (for example, avoid "for dinner" in a sentence that should also work for "car").
 - Do not use the words "$donor" or "$target" anywhere in the sentence or as cue words.
 - Keep the sentence under 15 words.
 
