@@ -175,6 +175,26 @@ def test_invalid_answer_becomes_none_and_is_asked_again_next_time(tmp_path: Path
     assert len(server.bodies) == number_of_requests + 3  # lamp は2回（上限を2倍にして）、car は1回
 
 
+def test_unpaired_surrogates_in_an_answer_are_replaced_and_saved(tmp_path: Path) -> None:
+    # 答えの JSON に、対になっていないサロゲート（\udb83）が書かれていても、止まらずに保存する
+    def handle(request: httpx.Request) -> httpx.Response:
+        content = '{"passed": true, "reason": "an emoji \\udb83 here"}'
+        choice = {"message": {"content": content}, "finish_reason": "stop"}
+        return httpx.Response(200, json={"choices": [choice]})
+
+    client = LlmClient(
+        SETTINGS,
+        tmp_path / "answers.sqlite3",
+        rerun_from="test",
+        transport=httpx.MockTransport(handle),
+    )
+
+    answers = client.ask_all(requests_for("pasta"))
+
+    assert answers == [{"passed": True, "reason": "an emoji ? here"}]
+    assert make_client(tmp_path, StubServer()).ask_all(requests_for("pasta")) == answers
+
+
 def test_too_many_invalid_answers_stop_the_command(tmp_path: Path) -> None:
     words = [f"word{number}" for number in range(12)]
     server = StubServer(statuses_by_word={word: [404] for word in words})

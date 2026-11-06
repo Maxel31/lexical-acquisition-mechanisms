@@ -244,6 +244,9 @@ class LlmClient:
             raise InvalidAnswer(f"答えを JSON として読めません（{error}）") from error
         if not isinstance(answer, dict):
             raise InvalidAnswer(f"答えが JSON のオブジェクトではありません（{answer!r}）")
+        # 答えの文に、対になっていないサロゲート（"\udb83" など）があると、UTF-8 で保存できない。
+        # その文字を "?" に置き換える
+        answer = json.loads(json.dumps(answer, ensure_ascii=False).encode("utf-8", "replace"))
         missing_keys = [
             key for key in request.answer_schema.get("required", []) if key not in answer
         ]
