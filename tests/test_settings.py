@@ -37,6 +37,7 @@ def test_revision_can_be_omitted() -> None:
     content["models"] = {"tiny": {"repository": "./tiny"}}
     content["training"]["learning_rate_by_model"]["tiny"] = 1e-4
     content["training"]["sequences_per_device_by_model"]["tiny"] = 1
+    content["training"]["gradient_checkpointing_by_model"]["tiny"] = True
 
     assert Settings.model_validate(content).models["tiny"].revision is None
 
@@ -143,11 +144,14 @@ def test_exposure_levels_must_be_eight_increasing_numbers() -> None:
         Settings.model_validate(content)
 
 
-def test_training_values_are_needed_for_every_model() -> None:
+@pytest.mark.parametrize(
+    "name", ["sequences_per_device_by_model", "gradient_checkpointing_by_model"]
+)
+def test_training_values_are_needed_for_every_model(name: str) -> None:
     content = yaml.safe_load((REPOSITORY_ROOT / "settings.yaml").read_text(encoding="utf-8"))
-    del content["training"]["sequences_per_device_by_model"]["OLMo-2-1124-13B"]
+    del content["training"][name]["OLMo-2-1124-13B"]
 
-    with pytest.raises(ValidationError, match="sequences_per_device_by_model"):
+    with pytest.raises(ValidationError, match=name):
         Settings.model_validate(content)
 
 

@@ -60,6 +60,7 @@ def write_settings(directory: Path, model: ModelSource) -> None:
         "batch_size_in_tokens": 4 * SEQUENCE_LENGTH,
         "sequence_length": SEQUENCE_LENGTH,
         "sequences_per_device_by_model": {MODEL: 2},
+        "gradient_checkpointing_by_model": {MODEL: False},
         "checkpoint_fractions": [],
     }
     (directory / "settings.yaml").write_text(

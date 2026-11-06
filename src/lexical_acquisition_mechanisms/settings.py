@@ -229,6 +229,8 @@ class TrainingSettings(SettingsSection):
     warmup_fraction: float = Field(ge=0, lt=1)
     # モデルごとの、1つの GPU で1回に計算する系列の数（GPU のメモリに合わせる）
     sequences_per_device_by_model: dict[ModelName, int]
+    # モデルごとに、逆伝播のときに順伝播を計算し直して、GPU のメモリを節約するか
+    gradient_checkpointing_by_model: dict[ModelName, bool]
     # 最適化器 AdamW の設定（事前学習と同じ）
     optimizer_betas: tuple[float, float]
     optimizer_epsilon: float = Field(gt=0)
@@ -286,7 +288,11 @@ class Settings(SettingsSection):
 
     @model_validator(mode="after")
     def _training_values_for_every_model(self) -> "Settings":
-        for name in ("learning_rate_by_model", "sequences_per_device_by_model"):
+        for name in (
+            "learning_rate_by_model",
+            "sequences_per_device_by_model",
+            "gradient_checkpointing_by_model",
+        ):
             missing = sorted(set(self.models) - set(getattr(self.training, name)))
             if missing:
                 raise ValueError(f"training.{name} に、models のモデル {missing} がありません。")

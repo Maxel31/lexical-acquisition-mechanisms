@@ -229,9 +229,15 @@ training:
   warmup_fraction: 0.01
   # モデルごとの、1つの GPU で1回に計算する系列の数（GPU のメモリに合わせる）
   sequences_per_device_by_model:
-    OLMo-2-0425-1B: 8
+    OLMo-2-0425-1B: 4
     OLMo-2-1124-7B: 2
     OLMo-2-1124-13B: 1
+  # モデルごとに、逆伝播のときに順伝播を計算し直して、GPU のメモリを節約するか（計算は約1.3倍に
+  # なる。値は変わらない）。1B は、計算し直さなくても GPU のメモリに収まる
+  gradient_checkpointing_by_model:
+    OLMo-2-0425-1B: false
+    OLMo-2-1124-7B: true
+    OLMo-2-1124-13B: true
   # 最適化器 AdamW の設定（事前学習と同じ）
   optimizer_betas: [0.9, 0.95]
   optimizer_epsilon: 1.0e-8

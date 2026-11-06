@@ -69,6 +69,8 @@ class RunSettings(SettingsSection):
     sequence_length: int = Field(gt=0)
     warmup_fraction: float = Field(ge=0, lt=1)
     sequences_per_device: int = Field(gt=0)
+    # 逆伝播のときに順伝播を計算し直して、GPU のメモリを節約するか
+    gradient_checkpointing: bool
     optimizer_betas: tuple[float, float]
     optimizer_epsilon: float = Field(gt=0)
     weight_decay: float = Field(ge=0)
@@ -164,6 +166,7 @@ def build_run_settings(
             sequence_length=training.sequence_length,
             warmup_fraction=training.warmup_fraction,
             sequences_per_device=training.sequences_per_device_by_model[model],
+            gradient_checkpointing=training.gradient_checkpointing_by_model[model],
             optimizer_betas=training.optimizer_betas,
             optimizer_epsilon=training.optimizer_epsilon,
             weight_decay=training.weight_decay,
