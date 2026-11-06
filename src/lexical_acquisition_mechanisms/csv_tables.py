@@ -63,6 +63,23 @@ def _check_columns(path: Path, row_type: type, columns: Sequence[str]) -> None:
         )
 
 
+def require_readable(path: Path) -> None:
+    """CSV があれば、UTF-8 として読めるかを確かめる（読めなければ UnreadableEncodingError）。
+
+    確認用の CSV を書き直すコマンドは、時間のかかる計算（GPU など）の前に呼ぶ。計算の後の
+    write_review_rows で止まると、保存し直した後に計算を全てやり直すことになるので。
+    """
+    if not path.exists():
+        return
+    try:
+        path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError as error:
+        raise UnreadableEncodingError(
+            f"{path} を UTF-8 として読めません。表計算ソフトで「CSV UTF-8」の形式で保存し直して"
+            "ください。"
+        ) from error
+
+
 def write_review_rows(
     path: Path, row_type: type, rows: Sequence[Any], key_fields: Sequence[str]
 ) -> None:

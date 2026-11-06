@@ -221,3 +221,26 @@ def test_record_has_the_significance_level(monkeypatch: pytest.MonkeyPatch) -> N
         settings, argparse.Namespace(recompute=False)
     )
     assert steps[0].settings["significance_level"] == SIGNIFICANCE_LEVEL
+
+
+def test_unreadable_review_csv_stops_before_the_models_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 表計算ソフトで cp932 のまま保存された確認用の CSV があれば、GPU の計算の前に止まる
+    settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
+    monkeypatch.chdir(tmp_path)
+    review = pretrained_model_checks.REVIEW_PATH
+    review.parent.mkdir(parents=True)
+    review.write_bytes("target,approved\n車,1\n".encode("cp932"))
+    steps = []
+    monkeypatch.setattr(
+        pretrained_model_checks,
+        "run_unless_unchanged",
+        lambda step, compute, recompute: steps.append(step),
+    )
+
+    with pytest.raises(ValueError, match="CSV UTF-8"):
+        pretrained_model_checks.check_with_pretrained_models(
+            settings, argparse.Namespace(recompute=False)
+        )
+    assert steps == []
