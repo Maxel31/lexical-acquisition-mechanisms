@@ -81,7 +81,9 @@ def test_a_broken_download_continues_from_the_received_bytes(
 ) -> None:
     content = bytes(range(256)) * 40
     monkeypatch.setattr(
-        pile, "get_hf_file_metadata", lambda url: SimpleNamespace(size=len(content))
+        pile,
+        "get_hf_file_metadata",
+        lambda url, retry_on_errors: SimpleNamespace(size=len(content)),
     )
     monkeypatch.setattr(pile.time, "sleep", lambda seconds: None)
     ranges = []
@@ -105,7 +107,9 @@ def test_temporary_server_errors_are_retried_after_waiting(
 ) -> None:
     content = bytes(range(256)) * 4
     monkeypatch.setattr(
-        pile, "get_hf_file_metadata", lambda url: SimpleNamespace(size=len(content))
+        pile,
+        "get_hf_file_metadata",
+        lambda url, retry_on_errors: SimpleNamespace(size=len(content)),
     )
     waits = []
     monkeypatch.setattr(pile.time, "sleep", waits.append)
@@ -126,8 +130,29 @@ def test_temporary_server_errors_are_retried_after_waiting(
 def test_other_error_responses_stop_the_download(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(pile, "get_hf_file_metadata", lambda url: SimpleNamespace(size=10))
+    monkeypatch.setattr(
+        pile, "get_hf_file_metadata", lambda url, retry_on_errors: SimpleNamespace(size=10)
+    )
     client = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(404)))
 
     with pytest.raises(httpx.HTTPStatusError):
         pile.download_shard("data/train-00000-of-01650.parquet", tmp_path, client)
+
+
+def test_the_size_request_is_retried_on_temporary_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = []
+
+    def metadata(url: str, retry_on_errors: bool = False) -> SimpleNamespace:
+        calls.append(retry_on_errors)
+        return SimpleNamespace(size=3)
+
+    monkeypatch.setattr(pile, "get_hf_file_metadata", metadata)
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, content=b"abc"))
+    )
+
+    pile.download_shard("data/train-00000-of-01650.parquet", tmp_path, client)
+
+    assert calls == [True]

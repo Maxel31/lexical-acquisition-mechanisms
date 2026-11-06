@@ -58,7 +58,8 @@ def download_shard(file_name: str, directory: Path, client: httpx.Client | None 
     ければ、誤りにする。
     """
     url = hf_hub_url(PILE_REPOSITORY, file_name, repo_type="dataset", revision=PILE_REVISION)
-    expected = get_hf_file_metadata(url).size
+    # 大きさを調べる問い合わせも、一時的な誤り（429・5xx・接続の誤り）なら取り直す
+    expected = get_hf_file_metadata(url, retry_on_errors=True).size
     path = directory / file_name
     path.parent.mkdir(parents=True, exist_ok=True)
     partial_path = path.with_name(path.name + ".partial")
