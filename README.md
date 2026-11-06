@@ -105,7 +105,7 @@ uv run lexical-acquisition-mechanisms passages judge-word-sense                 
 uv run lexical-acquisition-mechanisms passages sample-for-review
 ```
 
-**手作業**: `data/passages/review.csv` の `approved` 列に、語がその行の語義で使われていれば 1、そうでなければ 0 を記入する。
+**手作業**: `data/passages/review.csv` の `approved` 列に、名詞（ターゲット語を含む）はその行の語義で字義どおりに使われていれば 1、形容詞は形容詞として使われていれば 1（語義は問わない）、そうでなければ 0 を記入する。英語でない文章、名前・慣用句の一部は 0。
 
 ```bash
 # 語ごとに LLM の判定の精度（合格とした候補のうち、人も 1 とした割合）を出し、

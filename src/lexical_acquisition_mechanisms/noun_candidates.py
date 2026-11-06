@@ -11,7 +11,8 @@
    （課題2の選択肢）は外す。
 3. Pile の先頭の断片で、標準の形（例: " pasta"）の出現回数を数え、見本を選ぶ。
 4. LLM が見本ごとに、その語の使われ方を判定する（USAGES: 意図した語義（WordNet の説明）の名詞として
-   字義どおり・同じ語義の比喩や慣用句や複合名詞の一部・別の語義・名前の一部・名詞でない）。
+   字義どおり・同じ語義の比喩や慣用句や複合名詞の一部・別の語義・名前の一部・名詞でない・
+   英語でない）。
    字義どおりの割合（後で用例として使える割合）と、同じ語義の割合（比喩などを含む。設計書の
    「ほぼ単義」を、別の語義・名前・名詞でない使い方が少ないことで判断するため）を出す。
 名詞72語・ターゲット語18語・自然な名詞は、words select がこの候補から選ぶ。
@@ -70,11 +71,12 @@ LISTING_SCHEMA = {
     "additionalProperties": False,
 }
 # 見本での使われ方（先頭の2つは、意図した語義）
-USAGES = ("intended", "figurative", "another meaning", "name", "not a noun")
+USAGES = ("intended", "figurative", "another meaning", "name", "not a noun", "not English")
+# 理由を先に書かせる（何を指すかを書いてから決めるほうが、別の語義を見分けやすい）
 USAGE_SCHEMA = {
     "type": "object",
-    "properties": {"usage": {"type": "string", "enum": list(USAGES)}, "reason": {"type": "string"}},
-    "required": ["usage", "reason"],
+    "properties": {"reason": {"type": "string"}, "usage": {"type": "string", "enum": list(USAGES)}},
+    "required": ["reason", "usage"],
     "additionalProperties": False,
 }
 

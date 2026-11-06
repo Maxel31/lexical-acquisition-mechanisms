@@ -1,8 +1,11 @@
 """用例の候補の中で、語が意図した語義で使われているかを、LLM が出現ごとに判定する
 （passages judge-word-sense）。
 
-- 名詞（ターゲット語と自然な名詞を含む）は、WordNet の語義の説明の名詞として、形容詞（自然な形容詞を
-  含む）は、その語義の形容詞として使われているかを判定する。名前・題名・慣用句などの一部は不合格。
+- 名詞（ターゲット語と自然な名詞を含む）は、WordNet の語義の説明の名詞として字義どおりに使われて
+  いるかを判定する。形容詞（自然な形容詞を含む）は、形容詞として使われているかを判定し、語義は
+  問わない（設計書 0-3: 形容詞は「ほとんど形容詞としてだけ使われる語」で、実験Bの (i-b) で測るのは
+  品詞なので）。
+  名前・題名・慣用句などの一部と、英語でない文章は不合格。
 - 用例は、全ての出現が合格したときに合格とする。
 - 語と分け方（学習用・評価用）の組ごとに、鍵の小さい候補から、合格した用例が必要な数に届くまで
   判定する。合格する割合を見込んで少しずつ問い合わせ、足りなければ続きを問い合わせる。
@@ -59,10 +62,11 @@ JUDGMENTS_PATH = OUTPUT_DIRECTORY / "judgments.parquet"
 SUMMARY_PATH = OUTPUT_DIRECTORY / "judgment_summary.csv"
 NOUN_PROMPT = "judge-noun-sense"
 ADJECTIVE_PROMPT = "judge-adjective-sense"
+# 理由を先に書かせる（何を指すか・品詞を書いてから決めるほうが、別の語義を見分けやすい）
 SCHEMA = {
     "type": "object",
-    "properties": {"intended": {"type": "boolean"}, "reason": {"type": "string"}},
-    "required": ["intended", "reason"],
+    "properties": {"reason": {"type": "string"}, "intended": {"type": "boolean"}},
+    "required": ["reason", "intended"],
     "additionalProperties": False,
 }
 # 1回に問い合わせる候補の数 = 不足の数 × REQUEST_MARGIN ÷ 見込みの合格の割合
