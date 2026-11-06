@@ -156,3 +156,50 @@ def test_the_size_request_is_retried_on_temporary_errors(
     pile.download_shard("data/train-00000-of-01650.parquet", tmp_path, client)
 
     assert calls == [True]
+
+
+class SlowStream(httpx.SyncByteStream):
+    """1チャンクごとに、時計を進める（遅い接続のつもり）。"""
+
+    def __init__(self, chunks: list[bytes], clock: list[float], seconds_per_chunk: float) -> None:
+        self._chunks = chunks
+        self._clock = clock
+        self._seconds_per_chunk = seconds_per_chunk
+
+    def __iter__(self) -> Iterator[bytes]:
+        for chunk in self._chunks:
+            self._clock[0] += self._seconds_per_chunk
+            yield chunk
+
+
+def test_a_slow_download_is_restarted_from_the_received_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    content = bytes(range(256)) * 40
+    monkeypatch.setattr(
+        pile,
+        "get_hf_file_metadata",
+        lambda url, retry_on_errors: SimpleNamespace(size=len(content)),
+    )
+    clock = [0.0]
+    monkeypatch.setattr(pile.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(pile.time, "sleep", lambda seconds: None)
+    ranges = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        ranges.append(request.headers.get("Range"))
+        if "Range" not in request.headers:
+            # 1チャンク（1,000 バイト）に、遅いと判断する秒数より長くかかる
+            chunks = [content[start : start + 1000] for start in range(0, len(content), 1000)]
+            return httpx.Response(
+                200, stream=SlowStream(chunks, clock, pile.SLOW_DOWNLOAD_SECONDS + 1)
+            )
+        start = int(request.headers["Range"].removeprefix("bytes=").removesuffix("-"))
+        return httpx.Response(206, content=content[start:])
+
+    client = httpx.Client(transport=httpx.MockTransport(handle))
+    path = pile.download_shard("data/train-00000-of-01650.parquet", tmp_path, client)
+
+    assert path.read_bytes() == content
+    # 遅い接続は最初のチャンクの後で切り、届いた 1,000 バイトの続きから取り直す
+    assert ranges == [None, "bytes=1000-"]
