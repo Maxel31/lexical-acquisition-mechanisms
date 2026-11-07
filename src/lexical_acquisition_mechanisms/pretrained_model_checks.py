@@ -152,6 +152,9 @@ def check_with_pretrained_models(settings: Settings, arguments: argparse.Namespa
         outputs=[paths.checked_pairs, paths.review, paths.task_accuracy, paths.paraphrase_checks],
         settings={
             "minimal_pairs_per_sense_pair": settings.evaluation.minimal_pairs_per_sense_pair,
+            "allow_sense_pairs_without_minimal_pairs": (
+                settings.evaluation.allow_sense_pairs_without_minimal_pairs
+            ),
             "number_of_task_examples": settings.evaluation.number_of_task_examples,
             "seed": settings.words.seed,
             "models": {name: source.model_dump() for name, source in settings.models.items()},
@@ -276,12 +279,26 @@ def check_evaluation_data(
     if short:
         print(f"確認に通った最小対が足りない語義の組があります（{len(short)} 組: {short[:10]}）。")
     empty = [f"{target}/{donor}" for (target, donor), group in kept.items() if not group]
-    if empty:
-        raise CommandStopped(
-            f"確認に通った最小対が1つもない語義の組があります（{len(empty)} 組: {empty[:10]}）。"
-            "settings.yaml の evaluation.minimal_pair_candidate_factor を大きくしてください。",
-            rerun_from=minimal_pairs.COMMAND,
+    stop_if_sense_pairs_lack_minimal_pairs(
+        empty, settings.evaluation.allow_sense_pairs_without_minimal_pairs
+    )
+
+
+def stop_if_sense_pairs_lack_minimal_pairs(empty: Sequence[str], allowed: bool) -> None:
+    """確認に通った最小対が1つもない語義の組があれば止まる（allowed なら、表示して続ける）。"""
+    if not empty:
+        return
+    if allowed:
+        print(
+            f"確認に通った最小対が1つもない語義の組は、評価から外して続けます（{len(empty)} 組: "
+            f"{list(empty)}。evaluation.allow_sense_pairs_without_minimal_pairs）。"
         )
+        return
+    raise CommandStopped(
+        f"確認に通った最小対が1つもない語義の組があります（{len(empty)} 組: {list(empty)[:10]}）。"
+        "settings.yaml の evaluation.minimal_pair_candidate_factor を大きくしてください。",
+        rerun_from=minimal_pairs.COMMAND,
+    )
 
 
 def _write_review(

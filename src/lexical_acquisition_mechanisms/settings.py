@@ -210,6 +210,9 @@ class EvaluationSettings(SettingsSection):
     # 言い換えの語が見つからないターゲット語があっても、課題の問題を作って続けるか
     # （試行用。その語には、元の語義を問う問題を作らない）。False なら止まる
     allow_targets_without_paraphrase: bool = False
+    # 確認に通った最小対が1つもない語義の組があっても、続けるか（試行用。その組は評価から外れる）。
+    # False なら止まる
+    allow_sense_pairs_without_minimal_pairs: bool = False
     # 語義の組（ターゲット語の元の語義と、足す語義）ごとの最小対の数と、LLM に作らせる候補の数の、
     # 最小対の数に対する倍率
     minimal_pairs_per_sense_pair: int = Field(gt=0)

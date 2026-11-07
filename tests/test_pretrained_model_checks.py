@@ -244,3 +244,13 @@ def test_unreadable_review_csv_stops_before_the_models_run(
             settings, argparse.Namespace(recompute=False)
         )
     assert steps == []
+
+
+def test_sense_pairs_without_minimal_pairs_stop_unless_allowed(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(CommandStopped, match="sloop/pasta"):
+        pretrained_model_checks.stop_if_sense_pairs_lack_minimal_pairs(["sloop/pasta"], False)
+    pretrained_model_checks.stop_if_sense_pairs_lack_minimal_pairs(["sloop/pasta"], True)
+    assert "sloop/pasta" in capsys.readouterr().out
+    pretrained_model_checks.stop_if_sense_pairs_lack_minimal_pairs([], False)
