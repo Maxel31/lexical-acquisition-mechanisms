@@ -115,7 +115,7 @@ uv run lexical-acquisition-mechanisms passages finalize --review-csv data/passag
 
 **手作業**（`passages judge-word-sense` か `passages finalize` が、用例が足りない語があって止まったとき）: 表示に従って実行し直す。外した語があれば `words select` から（代わりの語が選ばれる）、なければ `settings.yaml` の `passages.occurrence_margin`（切り出しで残す出現の倍率）を大きくして `passages collect` から。自然な語だけが足りないときは、止まらずにその語を外して続ける（外すと `word_selection` の自然な語の数の下限を下回るときだけ止まる）。
 
-**手作業**（精度が足りない語があって止まったとき）: LLM への指示文（`llm_prompts/`）を直し、`passages judge-word-sense` から実行し直す。
+**手作業**（精度が足りない語があって止まったとき）: 表示に従う。精度が下限にわずかに届かない語は、`passages sample-for-review` を実行し直すと用例が 40 件ずつ足されるので、記入して `passages finalize` を実行し直す。それでも届かない語は、LLM への指示文（`llm_prompts/`）を直して `passages judge-word-sense` から実行し直すか、語を `data/words/excluded_words.csv` に足して `words select` から実行し直す。
 
 #### 1-3. 割り当てと学習データ
 

@@ -5,9 +5,15 @@
 抜き出す（鍵は位置と seed から決まるので、無作為に選んだのと同じ）。用例は、語の出現を [[ ]] で
 囲んだ文字列にする。人は approved 列に、語がその行の語義で使われていれば 1、そうでなければ 0 を
 記入する。
+
+記入した後に実行し直すと、精度が下限にわずかに届かない語（additional_reviewed_passages_per_word 件を
+足せば、0 の数が許される数に収まる語）に、続きの鍵の用例を足す（20 件では、精度が十分な語も偶然
+落ちることが多いため）。
 """
 
 import argparse
+import math
+from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,6 +51,10 @@ class PassageReviewRow:
 
 def sample_for_review(settings: Settings, arguments: argparse.Namespace) -> None:
     require_readable(REVIEW_PATH)
+    try:
+        reviewed_more = words_to_review_more(read_rows(REVIEW_PATH, PassageReviewRow), settings)
+    except (FileNotFoundError, ValueError, TypeError, KeyError):
+        reviewed_more = set()
     step = Step(
         COMMAND,
         inputs={
@@ -52,7 +62,11 @@ def sample_for_review(settings: Settings, arguments: argparse.Namespace) -> None
             word_sense_judgment.JUDGMENTS_PATH: word_sense_judgment.COMMAND,
         },
         outputs=[REVIEW_PATH],
-        settings={"tokenizer": next(iter(settings.models.values())).model_dump()},
+        settings={
+            "tokenizer": next(iter(settings.models.values())).model_dump(),
+            "reviewed_more": sorted(reviewed_more),
+            "additional": settings.passages.additional_reviewed_passages_per_word,
+        },
     )
     run_unless_unchanged(
         step,
@@ -61,13 +75,41 @@ def sample_for_review(settings: Settings, arguments: argparse.Namespace) -> None
             word_finalization.OUTPUT_PATH,
             word_sense_judgment.JUDGMENTS_PATH,
             REVIEW_PATH,
+            reviewed_more,
         ),
         arguments.recompute,
     )
 
 
+def words_to_review_more(rows: Sequence[PassageReviewRow], settings: Settings) -> set[str]:
+    """用例を足して確かめる語（すでに足した語も含む）。
+
+    抜き出した用例を全て記入し、精度が下限に届かないが、0 の数が、足した後の件数で許される数
+    以下の語。
+    """
+    minimum = settings.passages.minimum_judgment_precision
+    extended = REVIEWED_PASSAGES_PER_WORD + settings.passages.additional_reviewed_passages_per_word
+    allowed_zeros = math.floor((1 - minimum) * extended + 1e-9)
+    approvals: defaultdict[str, list[str]] = defaultdict(list)
+    for row in rows:
+        approvals[row.word].append(row.approved.strip())
+    more = set()
+    for word, values in approvals.items():
+        filled = all(value in {"0", "1"} for value in values)
+        imprecise = values.count("1") < minimum * len(values)
+        if len(values) > REVIEWED_PASSAGES_PER_WORD or (
+            filled and imprecise and values.count("0") <= allowed_zeros
+        ):
+            more.add(word)
+    return more
+
+
 def build_review(
-    settings: Settings, words_path: Path, judgments_path: Path, review_path: Path
+    settings: Settings,
+    words_path: Path,
+    judgments_path: Path,
+    review_path: Path,
+    reviewed_more: frozenset[str] | set[str] = frozenset(),
 ) -> None:
     words = {
         word.word: word
@@ -80,7 +122,10 @@ def build_review(
     rows = []
     for word in words.values():
         of_word = passed.filter(compute.equal(passed.column("word"), word.word))
-        sample = of_word.sort_by("key").slice(0, REVIEWED_PASSAGES_PER_WORD).to_pylist()
+        size = REVIEWED_PASSAGES_PER_WORD
+        if word.word in reviewed_more:
+            size += settings.passages.additional_reviewed_passages_per_word
+        sample = of_word.sort_by("key").slice(0, size).to_pylist()
         rows += [
             PassageReviewRow(
                 word.word,

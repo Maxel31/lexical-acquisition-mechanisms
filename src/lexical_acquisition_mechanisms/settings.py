@@ -163,6 +163,8 @@ class PassageSettings(SettingsSection):
     key_limit_margin: float = Field(ge=1)
     # LLM の判定の精度（合格とした用例のうち、人も 1 とした割合）の、語ごとの下限
     minimum_judgment_precision: float = Field(ge=0, le=1)
+    # 精度が下限にわずかに届かない語に、足して確かめる用例の数
+    additional_reviewed_passages_per_word: int = Field(ge=0)
 
 
 class UnknownWordAcquisitionSettings(SettingsSection):
