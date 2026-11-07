@@ -1,9 +1,15 @@
 """用例を差し込む位置と、差し込んだトークン列のテスト。"""
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
-from lexical_acquisition_mechanisms.training_layout import insert_passages, plan_insertions
+from lexical_acquisition_mechanisms.training_layout import (
+    insert_passages,
+    load_base_tokens,
+    plan_insertions,
+)
 
 END = 0
 SEQUENCE_LENGTH = 16
@@ -52,3 +58,13 @@ def test_passages_of_the_wrong_length_are_rejected() -> None:
 
     with pytest.raises(ValueError, match="3 トークンではありません"):
         insert_passages(base, layout, [[1, 2]], END)
+
+
+def test_only_the_first_base_sequences_are_used_when_a_number_is_set(tmp_path: Path) -> None:
+    path = tmp_path / "base_sequences.npy"
+    np.save(path, np.arange(12, dtype=np.uint32).reshape(3, 4))
+
+    assert load_base_tokens(path, 2).tolist() == list(range(8))
+    assert load_base_tokens(path, None).tolist() == list(range(12))
+    with pytest.raises(ValueError, match="超えています"):
+        load_base_tokens(path, 4)

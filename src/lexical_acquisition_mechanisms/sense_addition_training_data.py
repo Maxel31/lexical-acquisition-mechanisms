@@ -17,7 +17,6 @@ import random
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
 import pyarrow as arrow
 
 from lexical_acquisition_mechanisms import (
@@ -35,7 +34,11 @@ from lexical_acquisition_mechanisms.passage_replacement import (
 )
 from lexical_acquisition_mechanisms.sense_addition_assignments import SenseAdditionAssignment
 from lexical_acquisition_mechanisms.settings import Settings
-from lexical_acquisition_mechanisms.training_layout import insert_passages, plan_insertions
+from lexical_acquisition_mechanisms.training_layout import (
+    insert_passages,
+    load_base_tokens,
+    plan_insertions,
+)
 from lexical_acquisition_mechanisms.unknown_word_training_data import (
     remaining_occurrences,
     stop_if_words_remain,
@@ -95,6 +98,7 @@ def build_sense_addition_training_data(settings: Settings, arguments: argparse.N
             "passages_per_added_sense": settings.sense_addition.passages_per_added_sense,
             "tokens_per_passage": settings.passages.tokens_per_passage,
             "sequence_length": settings.training.sequence_length,
+            "number_of_base_sequences_used": settings.training.number_of_base_sequences_used,
             "seed": settings.words.seed,
             "tokenizer": next(iter(settings.models.values())).model_dump(),
         },
@@ -132,7 +136,7 @@ def write_sense_addition_training_data(
     sizes = {role: len(pool) for role, pool in pools.items()}
     if len(set(sizes.values())) != 1:
         raise RuntimeError(f"名詞と形容詞のプールの大きさが違います: {sizes}")
-    base = np.asarray(np.load(base_path, mmap_mode="r")).reshape(-1)
+    base = load_base_tokens(base_path, settings.training.number_of_base_sequences_used)
     layout = plan_insertions(
         base,
         tokenizer.end_of_text_id,

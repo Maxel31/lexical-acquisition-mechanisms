@@ -253,6 +253,8 @@ training:
   # 1 step で学習するトークン数（4,096トークンの系列 × 256。暫定）
   batch_size_in_tokens: 1048576
   sequence_length: 4096
+  # 学習データに使う、基データの先頭からの系列の数（試行で学習を小さくするとき。null なら全て）
+  number_of_base_sequences_used: null
   # 学習率を0から上げる step の、全ての step に対する割合（暫定）
   warmup_fraction: 0.01
   # モデルごとの、1つの GPU で1回に計算する系列の数（GPU のメモリに合わせる）

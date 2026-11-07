@@ -238,6 +238,8 @@ class TrainingSettings(SettingsSection):
     # 1 step で学習するトークン数（系列の長さの倍数）
     batch_size_in_tokens: int = Field(gt=0)
     sequence_length: int = Field(gt=0)
+    # 学習データに使う、基データの先頭からの系列の数（試行で学習を小さくするとき。None なら全て）
+    number_of_base_sequences_used: int | None = Field(default=None, gt=0)
     # 学習率を0から上げる step の、全ての step に対する割合
     warmup_fraction: float = Field(ge=0, lt=1)
     # モデルごとの、1つの GPU で1回に計算する系列の数（GPU のメモリに合わせる）

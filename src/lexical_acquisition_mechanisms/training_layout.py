@@ -12,6 +12,7 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -28,6 +29,17 @@ class InsertionLayout:
     passage_length: int
     # 差し込んだ後の列のうち、学習に使う長さ（系列の長さの倍数）
     used_length: int
+
+
+def load_base_tokens(path: Path, number_of_sequences: int | None) -> np.ndarray:
+    """基データの先頭から number_of_sequences 個（None なら全て）の系列をつなげたトークン列。"""
+    sequences = np.load(path, mmap_mode="r")
+    if number_of_sequences is not None and number_of_sequences > len(sequences):
+        raise ValueError(
+            f"学習データに使う基データの系列の数 {number_of_sequences} が、"
+            f"基データの系列の数 {len(sequences)} を超えています。"
+        )
+    return np.asarray(sequences[:number_of_sequences]).reshape(-1)
 
 
 def plan_insertions(
