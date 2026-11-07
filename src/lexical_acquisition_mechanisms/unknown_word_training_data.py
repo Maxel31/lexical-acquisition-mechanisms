@@ -40,7 +40,11 @@ from lexical_acquisition_mechanisms.passage_replacement import (
     ReplacementError,
 )
 from lexical_acquisition_mechanisms.settings import Settings
-from lexical_acquisition_mechanisms.training_layout import insert_passages, plan_insertions
+from lexical_acquisition_mechanisms.training_layout import (
+    insert_passages,
+    load_base_tokens,
+    plan_insertions,
+)
 from lexical_acquisition_mechanisms.unknown_word_assignments import UnknownWordAssignment
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
@@ -86,6 +90,7 @@ def build_unknown_word_training_data(settings: Settings, arguments: argparse.Nam
             "tokens_per_passage": settings.passages.tokens_per_passage,
             # 学習は、この長さの系列に分ける（用例が系列の区切りをまたがないように置く）
             "sequence_length": settings.training.sequence_length,
+            "number_of_base_sequences_used": settings.training.number_of_base_sequences_used,
             "seed": settings.words.seed,
             "tokenizer": next(iter(settings.models.values())).model_dump(),
         },
@@ -116,7 +121,7 @@ def write_unknown_word_training_data(
     words = {word.word: word for word in read_rows(words_path, SelectedWord)}
     assignments = read_rows(assignments_path, UnknownWordAssignment)
     passages = training_passages(passages_path, "noun")
-    base = np.asarray(np.load(base_path, mmap_mode="r")).reshape(-1)
+    base = load_base_tokens(base_path, settings.training.number_of_base_sequences_used)
     replacer = PassageReplacer(tokenizer, settings.passages.tokens_per_passage)
     runs = unknown_word_assignments.run_names()
     number_of_passages = sum(row.exposure for row in assignments if row.run == runs[0])
