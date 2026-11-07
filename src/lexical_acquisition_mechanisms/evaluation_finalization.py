@@ -165,17 +165,22 @@ def sense_addition_questions(
     questions = []
     for (run, target), run_donors in donors.items():
         kind, _, number = run.rpartition("-")
-        senses = [paraphrases[target], *run_donors]
+        # 言い換えの語がないターゲット語（evaluation.allow_targets_without_paraphrase）には、
+        # 課題1（語義）の問題を作らない
+        paraphrase = paraphrases.get(target, "")
+        senses = [paraphrase, *run_donors]
         run_pairs = [pair for pair in pairs if pair.target == target and pair.donor in run_donors]
         for pair_number, pair in enumerate(run_pairs):
             for cue, sentence in (("donor", pair.donor_sentence), ("target", pair.target_sentence)):
                 # 2文で同じ乱数を使い、例と選択肢の順番をそろえる
                 random_numbers = random.Random(f"{seed}:{run}:{target}:{pair_number}")
                 template = sentence.replace(BLANK, WORD)
-                sense_choices = list(senses)
-                random_numbers.shuffle(sense_choices)
-                answer = pair.donor if cue == "donor" else paraphrases[target]
-                items = [TaskItem("sense", template, tuple(sense_choices), answer)]
+                items = []
+                if paraphrase:
+                    sense_choices = list(senses)
+                    random_numbers.shuffle(sense_choices)
+                    answer = pair.donor if cue == "donor" else paraphrase
+                    items.append(TaskItem("sense", template, tuple(sense_choices), answer))
                 if kind == "adjective":
                     parts = list(PARTS_OF_SPEECH)
                     random_numbers.shuffle(parts)
