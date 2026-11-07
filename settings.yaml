@@ -145,6 +145,9 @@ passages:
   key_limit_margin: 3
   # LLM の判定の精度（合格とした用例のうち、人も 1 とした割合）の、語ごとの下限
   minimum_judgment_precision: 0.95
+  # 確認した 20 件で精度が下限に届かないが、この数を足せば 0 の数が許される数に収まる語に、足して
+  # 確かめる用例の数（20 件で 0 が 2〜3 件の語は、60 件で 0 が 3 件以下なら合格）
+  additional_reviewed_passages_per_word: 40
 
 # 未知語の獲得
 unknown_word_acquisition:

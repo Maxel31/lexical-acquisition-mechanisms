@@ -157,11 +157,26 @@ def build_passages(
     imprecise = {word: value for word, value in precision.items() if value < minimum}
     if imprecise:
         listed = ", ".join(f"{word}: {value:.2f}" for word, value in sorted(imprecise.items()))
+        # 用例を足して確かめられる語（まだ足していない語）
+        more = {
+            word
+            for word in passage_review.words_to_review_more(review, settings)
+            if word in imprecise and sizes[word] == passage_review.REVIEWED_PASSAGES_PER_WORD
+        }
+        added = settings.passages.additional_reviewed_passages_per_word
         raise CommandStopped(
             f"LLM の判定の精度が {minimum} に届かない語があります（{listed}）。"
-            "llm_prompts/ の判定の指示文（judge-noun-sense.md・judge-adjective-sense.md）を"
-            "直してください。",
-            rerun_from=word_sense_judgment.COMMAND,
+            + (
+                f"このうち {', '.join(sorted(more))} は、{passage_review.COMMAND} を実行し直すと"
+                f"用例が {added} 件ずつ足されるので、記入して確かめ直してください。"
+                if more
+                else ""
+            )
+            + "ほかの語は、llm_prompts/ の判定の指示文（judge-noun-sense.md・"
+            "judge-adjective-sense.md）を直すか、語を外してください（README の 1-2）。",
+            rerun_from=passage_review.COMMAND
+            if more == set(imprecise)
+            else word_sense_judgment.COMMAND,
         )
     order = [("word", "ascending"), ("split", "ascending"), ("key", "ascending")]
     parquet.write_table(passed.sort_by(order), passages_path)

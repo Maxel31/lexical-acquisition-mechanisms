@@ -6,6 +6,7 @@ import pyarrow as arrow
 import pyarrow.parquet as parquet
 import pytest
 
+from lexical_acquisition_mechanisms import passage_review
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.passage_collection import CANDIDATE_SCHEMA, CollectionSummary
@@ -119,6 +120,17 @@ def test_imprecise_judgments_stop(tmp_path: Path, settings: Settings) -> None:
     with pytest.raises(CommandStopped, match="pasta: 0.50") as stopped:
         finalize(tmp_path, settings, ["1", "0"])
     assert stopped.value.rerun_from == "passages judge-word-sense"
+
+
+def test_slightly_imprecise_words_are_reviewed_with_more_passages(
+    tmp_path: Path, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 2 件で 0 が 1 件。42 件まで足せば、0 が 2 件まで許されるので、足して確かめ直す
+    monkeypatch.setattr(passage_review, "REVIEWED_PASSAGES_PER_WORD", 2)
+
+    with pytest.raises(CommandStopped, match="pasta は") as stopped:
+        finalize(tmp_path, settings, ["1", "0"])
+    assert stopped.value.rerun_from == "passages sample-for-review"
 
 
 def test_word_without_enough_passages_is_excluded(tmp_path: Path, settings: Settings) -> None:
