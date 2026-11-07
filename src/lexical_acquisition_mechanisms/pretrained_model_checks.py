@@ -181,6 +181,9 @@ def check_evaluation_data(
         for word in words.values()
         if word.role == "target"
     }
+    # 言い換えの語がないターゲット語（evaluation.allow_targets_without_paraphrase）の候補は、
+    # 言い換えの語を選ぶかを確かめない
+    has_paraphrase = np.array([bool(paraphrases.get(candidate.target)) for candidate in candidates])
     effects = np.full((len(candidates), 2), np.inf)
     accuracy = []
     chose_paraphrase = {}
@@ -189,7 +192,7 @@ def check_evaluation_data(
         model_effects = cue_effects(model, candidates, words)
         effects = np.minimum(effects, model_effects)
         accuracy += natural_task_accuracy(model, name, questions)
-        checked = np.flatnonzero((model_effects > 0).all(axis=1))
+        checked = np.flatnonzero((model_effects > 0).all(axis=1) & has_paraphrase)
         choices = np.zeros(len(candidates), dtype=bool)
         choices[checked] = paraphrase_choices(
             model,

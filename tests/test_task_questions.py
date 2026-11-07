@@ -5,7 +5,9 @@ from pathlib import Path
 
 import httpx
 import pyarrow.parquet as parquet
+import pytest
 
+from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.llm_client import LlmClient, PromptTemplate
 from lexical_acquisition_mechanisms.natural_word_sentences import NaturalWordSentence
@@ -17,6 +19,7 @@ from lexical_acquisition_mechanisms.task_questions import (
     PROMPT,
     Paraphrase,
     TaskExample,
+    stop_if_targets_lack_paraphrases,
     unusable_words,
     write_task_questions,
 )
@@ -197,3 +200,19 @@ def test_unusable_words_keep_lower_hypernyms_not_shared_with_donors() -> None:
     assert {"pew", "food", "furniture", "furnishing", "couch", "seat"} <= unusable
     # donor と共通しない低い上位語は使える
     assert "bench" not in unusable
+
+
+def test_targets_without_paraphrases_stop_unless_allowed(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    paraphrases = [
+        Paraphrase("car", "target", "automobile"),
+        Paraphrase("sloop", "target", ""),
+        Paraphrase("soup", "natural-noun", ""),
+    ]
+
+    with pytest.raises(CommandStopped, match="sloop"):
+        stop_if_targets_lack_paraphrases(paraphrases, allowed=False)
+    stop_if_targets_lack_paraphrases(paraphrases, allowed=True)
+    assert "['sloop']" in capsys.readouterr().out
+    stop_if_targets_lack_paraphrases(paraphrases[:1], allowed=False)

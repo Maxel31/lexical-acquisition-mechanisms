@@ -27,7 +27,10 @@ def pair(donor: str, kind: str, donor_sentence: str, target_sentence: str) -> Ch
 
 
 def finalize(
-    tmp_path: Path, approvals: tuple[str, str], checked: list[CheckedMinimalPair] | None = None
+    tmp_path: Path,
+    approvals: tuple[str, str],
+    checked: list[CheckedMinimalPair] | None = None,
+    paraphrase: str = "automobile",
 ) -> Path:
     settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
     evaluation = settings.evaluation.model_copy(update={"number_of_task_examples": 1})
@@ -71,9 +74,7 @@ def finalize(
         )
     ]
     write_rows(tmp_path / "examples.csv", TaskExample, examples)
-    write_rows(
-        tmp_path / "paraphrases.csv", Paraphrase, [Paraphrase("car", "target", "automobile")]
-    )
+    write_rows(tmp_path / "paraphrases.csv", Paraphrase, [Paraphrase("car", "target", paraphrase)])
     inputs = [
         tmp_path / name
         for name in (
@@ -112,6 +113,15 @@ def test_rejected_pairs_are_removed_and_questions_are_built(tmp_path: Path) -> N
     sense = next(question for question in questions if question["task"] == "sense")
     assert sorted(sense["choices"]) == ["automobile", "pasta"]
     assert "the {word}." in sense["prompt_template"].split("\n\n")[-1]
+
+
+def test_targets_without_a_paraphrase_get_no_sense_questions(tmp_path: Path) -> None:
+    finalize(tmp_path, ("1", "0"), paraphrase="")
+
+    questions = parquet.read_table(tmp_path / "questions.parquet").to_pylist()
+    # 別カテゴリ N = 1 の2組 × 2文 × 課題2だけ
+    assert len(questions) == 4
+    assert {question["task"] for question in questions} == {"category"}
 
 
 def test_review_rows_are_matched_with_both_sentences(tmp_path: Path) -> None:

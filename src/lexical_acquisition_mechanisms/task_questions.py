@@ -115,6 +115,9 @@ def build_task_questions(settings: Settings, arguments: argparse.Namespace) -> N
         settings={
             **prompt_record_settings(settings.llm, list(prompts)),
             "number_of_task_examples": settings.evaluation.number_of_task_examples,
+            "allow_targets_without_paraphrase": (
+                settings.evaluation.allow_targets_without_paraphrase
+            ),
             "categories": [category.model_dump() for category in settings.words.categories],
             "seed": settings.words.seed,
             "tokenizer": next(iter(settings.models.values())).model_dump(),
@@ -160,15 +163,9 @@ def write_task_questions(
         words, sentences, settings.words.categories, donors, prompts, client, tokenizer
     )
     write_rows(paraphrases_path, Paraphrase, paraphrases)
-    missing = [row.word for row in paraphrases if row.role == "target" and not row.paraphrase]
-    if missing:
-        raise CommandStopped(
-            f"言い換えの語が見つからないターゲット語があります（{missing}）。"
-            "llm_prompts/list-paraphrases.md（候補を挙げる）か llm_prompts/choose-paraphrase.md"
-            "（候補から選ぶ。合う語がないと none を選ぶ）を直すか、ターゲット語を選び直して"
-            "ください。",
-            rerun_from=COMMAND,
-        )
+    stop_if_targets_lack_paraphrases(
+        paraphrases, settings.evaluation.allow_targets_without_paraphrase
+    )
     paraphrase_of = {row.word: row.paraphrase for row in paraphrases if row.paraphrase}
     one_token_nouns = {
         word.word: word.category
@@ -263,6 +260,26 @@ def _items(
         answer = "adjective" if word.role == "natural-adjective" else "noun"
         items.append(TaskItem("part-of-speech", template, tuple(parts), answer))
     return items
+
+
+def stop_if_targets_lack_paraphrases(paraphrases: Sequence[Paraphrase], allowed: bool) -> None:
+    """言い換えの語が見つからないターゲット語があれば止まる（allowed なら、表示して続ける）。"""
+    missing = [row.word for row in paraphrases if row.role == "target" and not row.paraphrase]
+    if not missing:
+        return
+    if allowed:
+        print(
+            f"言い換えの語が見つからないターゲット語には、元の語義を問う問題を作らずに続けます"
+            f"（{missing}。evaluation.allow_targets_without_paraphrase）。"
+        )
+        return
+    raise CommandStopped(
+        f"言い換えの語が見つからないターゲット語があります（{missing}）。"
+        "llm_prompts/list-paraphrases.md（候補を挙げる）か llm_prompts/choose-paraphrase.md"
+        "（候補から選ぶ。合う語がないと none を選ぶ）を直すか、ターゲット語を選び直して"
+        "ください。",
+        rerun_from=COMMAND,
+    )
 
 
 def _paraphrases(

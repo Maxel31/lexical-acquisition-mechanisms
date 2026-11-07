@@ -207,6 +207,9 @@ class EvaluationSettings(SettingsSection):
     normalization_nouns_per_token_count: int = Field(gt=0)
     # 課題の問題の前に見せる例の数
     number_of_task_examples: int = Field(ge=0)
+    # 言い換えの語が見つからないターゲット語があっても、課題の問題を作って続けるか
+    # （試行用。その語には、元の語義を問う問題を作らない）。False なら止まる
+    allow_targets_without_paraphrase: bool = False
     # 語義の組（ターゲット語の元の語義と、足す語義）ごとの最小対の数と、LLM に作らせる候補の数の、
     # 最小対の数に対する倍率
     minimal_pairs_per_sense_pair: int = Field(gt=0)
