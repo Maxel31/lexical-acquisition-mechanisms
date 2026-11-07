@@ -110,7 +110,7 @@ uv run lexical-acquisition-mechanisms passages judge-word-sense                 
 uv run lexical-acquisition-mechanisms passages sample-for-review
 ```
 
-**Manual step**: in the `approved` column of `data/passages/review.csv`, enter 1 if a noun (including a target word) is used literally in the sense in its row, or if an adjective is used as an adjective (in any sense), otherwise 0. Passages that are not in English and parts of names or idioms get 0.
+**Manual step**: in the `approved` column of `data/passages/review.csv`, enter 1 if a noun (including a target word) literally refers to the thing in the sense in its row or to a thing of the same kind in its category (a dish and the food it is made of, a food and the plant it comes from, a building and the organization in it, another kind of the same thing), or if an adjective is used as an adjective (in any sense), otherwise 0. Metaphors, passages that are not in English, and parts of names or idioms get 0.
 
 ```bash
 # Compute the precision of the LLM's judgments per word (the share of passed candidates that
