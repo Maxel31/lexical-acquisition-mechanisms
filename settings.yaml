@@ -98,6 +98,12 @@ word_selection:
   # 語義を厳しく判定するようにした後、家具の名詞が足りないので、0.85 から下げた
   # （用例は、語義を厳しく判定して選ぶ）
   minimum_usage_share: 0.80
+  # 名詞72語だけ、カテゴリごとに minimum_usage_share の代わりに使う下限。家具は、用例の確認で精度が
+  # 届かない rug・throne・desk と、Pile の見本で精度が届かない見込みの lounge・bench を外すと、
+  # 1トークンで使える語が、名詞12語と1トークンのターゲット語に足りない。家具の意味が 0.44 の
+  # cabinet（ほかは内閣の意味。判定に通った見本は全て家具）まで使う
+  minimum_noun_usage_share_by_category:
+    furniture: 0.44
   # 形容詞72語が、Pile の見本で形容詞として使われていた割合の下限（「ほとんど形容詞としてだけ
   # 使われる語」。名詞の下限を下げたときも、0.85 のままにする）
   minimum_adjective_usage_share: 0.85

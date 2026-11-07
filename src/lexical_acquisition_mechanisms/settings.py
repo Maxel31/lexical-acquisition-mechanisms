@@ -125,6 +125,8 @@ class WordSelectionSettings(SettingsSection):
 
     # Pile の見本で、名詞72語・ターゲット語が意図した語義で使われていた割合の下限
     minimum_usage_share: float = Field(ge=0, le=1)
+    # 名詞72語だけ、カテゴリごとに minimum_usage_share の代わりに使う下限（ないカテゴリは使わない）
+    minimum_noun_usage_share_by_category: dict[str, float]
     # 形容詞72語が、形容詞として使われていた割合の下限
     minimum_adjective_usage_share: float = Field(ge=0, le=1)
     # 自然な語（実験で操作しない語）の、その割合の下限
@@ -300,11 +302,23 @@ class Settings(SettingsSection):
     @model_validator(mode="after")
     def _categories_allowing_synonyms_are_known(self) -> "Settings":
         names = {category.name for category in self.words.categories}
-        unknown = sorted(set(self.word_selection.categories_allowing_synonyms) - names)
-        if unknown:
+        selection = self.word_selection
+        for setting, used in [
+            ("categories_allowing_synonyms", selection.categories_allowing_synonyms),
+            (
+                "minimum_noun_usage_share_by_category",
+                selection.minimum_noun_usage_share_by_category,
+            ),
+        ]:
+            if unknown := sorted(set(used) - names):
+                raise ValueError(
+                    f"word_selection.{setting} の {unknown} は、words.categories にありません。"
+                )
+        if any(
+            not 0 <= share <= 1 for share in selection.minimum_noun_usage_share_by_category.values()
+        ):
             raise ValueError(
-                f"word_selection.categories_allowing_synonyms の {unknown} は、"
-                "words.categories にありません。"
+                "word_selection.minimum_noun_usage_share_by_category は 0〜1 にしてください。"
             )
         return self
 

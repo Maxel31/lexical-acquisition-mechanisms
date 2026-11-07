@@ -58,6 +58,14 @@ def test_categories_allowing_synonyms_must_be_known_categories() -> None:
         Settings.model_validate(content)
 
 
+def test_categories_with_their_own_noun_minimum_must_be_known_categories() -> None:
+    content = load_settings(REPOSITORY_ROOT / "settings.yaml").model_dump()
+    content["word_selection"]["minimum_noun_usage_share_by_category"] = {"tool": 0.7}
+
+    with pytest.raises(ValueError, match=r"\['tool'\] は、words.categories にありません"):
+        Settings.model_validate(content)
+
+
 def test_bounds_are_explained(tmp_path: Path) -> None:
     text = (REPOSITORY_ROOT / "settings.yaml").read_text(encoding="utf-8")
     path = write_settings(

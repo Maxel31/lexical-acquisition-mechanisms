@@ -270,6 +270,24 @@ def test_the_adjective_share_has_its_own_minimum(tmp_path: Path, settings: Setti
     assert "cold" not in words_with_role(rows, "adjective")
 
 
+def test_a_category_can_have_its_own_noun_minimum(tmp_path: Path, settings: Settings) -> None:
+    # pig・hog・cat（0.7）は名詞の下限に届かず animal の名詞が足りないが、animal だけ下限を 0.6 に
+    # すれば選べる
+    nouns = [
+        noun_candidate(*noun, share=0.7 if noun[0] in {"pig", "hog", "cat"} else 0.95)
+        for noun in NOUNS
+    ]
+    with pytest.raises(CommandStopped, match="カテゴリ animal の名詞（1トークン）"):
+        select(tmp_path, settings, nouns)
+    selection = settings.word_selection.model_copy(
+        update={"minimum_noun_usage_share_by_category": {"animal": 0.6}}
+    )
+
+    rows = select(tmp_path, settings.model_copy(update={"word_selection": selection}), nouns)
+
+    assert words_with_role(rows, "noun") & {"pig", "hog", "cat"}
+
+
 def test_natural_words_are_the_remaining_words_of_each_token_count(
     tmp_path: Path, settings: Settings
 ) -> None:

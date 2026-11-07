@@ -226,19 +226,21 @@ def _select_nouns(
         max(settings.unknown_word_acquisition.exposure_levels)
         + settings.passages.evaluation_passages_per_word
     )
+    shares = settings.word_selection.minimum_noun_usage_share_by_category
     by_category = {
         category.name: [
             candidate
             for candidate in candidates
             if candidate.category == category.name
             and candidate.token_count == 1
-            and _usable(candidate, settings, needed)
+            and _usable(candidate, settings, needed, minimum_share=shares.get(category.name))
         ]
         for category in settings.words.categories
     }
     for name, usable in by_category.items():
         if len(usable) < NOUNS_PER_CATEGORY:
-            raise _shortage(f"カテゴリ {name} の名詞（1トークン）", len(usable), needed, settings)
+            description = f"カテゴリ {name} の名詞（1トークン）"
+            raise _shortage(description, len(usable), needed, settings, share=shares.get(name))
     low = max(min(map(_frequency, usable)) for usable in by_category.values())
     high = min(max(map(_frequency, usable)) for usable in by_category.values())
     if low > high:
@@ -262,7 +264,7 @@ def _select_nouns(
             remaining = [candidate for candidate in usable if chosen.can_take(candidate.word, own)]
             if not remaining:
                 description = f"カテゴリ {name} の名詞（同義語を除く）"
-                raise _shortage(description, picked, needed, settings)
+                raise _shortage(description, picked, needed, settings, share=shares.get(name))
             noun = _nearest(remaining, goal)
             chosen.take(noun.word)
             nouns.append(noun)
@@ -530,11 +532,17 @@ def _usable(
     settings: Settings,
     needed_passages: int,
     natural: bool = False,
+    minimum_share: float | None = None,
 ) -> bool:
-    """候補が使えるか。natural なら、自然な語の割合の下限で判断する。"""
+    """候補が使えるか。natural なら、自然な語の割合の下限で判断する。
+
+    minimum_share があれば、意図した語義で使われる割合の下限に、設定の代わりに使う。
+    """
     selection = settings.word_selection
     share = _share(candidate)
-    minimum_share = _minimum_share(settings, isinstance(candidate, AdjectiveCandidate), natural)
+    if minimum_share is None:
+        adjective = isinstance(candidate, AdjectiveCandidate)
+        minimum_share = _minimum_share(settings, adjective, natural)
     return (
         not candidate.rejected_reason
         and candidate.judged_usages >= selection.minimum_judged_usages
@@ -597,10 +605,11 @@ def _shortage(
     listing: str = "words.nouns_per_listing",
     rerun_from: str = noun_candidates.COMMAND,
     natural: bool = False,
+    share: float | None = None,
 ) -> CommandStopped:
     selection = settings.word_selection
     adjective = listing == "words.adjectives_per_listing"
-    minimum_share = _minimum_share(settings, adjective, natural)
+    minimum_share = _minimum_share(settings, adjective, natural) if share is None else share
     return CommandStopped(
         f"{description}で、条件を満たす候補が足りません（{found} 語）。"
         f"条件: 意図した語義（形容詞は、形容詞として）で使われる割合が"
