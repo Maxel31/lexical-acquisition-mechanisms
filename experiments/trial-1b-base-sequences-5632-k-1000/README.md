@@ -108,3 +108,24 @@ setsid nohup bash experiments/trial-1b-base-sequences-5632-k-1000/run_second_sen
 結果: `outputs/partial-results/second-sense-evaluation/` の `summary.txt`（文脈の効果）・`meaning_summary.txt`・`losses_summary.txt`・`grafting-second_summary.txt`・`grafting-first_summary.txt`
 
 - LLM のサーバは、`VLLM_USE_DEEP_GEMM=0 VLLM_MOE_USE_DEEP_GEMM=0` を付けて立てます（この GPU の世代向けの DeepGEMM は CUDA 13 が要り、ここは 12.9 のため）。
+
+## 手がかりで語義を選ぶ head（2026-11-09。41|）
+
+学習前の 1B で、自然な多義語（RAW-C。手がかりの語が多義語より前にある 84 語）の語義を判別する head を探し、2つ目の語義を足した未知語で同じ head が働くかを、head を止めて確かめます。RAW-C は、初回に `outputs/partial-results/natural-polysemy/raw-c.csv` に取ってきます。
+
+```bash
+setsid nohup bash experiments/trial-1b-base-sequences-5632-k-1000/run_sense_selection_heads.sh &   # GPU 0〜4
+```
+
+結果: `outputs/partial-results/second-sense-evaluation/heads_summary.txt`（表）と `heads/`（止め方ごとの値）
+
+## 2つ目の語義の追加を、別の seed で学習し直す（2026-11-09。37|）
+
+学習の乱数は、用例を基データに差し込む順番だけです。割り当て・用例・基データの系列は同じにし、差し込む順番の seed だけを変えて 8 run を学習し直し、27|・38|・25|・40|・41| の解析をやり直します。
+
+```bash
+uv run python experiments/trial-1b-base-sequences-5632-k-1000/build_second_sense_replication.py   # CPU
+setsid nohup bash experiments/trial-1b-base-sequences-5632-k-1000/run_second_sense_replication.sh &   # GPU 0〜4
+```
+
+結果: `outputs/partial-results/second-sense-evaluation/second-sense-addition-replication/`（表の名前は上と同じ）。解析のスクリプトは、環境変数 `SECOND_SENSE_EXPERIMENT=second-sense-addition-replication` で、読む重みと書く場所を切り替えます。
