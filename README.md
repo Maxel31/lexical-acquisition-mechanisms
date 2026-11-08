@@ -130,6 +130,10 @@ uv run lexical-acquisition-mechanisms assignments build --experiment second-sens
 # 未知語の獲得の9つの run（8つと、何も差し込まない対照）の学習データを作る:
 # 名詞の用例の名詞を未知語に置き換え、基データに差し込む
 uv run lexical-acquisition-mechanisms training-data build --experiment unknown-word-acquisition
+
+# 2つ目の語義の追加の8つの run の学習データを作る: 未知語ごとに、2つ目の語義の名詞の用例と、
+# 1つ目の語義の名詞の用例を同じ数だけ未知語に置き換え、未知語の獲得で使った基データの直後の系列に差し込む
+uv run lexical-acquisition-mechanisms training-data build --experiment second-sense-addition
 ```
 
 **手作業**: `data/training/unknown-word-acquisition/checks.csv` で、run ごとの確認の結果（語ごとの差し込んだ件数、置き換え漏れ、総トークン数）を見る。`decoded_passages.txt`（差し込んだ用例を無作為に抜き出し、トークン列を文字に戻したもの）も目で確かめる。

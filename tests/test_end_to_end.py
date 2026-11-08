@@ -66,6 +66,8 @@ def write_settings(directory: Path, model: ModelSource) -> None:
         "sequences_per_device_by_model": {MODEL: 2},
         "gradient_checkpointing_by_model": {MODEL: False},
         "checkpoint_fractions": [],
+        # 2つ目の語義の追加では、基データの残りの系列を使う
+        "number_of_base_sequences_used": 48,
     }
     (directory / "settings.yaml").write_text(
         yaml.safe_dump(content, allow_unicode=True, sort_keys=False), encoding="utf-8"
@@ -169,6 +171,7 @@ def test_all_commands_run_to_the_end(
     run("assignments", "build", "--experiment", "sense-addition")
     run("assignments", "build", "--experiment", "second-sense-addition")
     run("training-data", "build", "--experiment", "unknown-word-acquisition")
+    run("training-data", "build", "--experiment", "second-sense-addition")
     run("evaluation-data", "extract-natural-word-sentences")
     run("evaluation-data", "build-probe-and-normalization-words")
     run("evaluation-data", "generate-minimal-pairs")
