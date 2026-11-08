@@ -22,11 +22,11 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from save_sense_choice_probabilities import choice_log_probabilities  # noqa: E402
+from second_sense_experiment import RESULTS, weights  # noqa: E402
 
 from lexical_acquisition_mechanisms import second_sense_assignments, word_finalization  # noqa: E402
 from lexical_acquisition_mechanisms.csv_tables import read_rows  # noqa: E402
 from lexical_acquisition_mechanisms.language_model import LanguageModel  # noqa: E402
-from lexical_acquisition_mechanisms.run_settings import first_phase_weights  # noqa: E402
 from lexical_acquisition_mechanisms.second_sense_assignments import (  # noqa: E402
     SecondSenseAssignment,
 )
@@ -36,14 +36,6 @@ from lexical_acquisition_mechanisms.word_selection import SelectedWord  # noqa: 
 DIRECTORY = Path("outputs/partial-results/second-sense-evaluation")
 MODEL = "OLMo-2-0425-1B"
 CHECKPOINTS = ["before", "checkpoint-25", "checkpoint-50", "checkpoint-75", "final"]
-
-
-def weights(run: str, checkpoint: str) -> Path:
-    if checkpoint == "before":
-        return first_phase_weights(MODEL, run)
-    return (
-        Path("outputs/checkpoints") / second_sense_assignments.EXPERIMENT / MODEL / run / checkpoint
-    )
 
 
 def measure(run: str) -> None:
@@ -92,14 +84,14 @@ def measure(run: str) -> None:
         del model
         gc.collect()
         torch.cuda.empty_cache()
-    (DIRECTORY / "context").mkdir(parents=True, exist_ok=True)
-    parquet.write_table(arrow.Table.from_pylist(rows), DIRECTORY / "context" / f"{run}.parquet")
+    (RESULTS / "context").mkdir(parents=True, exist_ok=True)
+    parquet.write_table(arrow.Table.from_pylist(rows), RESULTS / "context" / f"{run}.parquet")
 
 
 def summarize() -> None:
     table = pandas.concat(
         parquet.read_table(path).to_pandas()
-        for path in sorted((DIRECTORY / "context").glob("*.parquet"))
+        for path in sorted((RESULTS / "context").glob("*.parquet"))
     )
     probabilities = [np.exp(np.array(value)) for value in table["log_probabilities"]]
     table["second_share"] = [
@@ -146,7 +138,7 @@ def summarize() -> None:
     ].mean()
     summary["words"] = grouped.size()
     text = summary.round(3).to_string()
-    (DIRECTORY / "summary.txt").write_text(text + "\n", encoding="utf-8")
+    (RESULTS / "summary.txt").write_text(text + "\n", encoding="utf-8")
     print(text)
 
 

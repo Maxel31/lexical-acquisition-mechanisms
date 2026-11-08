@@ -20,6 +20,9 @@ import pyarrow.compute as compute
 import pyarrow.parquet as parquet
 import torch
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from second_sense_experiment import RESULTS, weights  # noqa: E402
+
 from lexical_acquisition_mechanisms import (
     passage_finalization,
     second_sense_assignments,
@@ -28,7 +31,6 @@ from lexical_acquisition_mechanisms import (
 from lexical_acquisition_mechanisms.csv_tables import read_rows
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.passage_replacement import PassageReplacer
-from lexical_acquisition_mechanisms.run_settings import first_phase_weights
 from lexical_acquisition_mechanisms.second_sense_assignments import SecondSenseAssignment
 from lexical_acquisition_mechanisms.settings import ModelSource, load_settings
 from lexical_acquisition_mechanisms.unknown_word_training_data import replaced_passages
@@ -39,13 +41,6 @@ DIRECTORY = Path("outputs/partial-results/second-sense-evaluation")
 MODEL = "OLMo-2-0425-1B"
 CHECKPOINTS = ["before", "checkpoint-25", "checkpoint-50", "checkpoint-75", "final"]
 PASSAGES_PER_NOUN = 50
-
-
-def weights(run: str, checkpoint: str) -> Path:
-    if checkpoint == "before":
-        return first_phase_weights(MODEL, run)
-    experiment = second_sense_assignments.EXPERIMENT
-    return Path("outputs/checkpoints") / experiment / MODEL / run / checkpoint
 
 
 def evaluation_passages(nouns: set[str]) -> dict[str, dict[str, object]]:
@@ -120,14 +115,14 @@ def measure(run: str) -> None:
         del model
         gc.collect()
         torch.cuda.empty_cache()
-    (DIRECTORY / "losses").mkdir(parents=True, exist_ok=True)
-    parquet.write_table(arrow.Table.from_pylist(rows), DIRECTORY / "losses" / f"{run}.parquet")
+    (RESULTS / "losses").mkdir(parents=True, exist_ok=True)
+    parquet.write_table(arrow.Table.from_pylist(rows), RESULTS / "losses" / f"{run}.parquet")
 
 
 def summarize() -> None:
     table = pandas.concat(
         parquet.read_table(path).to_pandas()
-        for path in sorted((DIRECTORY / "losses").glob("*.parquet"))
+        for path in sorted((RESULTS / "losses").glob("*.parquet"))
     )
     table["checkpoint"] = pandas.Categorical(table["checkpoint"], CHECKPOINTS, ordered=True)
     per_word = table.groupby(
@@ -139,7 +134,7 @@ def summarize() -> None:
         .unstack("checkpoint")
     )
     text = summary.round(3).to_string()
-    (DIRECTORY / "losses_summary.txt").write_text(text + "\n", encoding="utf-8")
+    (RESULTS / "losses_summary.txt").write_text(text + "\n", encoding="utf-8")
     print(text)
 
 

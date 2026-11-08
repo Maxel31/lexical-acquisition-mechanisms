@@ -31,6 +31,7 @@ from transformers import AutoModelForCausalLM
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from save_sense_choice_probabilities import choice_log_probabilities  # noqa: E402
+from second_sense_experiment import RESULTS, weights  # noqa: E402
 
 from lexical_acquisition_mechanisms import second_sense_assignments, word_finalization  # noqa: E402
 from lexical_acquisition_mechanisms.csv_tables import read_rows  # noqa: E402
@@ -98,13 +99,7 @@ def measure(phase: str, run: str) -> None:
         after = first_phase_weights(MODEL, run)
     else:
         before = ModelSource(repository=str(first_phase_weights(MODEL, run)))
-        after = (
-            Path("outputs/checkpoints")
-            / second_sense_assignments.EXPERIMENT
-            / MODEL
-            / run
-            / "final"
-        )
+        after = weights(run, "final")
     network = AutoModelForCausalLM.from_pretrained(
         before.repository, revision=before.revision, dtype=torch.float32
     ).to("cuda")
@@ -145,16 +140,16 @@ def measure(phase: str, run: str) -> None:
             for (row, question), value in zip(chosen, values, strict=True)
         ]
         print(f"{run} {mode} {name}", flush=True)
-    (DIRECTORY / f"grafting-{phase}").mkdir(parents=True, exist_ok=True)
+    (RESULTS / f"grafting-{phase}").mkdir(parents=True, exist_ok=True)
     parquet.write_table(
-        arrow.Table.from_pylist(rows), DIRECTORY / f"grafting-{phase}" / f"{run}.parquet"
+        arrow.Table.from_pylist(rows), RESULTS / f"grafting-{phase}" / f"{run}.parquet"
     )
 
 
 def summarize(phase: str) -> None:
     table = pandas.concat(
         parquet.read_table(path).to_pandas()
-        for path in sorted((DIRECTORY / f"grafting-{phase}").glob("*.parquet"))
+        for path in sorted((RESULTS / f"grafting-{phase}").glob("*.parquet"))
     )
     probabilities = [np.exp(np.array(value)) for value in table["log_probabilities"]]
     table["share"] = [
@@ -194,7 +189,7 @@ def summarize(phase: str) -> None:
         + ((by_tokens - start) / (end - start)).round(2).to_string()
         + "\n"
     )
-    (DIRECTORY / f"grafting-{phase}_summary.txt").write_text(text, encoding="utf-8")
+    (RESULTS / f"grafting-{phase}_summary.txt").write_text(text, encoding="utf-8")
     print(text)
 
 
