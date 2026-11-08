@@ -123,6 +123,9 @@ uv run lexical-acquisition-mechanisms passages finalize --review-csv data/passag
 # run ごとに、どの語の用例を、どの語に置き換えて差し込むか（未知語の獲得では件数も）を決める
 uv run lexical-acquisition-mechanisms assignments build --experiment unknown-word-acquisition
 uv run lexical-acquisition-mechanisms assignments build --experiment sense-addition
+# 未知語の獲得で統合まで済んだ未知語（1つ目の露出回数が下限以上）に、2つ目の語義の名詞と
+# 露出回数を割り当てる
+uv run lexical-acquisition-mechanisms assignments build --experiment second-sense-addition
 
 # 未知語の獲得の9つの run（8つと、何も差し込まない対照）の学習データを作る:
 # 名詞の用例の名詞を未知語に置き換え、基データに差し込む

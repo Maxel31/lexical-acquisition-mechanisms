@@ -129,6 +129,9 @@ uv run lexical-acquisition-mechanisms passages finalize --review-csv data/passag
 # and (in unknown-word acquisition) how many
 uv run lexical-acquisition-mechanisms assignments build --experiment unknown-word-acquisition
 uv run lexical-acquisition-mechanisms assignments build --experiment sense-addition
+# Give each unknown word that finished integration (first exposure at or above the lower bound)
+# a noun for its second sense and a second exposure count
+uv run lexical-acquisition-mechanisms assignments build --experiment second-sense-addition
 
 # Build the training data of the 9 unknown-word acquisition runs (8 runs and a control that
 # inserts nothing): replace the noun in noun passages with an unknown word, and insert the
