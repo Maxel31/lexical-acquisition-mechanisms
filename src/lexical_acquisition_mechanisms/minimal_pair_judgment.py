@@ -80,13 +80,7 @@ def judge_minimal_pairs(settings: Settings, arguments: argparse.Namespace) -> No
             minimal_pairs.OUTPUT_PATH: minimal_pairs.COMMAND,
         },
         outputs=[JUDGED_PATH, JUDGMENTS_PATH],
-        settings={
-            **prompt_record_settings(settings.llm, [prompt]),
-            # 問い合わせの本文・答えの形・長さの上限も、出力を変える
-            "role_instructions": ROLE_INSTRUCTIONS,
-            "schema": SCHEMA,
-            "maximum_tokens": MAXIMUM_TOKENS,
-        },
+        settings=record_settings(settings, prompt),
     )
     client = LlmClient(settings.llm, ANSWERS_PATH, rerun_from=COMMAND)
     run_unless_unchanged(
@@ -100,6 +94,17 @@ def judge_minimal_pairs(settings: Settings, arguments: argparse.Namespace) -> No
         ),
         arguments.recompute,
     )
+
+
+def record_settings(settings: Settings, prompt: PromptTemplate) -> dict:
+    """判定を変える設定（実行の記録に書き、変わったら判定し直す）。"""
+    return {
+        **prompt_record_settings(settings.llm, [prompt]),
+        # 問い合わせの本文・答えの形・長さの上限も、出力を変える
+        "role_instructions": ROLE_INSTRUCTIONS,
+        "schema": SCHEMA,
+        "maximum_tokens": MAXIMUM_TOKENS,
+    }
 
 
 def judgment_request(

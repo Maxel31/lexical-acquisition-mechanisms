@@ -28,6 +28,7 @@ evaluation.minimal_pair_candidate_factor 個まで残し、data/evaluation/minim
 import argparse
 import math
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -132,19 +133,7 @@ def generate_minimal_pairs(settings: Settings, arguments: argparse.Namespace) ->
             sense_addition_assignments.ASSIGNMENTS_PATH: sense_addition_assignments.COMMAND,
         },
         outputs=[OUTPUT_PATH],
-        settings={
-            **prompt_record_settings(settings.llm, [prompt]),
-            "candidates": candidates_per_sense_pair(settings),
-            "tokenizer": next(iter(settings.models.values())).model_dump(),
-            # 問い合わせの本文・答えの形・長さの上限と、空欄・手がかりを探す決まりも、出力を変える
-            "cue_instructions": CUE_INSTRUCTIONS,
-            "schema": SCHEMA,
-            "maximum_tokens_per_pair": MAXIMUM_TOKENS_PER_PAIR,
-            "ask_again": {"times": ASK_AGAIN_TIMES, "step": ASK_AGAIN_STEP},
-            "minimal_pairs_per_sense_pair": settings.evaluation.minimal_pairs_per_sense_pair,
-            "blank_pattern": BLANK_PATTERN.pattern,
-            "cue_punctuation": PUNCTUATION,
-        },
+        settings=record_settings(settings, prompt),
     )
     client = LlmClient(settings.llm, ANSWERS_PATH, rerun_from=COMMAND)
     run_unless_unchanged(
@@ -161,12 +150,59 @@ def generate_minimal_pairs(settings: Settings, arguments: argparse.Namespace) ->
     )
 
 
+def record_settings(settings: Settings, prompt: PromptTemplate) -> dict:
+    """最小対の候補を変える設定（実行の記録に書き、変わったら作り直す）。"""
+    return {
+        **prompt_record_settings(settings.llm, [prompt]),
+        "candidates": candidates_per_sense_pair(settings),
+        "tokenizer": next(iter(settings.models.values())).model_dump(),
+        # 問い合わせの本文・答えの形・長さの上限と、空欄・手がかりを探す決まりも、出力を変える
+        "cue_instructions": CUE_INSTRUCTIONS,
+        "schema": SCHEMA,
+        "maximum_tokens_per_pair": MAXIMUM_TOKENS_PER_PAIR,
+        "ask_again": {"times": ASK_AGAIN_TIMES, "step": ASK_AGAIN_STEP},
+        "minimal_pairs_per_sense_pair": settings.evaluation.minimal_pairs_per_sense_pair,
+        "blank_pattern": BLANK_PATTERN.pattern,
+        "cue_punctuation": PUNCTUATION,
+    }
+
+
 def candidates_per_sense_pair(settings: Settings) -> int:
     """語義の組ごとに、LLM に作らせる候補の数（最小対の数 × 倍率）。"""
     evaluation = settings.evaluation
     return math.ceil(
         evaluation.minimal_pairs_per_sense_pair * evaluation.minimal_pair_candidate_factor
     )
+
+
+@dataclass(frozen=True)
+class SensePair:
+    """最小対を作る語義の組（ターゲット語の元の語義と、donor の語義）。"""
+
+    target: str
+    target_category: str
+    target_token_count: int
+    donor: str
+    donor_role: str
+    # 足す語義の種類（same-category・other-category・adjective）
+    kind: str
+
+
+def sense_addition_pairs(assignments_path: Path) -> list[SensePair]:
+    """語義の追加の割り当て表の、足す語義の数が最大の run の行（全ての語義の組を含む）。"""
+    largest = max(sense_addition_assignments.NUMBERS_OF_SENSES)
+    return [
+        SensePair(
+            row.target,
+            row.target_category,
+            row.target_token_count,
+            row.donor,
+            row.donor_role,
+            row.run.rsplit("-", 1)[0],
+        )
+        for row in read_rows(assignments_path, SenseAdditionAssignment)
+        if row.run.endswith(f"-{largest}")
+    ]
 
 
 def build_minimal_pair_candidates(
@@ -177,17 +213,29 @@ def build_minimal_pair_candidates(
     assignments_path: Path,
     output_path: Path,
 ) -> None:
+    write_minimal_pair_candidates(
+        settings, prompt, client, words_path, sense_addition_pairs(assignments_path), output_path
+    )
+
+
+def write_minimal_pair_candidates(
+    settings: Settings,
+    prompt: PromptTemplate,
+    client: LlmClient,
+    words_path: Path,
+    sense_pairs: Sequence[SensePair],
+    output_path: Path,
+    command: str = COMMAND,
+) -> None:
+    """語義の組ごとに、LLM に最小対の候補を作らせ、条件に合うものを output_path に書く。
+
+    command は、止まったときに実行し直すコマンド。
+    """
     tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
     words = {word.word: word for word in read_rows(words_path, SelectedWord)}
-    largest = max(sense_addition_assignments.NUMBERS_OF_SENSES)
-    sense_pairs = [
-        (row, row.run.rsplit("-", 1)[0])
-        for row in read_rows(assignments_path, SenseAdditionAssignment)
-        if row.run.endswith(f"-{largest}")
-    ]
     number = candidates_per_sense_pair(settings)
 
-    def request(row: SenseAdditionAssignment, asked: int) -> LlmRequest:
+    def request(row: SensePair, asked: int) -> LlmRequest:
         return LlmRequest(
             prompt,
             {
@@ -206,25 +254,24 @@ def build_minimal_pair_candidates(
     excluded = frozenset(
         form for word in managed for form in (word.word, *inflected_forms(word.word, word.role))
     )
-    answers = client.ask_all([request(row, number) for row, _ in sense_pairs])
+    answers = client.ask_all([request(row, number) for row in sense_pairs])
     # 答えがない語義の組は、最小対が1つもなくなり、後の分析から黙って消えるので止まる
-    require_answers(answers, "最小対", COMMAND)
+    require_answers(answers, "最小対", command)
     kept: list[list[MinimalPairCandidate]] = [[] for _ in sense_pairs]
-    for found, (row, kind), answer in zip(kept, sense_pairs, answers, strict=True):
-        _keep_usable(found, answer, row, kind, number, tokenizer, excluded)
+    for found, row, answer in zip(kept, sense_pairs, answers, strict=True):
+        _keep_usable(found, answer, row, number, tokenizer, excluded)
     wanted = settings.evaluation.minimal_pairs_per_sense_pair
     for attempt in range(1, ASK_AGAIN_TIMES + 1):
         short = [index for index, found in enumerate(kept) if len(found) < wanted]
         if not short:
             break
         asked = number + attempt * ASK_AGAIN_STEP
-        again = client.ask_all([request(sense_pairs[index][0], asked) for index in short])
+        again = client.ask_all([request(sense_pairs[index], asked) for index in short])
         for index, answer in zip(short, again, strict=True):
-            row, kind = sense_pairs[index]
-            _keep_usable(kept[index], answer, row, kind, number, tokenizer, excluded)
+            _keep_usable(kept[index], answer, sense_pairs[index], number, tokenizer, excluded)
     empty = [
         f"{row.target}/{row.donor}"
-        for found, (row, _) in zip(kept, sense_pairs, strict=True)
+        for found, row in zip(kept, sense_pairs, strict=True)
         if not found
     ]
     candidates = [candidate for found in kept for candidate in found]
@@ -233,7 +280,7 @@ def build_minimal_pair_candidates(
             f"使える候補が1つもない語義の組があります（{len(empty)} 組: {empty[:10]}）。"
             "settings.yaml の evaluation.minimal_pair_candidate_factor を大きくするか、"
             f"llm_prompts/{PROMPT}.md を直してください。",
-            rerun_from=COMMAND,
+            rerun_from=command,
         )
     write_rows(output_path, MinimalPairCandidate, candidates)
 
@@ -241,8 +288,7 @@ def build_minimal_pair_candidates(
 def _keep_usable(
     kept: list[MinimalPairCandidate],
     answer: dict | None,
-    row: SenseAdditionAssignment,
-    kind: str,
+    row: SensePair,
     number: int,
     tokenizer: WordTokenizer,
     excluded: frozenset[str],
@@ -263,7 +309,7 @@ def _keep_usable(
             row.target_token_count,
             row.donor,
             row.donor_role,
-            kind,
+            row.kind,
             *sentences,
             *cues,
         )
