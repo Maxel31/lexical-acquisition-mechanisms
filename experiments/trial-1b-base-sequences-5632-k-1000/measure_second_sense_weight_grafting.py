@@ -180,6 +180,20 @@ def summarize(phase: str) -> None:
         + recovered.round(2).to_string()
         + "\n"
     )
+    # 未知語のトークン数ごと（1トークンの未知語は、埋め込みの行そのものを学習している）
+    words = {word.word: word for word in read_rows(word_finalization.OUTPUT_PATH, SelectedWord)}
+    by_tokens = per_word.reset_index()
+    by_tokens["token_count"] = [words[word].token_count for word in by_tokens["unknown_word"]]
+    by_tokens = by_tokens.groupby(
+        ["configuration", "mode", "kind", "second_exposure", "token_count"]
+    )["effect"].mean()
+    by_tokens = by_tokens.unstack(["kind", "second_exposure", "token_count"])
+    start, end = by_tokens.loc[("before", "baseline")], by_tokens.loc[("after", "baseline")]
+    text += (
+        "\n## 未知語のトークン数ごとの、戻した割合（recovered）\n"
+        + ((by_tokens - start) / (end - start)).round(2).to_string()
+        + "\n"
+    )
     (DIRECTORY / f"grafting-{phase}_summary.txt").write_text(text, encoding="utf-8")
     print(text)
 
