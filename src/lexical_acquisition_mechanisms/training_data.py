@@ -3,6 +3,7 @@
 import argparse
 
 from lexical_acquisition_mechanisms import (
+    second_sense_training_data,
     sense_addition_training_data,
     unknown_word_training_data,
 )
@@ -14,6 +15,9 @@ BUILDERS = {
     ),
     sense_addition_training_data.EXPERIMENT: (
         sense_addition_training_data.build_sense_addition_training_data
+    ),
+    second_sense_training_data.EXPERIMENT: (
+        second_sense_training_data.build_second_sense_training_data
     ),
 }
 
