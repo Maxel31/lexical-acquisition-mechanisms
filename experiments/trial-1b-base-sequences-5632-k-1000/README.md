@@ -67,3 +67,44 @@ done
 ```
 
 - 解析は、その実験の run が全て学習を終え（`completed.json`）、評価データが確定してから、学習より先に行います。
+
+## 課題1の確かめ（2026-11-08。Notion の 33|）
+
+```bash
+# 学習の途中の重み（GPU 0〜3）と、学習前の 7B・1B（GPU 4）で、課題1の選択肢の確率を保存し、表にまとめる
+setsid nohup bash experiments/trial-1b-base-sequences-5632-k-1000/run_sense_choice_probabilities.sh &
+uv run python experiments/trial-1b-base-sequences-5632-k-1000/summarize_sense_choice_probabilities.py
+```
+
+結果: `outputs/partial-results/sense-choice-probabilities/summary.txt`
+
+## 2つ目の語義の追加（2026-11-09。Notion の 00| の新しい設計、35|〜40|）
+
+未知語の獲得で統合まで済んだ未知語に、別の名詞の語義を足します。割り当て・学習データ・学習の設定は、本来のコマンド（PR #240〜#242）で作りました。評価は、試行用のスクリプトで行っています（本来のコマンドは、結果を見てから作る）。
+
+```bash
+# 割り当て（35|）・学習データ（36|）・学習の設定（37|）
+uv run lexical-acquisition-mechanisms assignments build --experiment second-sense-addition
+uv run lexical-acquisition-mechanisms training-data build --experiment second-sense-addition
+uv run lexical-acquisition-mechanisms training write-run-settings --experiment second-sense-addition --model OLMo-2-0425-1B
+# 学習（GPU 1〜4。GPU 0 は別の利用者が使っていたため）
+LOGS=outputs/trial-1b-base-sequences-5632-k-1000/logs/second-sense-addition
+printf '%s\n' outputs/runs/second-sense-addition/OLMo-2-0425-1B/*.yaml > $LOGS/training_queue.txt
+: > $LOGS/analysis_queue.txt
+for gpu in 1 2 3 4; do
+  setsid nohup experiments/trial-1b-base-sequences-5632-k-1000/run_gpu_worker.sh $gpu $LOGS >> $LOGS/gpu_workers.log 2>&1 < /dev/null &
+done
+# 評価（学習が終わるのを待ってから順に流れる）
+# 最小対（34|）・課題1の問題・文脈の効果（27|）
+setsid nohup bash experiments/trial-1b-base-sequences-5632-k-1000/run_second_sense_evaluation.sh &
+# 未知語の表現が X と Y のどちらに近いか（38|）
+setsid nohup bash experiments/trial-1b-base-sequences-5632-k-1000/run_second_sense_meaning.sh &
+# 1つ目と2つ目の語義の用例での未知語の損失（25|）
+setsid nohup bash experiments/trial-1b-base-sequences-5632-k-1000/run_second_sense_losses.sh &
+# 変わった重みを部品ごとに移す（40|）
+setsid nohup bash experiments/trial-1b-base-sequences-5632-k-1000/run_second_sense_weight_grafting.sh &
+```
+
+結果: `outputs/partial-results/second-sense-evaluation/` の `summary.txt`（文脈の効果）・`meaning_summary.txt`・`losses_summary.txt`・`grafting_summary.txt`
+
+- LLM のサーバは、`VLLM_USE_DEEP_GEMM=0 VLLM_MOE_USE_DEEP_GEMM=0` を付けて立てます（この GPU の世代向けの DeepGEMM は CUDA 13 が要り、ここは 12.9 のため）。
