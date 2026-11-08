@@ -226,6 +226,14 @@ for run_settings in outputs/runs/unknown-word-acquisition/"$MODEL"/*.yaml; do
   uv run torchrun --nproc-per-node "$NUMBER_OF_GPUS" -m lexical_acquisition_mechanisms \
     training run --run-settings "$run_settings" || break   # GPU
 done
+
+# 2つ目の語義の追加の8つの run を学習する（同じ名前の未知語の獲得の run の最後の重みから）
+uv run lexical-acquisition-mechanisms training write-run-settings \
+  --experiment second-sense-addition --model "$MODEL"
+for run_settings in outputs/runs/second-sense-addition/"$MODEL"/*.yaml; do
+  uv run torchrun --nproc-per-node "$NUMBER_OF_GPUS" -m lexical_acquisition_mechanisms \
+    training run --run-settings "$run_settings" || break   # GPU
+done
 ```
 
 **手作業**: すべての run の学習が終わったら、各 run の学習の記録（`metrics.jsonl`）で、パープレキシティの学習前からの変化が1%以内かを確かめる。超えた run は、原因を調べて報告する。
