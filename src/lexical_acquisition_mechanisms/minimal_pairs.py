@@ -71,6 +71,9 @@ CUE_INSTRUCTIONS = {
         ' other. Start the sentence with who does something (such as "She", "They" or "The'
         ' farmer"), then the cue verb, then the blank. For example, for "grape" and "car":'
         ' {"sentence": "She peeled the ___.", "first_cue": "peeled", "second_cue": "parked"}.'
+        " Choose verbs for what people typically do only with that kind of thing. Do not use verbs"
+        ' that fit almost any thing, such as "saw", "spotted", "found", "bought", "placed",'
+        ' "carried", "liked" or "wanted".'
     ),
     "adjective": (
         "In the first sentence the blank is an adjective: write an adverb such as"
