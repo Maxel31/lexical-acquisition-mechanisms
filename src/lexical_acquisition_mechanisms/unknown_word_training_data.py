@@ -140,8 +140,12 @@ def write_unknown_word_training_data(
         rows = []
         run_checks = []
         for assignment in (row for row in assignments if row.run == run):
-            inserted, skipped = _replaced_passages(
-                assignment, words, passages, replacer, assignment.exposure
+            inserted, skipped = replaced_passages(
+                words[assignment.noun],
+                words[assignment.unknown_word],
+                passages[assignment.noun],
+                replacer,
+                assignment.exposure,
             )
             rows += inserted
             replaced = sum(len(row["records"]) for row in inserted)
@@ -237,21 +241,20 @@ def training_passages(passages_path: Path, role: str) -> dict[str, dict[str, obj
     return passages
 
 
-def _replaced_passages(
-    assignment: UnknownWordAssignment,
-    words: dict[str, SelectedWord],
-    passages: dict[str, dict[str, object]],
+def replaced_passages(
+    noun: SelectedWord,
+    unknown_word: SelectedWord,
+    noun_passages: dict[str, object],
     replacer: PassageReplacer,
     count: int,
 ) -> tuple[list[dict[str, object]], int]:
-    """名詞の用例を鍵の小さい順に、未知語に置き換えて count 件取る（置き換えられないものは飛ばす）。
+    """名詞の用例を noun_passages の順に、未知語に置き換えて count 件取る（置き換えられないものは
+    飛ばす）。
 
     飛ばした用例の数も返す。
     """
     if count == 0:
         return [], 0
-    noun = words[assignment.noun]
-    unknown_word = words[assignment.unknown_word]
     replacement = Replacement(
         tuple(int(token) for token in noun.token_ids.split()),
         tuple(int(token) for token in unknown_word.token_ids.split()),
@@ -259,7 +262,6 @@ def _replaced_passages(
         # 1トークンの未知語はトークン番号で差し込むので、冠詞は元のまま残す
         adjust_articles=unknown_word.token_count > 1,
     )
-    noun_passages = passages[noun.word]
     inserted = []
     skipped = 0
     for index in range(len(noun_passages["positions"])):

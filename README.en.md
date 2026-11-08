@@ -137,6 +137,11 @@ uv run lexical-acquisition-mechanisms assignments build --experiment second-sens
 # inserts nothing): replace the noun in noun passages with an unknown word, and insert the
 # passages into the base data
 uv run lexical-acquisition-mechanisms training-data build --experiment unknown-word-acquisition
+
+# Build the training data of the 8 second-sense addition runs: for each unknown word, replace the
+# noun in the same number of second-sense and first-sense noun passages with the unknown word, and
+# insert them into the base sequences right after those used in unknown-word acquisition
+uv run lexical-acquisition-mechanisms training-data build --experiment second-sense-addition
 ```
 
 **Manual step**: in `data/training/unknown-word-acquisition/checks.csv`, look at the check results of each run (the number of inserted passages per word, leftover words that should have been replaced, the total number of tokens). Also read `decoded_passages.txt` (randomly sampled inserted passages, with the tokens turned back into text).
