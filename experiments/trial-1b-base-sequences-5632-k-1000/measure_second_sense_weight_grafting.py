@@ -7,9 +7,14 @@
 部品は、埋め込み、各層の attention（正規化を含む）、各層の MLP（正規化を含む）、最後の正規化、
 出力の行列と、それらをまとめたもの（全ての attention・全ての MLP・4層ずつの層）。
 解かせるのは、2つ目の露出回数が 0 回（対照）と 1000 回の未知語の問題。
-- measure <run>（GPU 1枚）: outputs/partial-results/second-sense-evaluation/grafting/<run>.parquet
-- summarize（CPU）: 部品ごとに、種類 × 2つ目の露出回数の文脈の効果の平均と、θ1 から θ2 までの
-  変化のうち、そのモデルが戻した割合（recovered）を grafting_summary.txt に書く。
+同じことを、未知語が既知語になるフェーズ（39|）にも行える（phase に first を渡す）。そのときは、
+θ1 を学習前の重み、θ2 を未知語の獲得の最後の重みとし、run の全ての未知語で、X の手がかりの文で
+X を選ぶ割合（1つ目の語義の獲得）を測る。
+- measure <phase> <run>（GPU 1枚。phase は first か second）:
+  outputs/partial-results/second-sense-evaluation/grafting-<phase>/<run>.parquet
+- summarize <phase>（CPU）: 部品ごとに、種類 × 2つ目の露出回数の値（second は文脈の効果、first は
+  X の手がかりの文で X を選ぶ割合）の平均と、θ1 から θ2 までの変化のうち、そのモデルが戻した割合
+  （recovered）を grafting-<phase>_summary.txt に書く。
 """
 
 import re
@@ -34,7 +39,7 @@ from lexical_acquisition_mechanisms.run_settings import first_phase_weights  # n
 from lexical_acquisition_mechanisms.second_sense_assignments import (  # noqa: E402
     SecondSenseAssignment,
 )
-from lexical_acquisition_mechanisms.settings import ModelSource  # noqa: E402
+from lexical_acquisition_mechanisms.settings import ModelSource, load_settings  # noqa: E402
 from lexical_acquisition_mechanisms.word_selection import SelectedWord  # noqa: E402
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer  # noqa: E402
 
@@ -75,7 +80,7 @@ def component_sets(number_of_layers: int) -> dict[str, set[str]]:
     return sets
 
 
-def measure(run: str) -> None:
+def measure(phase: str, run: str) -> None:
     words = {word.word: word for word in read_rows(word_finalization.OUTPUT_PATH, SelectedWord)}
     questions = parquet.read_table(DIRECTORY / "questions.parquet").to_pylist()
     by_pair: dict[tuple[str, str], list[dict]] = {}
@@ -84,16 +89,26 @@ def measure(run: str) -> None:
     chosen = [
         (row, question)
         for row in read_rows(second_sense_assignments.ASSIGNMENTS_PATH, SecondSenseAssignment)
-        if row.run == run and row.second_exposure in LEVELS
+        if row.run == run and (phase == "first" or row.second_exposure in LEVELS)
         for question in by_pair.get((row.first_noun, row.second_noun), [])
     ]
     ids = [[int(token) for token in words[row.unknown_word].token_ids.split()] for row, _ in chosen]
-    before = first_phase_weights(MODEL, run)
-    after = (
-        Path("outputs/checkpoints") / second_sense_assignments.EXPERIMENT / MODEL / run / "final"
-    )
-    network = AutoModelForCausalLM.from_pretrained(before, dtype=torch.float32).to("cuda")
-    model = LanguageModel(network, WordTokenizer.from_model(ModelSource(repository=str(before))))
+    if phase == "first":
+        before = load_settings(Path("settings.yaml")).models[MODEL]
+        after = first_phase_weights(MODEL, run)
+    else:
+        before = ModelSource(repository=str(first_phase_weights(MODEL, run)))
+        after = (
+            Path("outputs/checkpoints")
+            / second_sense_assignments.EXPERIMENT
+            / MODEL
+            / run
+            / "final"
+        )
+    network = AutoModelForCausalLM.from_pretrained(
+        before.repository, revision=before.revision, dtype=torch.float32
+    ).to("cuda")
+    model = LanguageModel(network, WordTokenizer.from_model(before))
     parameters = dict(network.named_parameters())
     first = {name: value.detach().clone() for name, value in parameters.items()}
     second = load_file(str(after / "model.safetensors"), device="cuda")
@@ -120,6 +135,7 @@ def measure(run: str) -> None:
                 "unknown_word": row.unknown_word,
                 "second_exposure": row.second_exposure,
                 "kind": row.kind,
+                "first_noun": row.first_noun,
                 "second_noun": row.second_noun,
                 "pair": question["pair"],
                 "cue": question["cue"],
@@ -129,14 +145,16 @@ def measure(run: str) -> None:
             for (row, question), value in zip(chosen, values, strict=True)
         ]
         print(f"{run} {mode} {name}", flush=True)
-    (DIRECTORY / "grafting").mkdir(parents=True, exist_ok=True)
-    parquet.write_table(arrow.Table.from_pylist(rows), DIRECTORY / "grafting" / f"{run}.parquet")
+    (DIRECTORY / f"grafting-{phase}").mkdir(parents=True, exist_ok=True)
+    parquet.write_table(
+        arrow.Table.from_pylist(rows), DIRECTORY / f"grafting-{phase}" / f"{run}.parquet"
+    )
 
 
-def summarize() -> None:
+def summarize(phase: str) -> None:
     table = pandas.concat(
         parquet.read_table(path).to_pandas()
-        for path in sorted((DIRECTORY / "grafting").glob("*.parquet"))
+        for path in sorted((DIRECTORY / f"grafting-{phase}").glob("*.parquet"))
     )
     probabilities = [np.exp(np.array(value)) for value in table["log_probabilities"]]
     table["share"] = [
@@ -147,25 +165,27 @@ def summarize() -> None:
     ]
     keys = ["configuration", "mode", "run", "unknown_word", "second_exposure", "kind", "pair"]
     wide = table.pivot_table(index=keys, columns="cue", values="share")
-    wide["effect"] = wide["second"] - wide["first"]
+    # second: 文脈の効果。first: X の手がかりの文で X を選ぶ割合
+    wide["effect"] = wide["second"] - wide["first"] if phase == "second" else 1 - wide["first"]
     per_word = wide.groupby(level=keys[:6])["effect"].mean()
     effect = per_word.groupby(level=["configuration", "mode", "kind", "second_exposure"]).mean()
     effect = effect.unstack(["kind", "second_exposure"])
     start, end = effect.loc[("before", "baseline")], effect.loc[("after", "baseline")]
     recovered = (effect - start) / (end - start)
     text = (
-        "## 文脈の効果（未知語ごとの平均の平均）\n"
+        f"## {'文脈の効果' if phase == 'second' else 'X の手がかりの文で X を選ぶ割合'}"
+        "（未知語ごとの平均の平均）\n"
         + effect.round(3).to_string()
         + "\n\n## θ1 から θ2 までの変化のうち、戻した割合（recovered）\n"
         + recovered.round(2).to_string()
         + "\n"
     )
-    (DIRECTORY / "grafting_summary.txt").write_text(text, encoding="utf-8")
+    (DIRECTORY / f"grafting-{phase}_summary.txt").write_text(text, encoding="utf-8")
     print(text)
 
 
 if __name__ == "__main__":
     if sys.argv[1] == "measure":
-        measure(sys.argv[2])
+        measure(sys.argv[2], sys.argv[3])
     else:
-        summarize()
+        summarize(sys.argv[2])

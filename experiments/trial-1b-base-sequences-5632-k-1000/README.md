@@ -102,9 +102,9 @@ setsid nohup bash experiments/trial-1b-base-sequences-5632-k-1000/run_second_sen
 # 1つ目と2つ目の語義の用例での未知語の損失（25|）
 setsid nohup bash experiments/trial-1b-base-sequences-5632-k-1000/run_second_sense_losses.sh &
 # 変わった重みを部品ごとに移す（40|）
-setsid nohup bash experiments/trial-1b-base-sequences-5632-k-1000/run_second_sense_weight_grafting.sh &
+setsid nohup bash experiments/trial-1b-base-sequences-5632-k-1000/run_second_sense_weight_grafting.sh second &   # 1 のフェーズは first
 ```
 
-結果: `outputs/partial-results/second-sense-evaluation/` の `summary.txt`（文脈の効果）・`meaning_summary.txt`・`losses_summary.txt`・`grafting_summary.txt`
+結果: `outputs/partial-results/second-sense-evaluation/` の `summary.txt`（文脈の効果）・`meaning_summary.txt`・`losses_summary.txt`・`grafting-second_summary.txt`・`grafting-first_summary.txt`
 
 - LLM のサーバは、`VLLM_USE_DEEP_GEMM=0 VLLM_MOE_USE_DEEP_GEMM=0` を付けて立てます（この GPU の世代向けの DeepGEMM は CUDA 13 が要り、ここは 12.9 のため）。
