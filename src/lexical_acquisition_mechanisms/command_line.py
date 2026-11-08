@@ -40,6 +40,7 @@ from lexical_acquisition_mechanisms import (
     real_word_probes,
     results_collection,
     run_settings,
+    second_sense_evaluation_data,
     sense_accuracy,
     sense_addition_report,
     significant_heads_and_mlps,
@@ -262,6 +263,20 @@ def all_actions() -> list[Action]:
             "approved が 0 の最小対を除き、評価に使う最小対と課題の問題を書き出す",
             evaluation_finalization.finalize_evaluation_data,
             evaluation_finalization.add_arguments,
+        ),
+        Action(
+            "evaluation-data",
+            "generate-second-sense-minimal-pairs",
+            "2つ目の語義の追加の、1つ目と2つ目の語義の名詞の組ごとに、最小対の候補を作り、"
+            "LLM の判定に合格した候補を残す",
+            second_sense_evaluation_data.generate_second_sense_minimal_pairs,
+        ),
+        Action(
+            "evaluation-data",
+            "build-second-sense-questions",
+            "公開されている OLMo 2 で、手がかりが2つの語義を決めている最小対を残し、"
+            "空欄に未知語を入れる課題1の問題を作る",
+            second_sense_evaluation_data.build_second_sense_questions,
         ),
         Action(
             "unknown-word-acquisition",
