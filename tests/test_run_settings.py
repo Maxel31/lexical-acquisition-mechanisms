@@ -1,12 +1,18 @@
 """run ごとの学習の設定ファイルのテスト。"""
 
+import argparse
 from pathlib import Path
 
 import pytest
 
+from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import write_rows
-from lexical_acquisition_mechanisms.run_settings import build_run_settings, load_run_settings
-from lexical_acquisition_mechanisms.settings import SettingsError, load_settings
+from lexical_acquisition_mechanisms.run_settings import (
+    build_run_settings,
+    load_run_settings,
+    write_run_settings,
+)
+from lexical_acquisition_mechanisms.settings import ModelSource, SettingsError, load_settings
 from lexical_acquisition_mechanisms.word_selection import SelectedWord
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -41,6 +47,29 @@ def test_settings_are_written_for_every_run(tmp_path: Path) -> None:
     )
     assert len(sense_paths) == 11
     assert load_run_settings(sense_paths[0]).new_token_ids == []
+    second_paths = build_run_settings(
+        settings, "second-sense-addition", "OLMo-2-0425-1B", tmp_path / "words.csv", tmp_path
+    )
+    assert [path.stem for path in second_paths] == [f"run-{number}" for number in range(1, 9)]
+    second = load_run_settings(second_paths[0])
+    # 同じ名前の未知語の獲得の run の最後の重みから学習し、未知語の埋め込みは初期化し直さない
+    assert second.model_source == ModelSource(
+        repository="outputs/checkpoints/unknown-word-acquisition/OLMo-2-0425-1B/run-1/final"
+    )
+    assert second.new_token_ids == []
+    assert second.training_tokens == Path("data/training/second-sense-addition/run-1/tokens.npy")
+
+
+def test_second_sense_runs_stop_without_first_phase_weights(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    arguments = argparse.Namespace(
+        experiment="second-sense-addition", model="OLMo-2-0425-1B", recompute=False
+    )
+
+    with pytest.raises(CommandStopped, match="未知語の獲得の最後の重みがありません"):
+        write_run_settings(load_settings(REPOSITORY_ROOT / "settings.yaml"), arguments)
 
 
 def test_broken_run_settings_are_explained(tmp_path: Path) -> None:
