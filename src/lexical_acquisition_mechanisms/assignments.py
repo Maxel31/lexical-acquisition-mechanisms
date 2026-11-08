@@ -5,7 +5,11 @@
 
 import argparse
 
-from lexical_acquisition_mechanisms import sense_addition_assignments, unknown_word_assignments
+from lexical_acquisition_mechanisms import (
+    second_sense_assignments,
+    sense_addition_assignments,
+    unknown_word_assignments,
+)
 from lexical_acquisition_mechanisms.settings import Settings
 
 BUILDERS = {
@@ -13,6 +17,7 @@ BUILDERS = {
     sense_addition_assignments.EXPERIMENT: (
         sense_addition_assignments.build_sense_addition_assignments
     ),
+    second_sense_assignments.EXPERIMENT: second_sense_assignments.build_second_sense_assignments,
 }
 
 

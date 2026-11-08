@@ -129,11 +129,19 @@ uv run lexical-acquisition-mechanisms passages finalize --review-csv data/passag
 # and (in unknown-word acquisition) how many
 uv run lexical-acquisition-mechanisms assignments build --experiment unknown-word-acquisition
 uv run lexical-acquisition-mechanisms assignments build --experiment sense-addition
+# Give each unknown word that finished integration (first exposure at or above the lower bound)
+# a noun for its second sense and a second exposure count
+uv run lexical-acquisition-mechanisms assignments build --experiment second-sense-addition
 
 # Build the training data of the 9 unknown-word acquisition runs (8 runs and a control that
 # inserts nothing): replace the noun in noun passages with an unknown word, and insert the
 # passages into the base data
 uv run lexical-acquisition-mechanisms training-data build --experiment unknown-word-acquisition
+
+# Build the training data of the 8 second-sense addition runs: for each unknown word, replace the
+# noun in the same number of second-sense and first-sense noun passages with the unknown word, and
+# insert them into the base sequences right after those used in unknown-word acquisition
+uv run lexical-acquisition-mechanisms training-data build --experiment second-sense-addition
 ```
 
 **Manual step**: in `data/training/unknown-word-acquisition/checks.csv`, look at the check results of each run (the number of inserted passages per word, leftover words that should have been replaced, the total number of tokens). Also read `decoded_passages.txt` (randomly sampled inserted passages, with the tokens turned back into text).
@@ -152,6 +160,10 @@ uv run lexical-acquisition-mechanisms evaluation-data build-probe-and-normalizat
 # Make minimal pairs (two sentences that differ in one cue word, giving the target word
 # different senses)
 uv run lexical-acquisition-mechanisms evaluation-data generate-minimal-pairs         # LLM
+
+# For each of the two sentences of every candidate, the LLM judges whether the cue fits only one of
+# the two words and the sentence is natural; keep only the candidates where both sentences pass
+uv run lexical-acquisition-mechanisms evaluation-data judge-minimal-pairs            # LLM
 
 # Make the task questions
 uv run lexical-acquisition-mechanisms evaluation-data build-task-questions           # LLM
@@ -223,6 +235,15 @@ uv run lexical-acquisition-mechanisms unknown-word-acquisition train-real-word-p
 uv run lexical-acquisition-mechanisms training write-run-settings \
   --experiment unknown-word-acquisition --model "$MODEL"
 for run_settings in outputs/runs/unknown-word-acquisition/"$MODEL"/*.yaml; do
+  uv run torchrun --nproc-per-node "$NUMBER_OF_GPUS" -m lexical_acquisition_mechanisms \
+    training run --run-settings "$run_settings" || break   # GPU
+done
+
+# Train the 8 second-sense addition runs (each from the final weights of the unknown-word
+# acquisition run with the same name)
+uv run lexical-acquisition-mechanisms training write-run-settings \
+  --experiment second-sense-addition --model "$MODEL"
+for run_settings in outputs/runs/second-sense-addition/"$MODEL"/*.yaml; do
   uv run torchrun --nproc-per-node "$NUMBER_OF_GPUS" -m lexical_acquisition_mechanisms \
     training run --run-settings "$run_settings" || break   # GPU
 done

@@ -123,10 +123,17 @@ uv run lexical-acquisition-mechanisms passages finalize --review-csv data/passag
 # run ごとに、どの語の用例を、どの語に置き換えて差し込むか（未知語の獲得では件数も）を決める
 uv run lexical-acquisition-mechanisms assignments build --experiment unknown-word-acquisition
 uv run lexical-acquisition-mechanisms assignments build --experiment sense-addition
+# 未知語の獲得で統合まで済んだ未知語（1つ目の露出回数が下限以上）に、2つ目の語義の名詞と
+# 露出回数を割り当てる
+uv run lexical-acquisition-mechanisms assignments build --experiment second-sense-addition
 
 # 未知語の獲得の9つの run（8つと、何も差し込まない対照）の学習データを作る:
 # 名詞の用例の名詞を未知語に置き換え、基データに差し込む
 uv run lexical-acquisition-mechanisms training-data build --experiment unknown-word-acquisition
+
+# 2つ目の語義の追加の8つの run の学習データを作る: 未知語ごとに、2つ目の語義の名詞の用例と、
+# 1つ目の語義の名詞の用例を同じ数だけ未知語に置き換え、未知語の獲得で使った基データの直後の系列に差し込む
+uv run lexical-acquisition-mechanisms training-data build --experiment second-sense-addition
 ```
 
 **手作業**: `data/training/unknown-word-acquisition/checks.csv` で、run ごとの確認の結果（語ごとの差し込んだ件数、置き換え漏れ、総トークン数）を見る。`decoded_passages.txt`（差し込んだ用例を無作為に抜き出し、トークン列を文字に戻したもの）も目で確かめる。
@@ -144,6 +151,10 @@ uv run lexical-acquisition-mechanisms evaluation-data build-probe-and-normalizat
 
 # 最小対（手がかりの1語だけが違い、ターゲット語の語義が変わる2文）を作る
 uv run lexical-acquisition-mechanisms evaluation-data generate-minimal-pairs         # LLM
+
+# 最小対の候補の2文それぞれで、手がかりが一方の語にだけ合い、文が自然かを LLM が判定し、
+# 両方とも合格した候補だけを残す
+uv run lexical-acquisition-mechanisms evaluation-data judge-minimal-pairs            # LLM
 
 # 課題の問題を作る
 uv run lexical-acquisition-mechanisms evaluation-data build-task-questions           # LLM
@@ -212,6 +223,14 @@ uv run lexical-acquisition-mechanisms unknown-word-acquisition train-real-word-p
 uv run lexical-acquisition-mechanisms training write-run-settings \
   --experiment unknown-word-acquisition --model "$MODEL"
 for run_settings in outputs/runs/unknown-word-acquisition/"$MODEL"/*.yaml; do
+  uv run torchrun --nproc-per-node "$NUMBER_OF_GPUS" -m lexical_acquisition_mechanisms \
+    training run --run-settings "$run_settings" || break   # GPU
+done
+
+# 2つ目の語義の追加の8つの run を学習する（同じ名前の未知語の獲得の run の最後の重みから）
+uv run lexical-acquisition-mechanisms training write-run-settings \
+  --experiment second-sense-addition --model "$MODEL"
+for run_settings in outputs/runs/second-sense-addition/"$MODEL"/*.yaml; do
   uv run torchrun --nproc-per-node "$NUMBER_OF_GPUS" -m lexical_acquisition_mechanisms \
     training run --run-settings "$run_settings" || break   # GPU
 done

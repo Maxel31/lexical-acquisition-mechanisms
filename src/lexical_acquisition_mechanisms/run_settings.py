@@ -4,6 +4,8 @@ training write-run-settings --experiment <実験> --model <モデル> が書く�
 
 outputs/runs/<実験>/<モデル>/<run>.yaml に、その run の学習に要るものを全て書く。training run は、
 このファイルだけを読んで学習する（後で settings.yaml を変えても、書いた run の設定は変わらない）。
+2つ目の語義の追加（second-sense-addition）の run は、同じ名前の未知語の獲得の run の最後の重みから
+学習する（その重みがなければ止まる）。1トークンの未知語の埋め込みは、初期化し直さない。
 """
 
 import argparse
@@ -15,12 +17,15 @@ from pydantic import Field, ValidationError
 
 from lexical_acquisition_mechanisms import (
     base_data,
+    second_sense_assignments,
+    second_sense_training_data,
     sense_addition_assignments,
     sense_addition_training_data,
     unknown_word_assignments,
     unknown_word_training_data,
     word_finalization,
 )
+from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.settings import (
@@ -40,12 +45,17 @@ EXPERIMENT_RUNS = {
         unknown_word_training_data.CONTROL_RUN,
     ],
     sense_addition_assignments.EXPERIMENT: sense_addition_assignments.run_names(),
+    second_sense_assignments.EXPERIMENT: second_sense_assignments.run_names(),
 }
 # 実験ごとの、学習データ（training-data build が書く）のディレクトリ
 TRAINING_DATA_DIRECTORIES = {
     unknown_word_assignments.EXPERIMENT: unknown_word_training_data.OUTPUT_DIRECTORY,
     sense_addition_assignments.EXPERIMENT: sense_addition_training_data.OUTPUT_DIRECTORY,
+    second_sense_assignments.EXPERIMENT: second_sense_training_data.OUTPUT_DIRECTORY,
 }
+# 未知語の獲得の run の、最後の重みのディレクトリの名前（training_checkpoints.FINAL_DIRECTORY と
+# 同じ。training_checkpoints はこのファイルを import するので、ここに書く）
+FINAL_WEIGHTS_DIRECTORY = "final"
 
 
 class RunSettings(SettingsSection):
@@ -111,11 +121,35 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def first_phase_weights(model: str, run: str) -> Path:
+    """2つ目の語義の追加の run が学習を始める、同じ名前の未知語の獲得の run の最後の重み。"""
+    return (
+        CHECKPOINTS_DIRECTORY
+        / unknown_word_assignments.EXPERIMENT
+        / model
+        / run
+        / FINAL_WEIGHTS_DIRECTORY
+    )
+
+
 def write_run_settings(settings: Settings, arguments: argparse.Namespace) -> None:
     experiment, model = arguments.experiment, arguments.model
+    command = f"training write-run-settings --experiment {experiment} --model {model}"
+    if experiment == second_sense_assignments.EXPERIMENT:
+        missing = [
+            run
+            for run in EXPERIMENT_RUNS[experiment]
+            if not (first_phase_weights(model, run) / "config.json").exists()
+        ]
+        if missing:
+            raise CommandStopped(
+                f"2つ目の語義の追加を始める、未知語の獲得の最後の重みがありません（{missing}）。"
+                f"未知語の獲得の run を、先に {model} で学習してください。",
+                rerun_from=command,
+            )
     paths = [run_settings_path(experiment, model, run) for run in EXPERIMENT_RUNS[experiment]]
     step = Step(
-        f"training write-run-settings --experiment {experiment} --model {model}",
+        command,
         inputs={word_finalization.OUTPUT_PATH: word_finalization.COMMAND},
         outputs=paths,
         settings={
@@ -155,7 +189,11 @@ def build_run_settings(
             experiment=experiment,
             run=run,
             model=model,
-            model_source=settings.models[model],
+            model_source=(
+                ModelSource(repository=str(first_phase_weights(model, run)))
+                if experiment == second_sense_assignments.EXPERIMENT
+                else settings.models[model]
+            ),
             training_tokens=data_directory / unknown_word_training_data.TOKENS_FILE_NAME,
             passage_starts=data_directory / unknown_word_training_data.PASSAGE_STARTS_FILE_NAME,
             passage_length=settings.passages.tokens_per_passage + 1,
