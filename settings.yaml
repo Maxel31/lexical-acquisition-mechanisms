@@ -4,15 +4,10 @@
 # 版は、事前学習のステージ1の最後の重み（継続事前学習の学習率と学習データを、ステージ1に合わせるため）。
 # コメントは、そのコミットを指すブランチの名前
 models:
+  # （試行は 1B だけ。7B・13B は本番で使う）
   OLMo-2-0425-1B:
     repository: allenai/OLMo-2-0425-1B
     revision: 9d3e43659f00c17e6da23cf32333afd1fc39fa1a  # stage1-step1907359-tokens4001B
-  OLMo-2-1124-7B:
-    repository: allenai/OLMo-2-1124-7B
-    revision: c0371f4281bf2376207646c6b62ddc6c442c7577  # stage1-step928646-tokens3896B
-  OLMo-2-1124-13B:
-    repository: allenai/OLMo-2-1124-13B
-    revision: 08d2aca2e28ab67ad859793f76ef5c923e94ac11  # stage1-step596057-tokens5001B
 
 # 語の候補の生成や用例の判定に使う LLM（README のとおりに起動した vLLM のサーバ）
 llm:
@@ -150,7 +145,9 @@ passages:
   # この倍の出現が入る上限にする。語の出現が見積もりより少なくて止まったときは、大きくする）
   key_limit_margin: 3
   # LLM の判定の精度（合格とした用例のうち、人も 1 とした割合）の、語ごとの下限
-  minimum_judgment_precision: 0.95
+  # （試行だけ 0.85。curtain・arcane・bunk・cot・trailer・viper を含めて流すため。ユーザーの選択、11/7。
+  #   本番の前に、この6語を入れ替えて 0.95 に戻す）
+  minimum_judgment_precision: 0.85
   # 確認した 20 件で精度が下限に届かないが、この数を足せば 0 の数が許される数に収まる語に、足して
   # 確かめる用例の数（20 件で 0 が 2〜3 件の語は、60 件で 0 が 3 件以下なら合格）
   additional_reviewed_passages_per_word: 40
@@ -158,12 +155,14 @@ passages:
 # 未知語の獲得
 unknown_word_acquisition:
   # 露出回数（1 run の学習データに差し込む、1つの未知語の用例の数）の8つの水準
-  exposure_levels: [0, 1, 10, 100, 1000, 3000, 5000, 10000]
+  # （試行だけ、いちばん上を 9900 にする。butter の置き換えられる用例が 9,984 件で、10,000 件に届かないため）
+  exposure_levels: [0, 1, 10, 100, 1000, 3000, 5000, 9900]
 
 # 語義の追加
 sense_addition:
   # K: 足す語義1つあたりに、1 run の学習データに差し込む用例の数（暫定。未知語の獲得の結果で決める）
-  passages_per_added_sense: 3000
+  # （試行だけ 1000。基データを小さくした試行で、結果を早く出すため。ユーザーの選択、11/7）
+  passages_per_added_sense: 1000
 
 # 評価データ
 evaluation:
@@ -180,10 +179,10 @@ evaluation:
   number_of_task_examples: 3
   # 言い換えの語が見つからないターゲット語があっても、課題の問題を作って続けるか（試行用。その語には、
   # 元の語義を問う問題を作らない）。false なら止まる
-  allow_targets_without_paraphrase: false
-  # 公開モデルでの確認に通った最小対が1つもない語義の組があっても、続けるか（試行用。その組は
-  # 評価から外れる）。false なら止まる
-  allow_sense_pairs_without_minimal_pairs: false
+  # （試行だけ true。coupe・sailboat・recliner に言い換えの語がないため。本番の前に、この3語も入れ替える）
+  allow_targets_without_paraphrase: true
+  # （試行だけ true、1B だけで確かめる。LLM のサーバを学習のために止めていて、最小対を作り直せないため）
+  allow_sense_pairs_without_minimal_pairs: true
   # 語義の組（ターゲット語の元の語義と、足す語義）ごとの最小対の数（暫定）と、
   # LLM に作らせる候補の数の、最小対の数に対する倍率（学習前のモデルでの確認で落ちる分を見込む）
   minimal_pairs_per_sense_pair: 20
@@ -260,7 +259,8 @@ training:
   batch_size_in_tokens: 1048576
   sequence_length: 4096
   # 学習データに使う、基データの先頭からの系列の数（試行で学習を小さくするとき。null なら全て）
-  number_of_base_sequences_used: null
+  # （試行だけ 5,632 系列（約 2,300 万トークン）。1/16 の 4,608 系列では、未知語の獲得の用例が入らないため）
+  number_of_base_sequences_used: 5632
   # 学習率を0から上げる step の、全ての step に対する割合（暫定）
   warmup_fraction: 0.01
   # モデルごとの、1つの GPU で1回に計算する系列の数（GPU のメモリに合わせる）
@@ -291,4 +291,4 @@ training:
     # 乱数の標準偏差の、既存の埋め込みの次元ごとの標準偏差に対する倍率
     noise_scale: 0.1
   # 学習の記録を送る W&B のプロジェクト
-  weights_and_biases_project: lexical-acquisition-mechanisms
+  weights_and_biases_project: lexical-acquisition-mechanisms-trial
