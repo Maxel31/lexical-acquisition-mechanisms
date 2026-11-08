@@ -270,10 +270,12 @@ def _write_passages(settings: Settings, tokenizer: WordTokenizer, world: World) 
     """語ごとに、学習用と評価用に要る数の用例（文の途中に語を1回置いたもの）。"""
     length = settings.passages.tokens_per_passage
     exposures = max(settings.unknown_word_acquisition.exposure_levels)
+    # 2つ目の語義の追加で、名詞を Y にする分（同じ名詞を何回か Y にしても足りるように）
+    second = 3 * max(settings.second_sense_addition.second_exposure_levels)
     added = settings.sense_addition.passages_per_added_sense
     needed = {
         "noun": {
-            "training": exposures,
+            "training": exposures + second,
             "evaluation": settings.passages.evaluation_passages_per_word,
         },
         "adjective": {
