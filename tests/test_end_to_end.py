@@ -139,6 +139,8 @@ def test_all_commands_run_to_the_end(
                         }
                     )
                 answers.append({"pairs": pairs})
+            elif request.prompt.name == "judge-minimal-pair":
+                answers.append({"reason": "", "sentence_1_fits": True, "sentence_2_fits": True})
             else:
                 raise AssertionError(f"想定していない LLM への問い合わせ: {request.prompt.name}")
         return answers
@@ -165,6 +167,7 @@ def test_all_commands_run_to_the_end(
     run("evaluation-data", "extract-natural-word-sentences")
     run("evaluation-data", "build-probe-and-normalization-words")
     run("evaluation-data", "generate-minimal-pairs")
+    run("evaluation-data", "judge-minimal-pairs")
     run("evaluation-data", "build-task-questions")
     run("evaluation-data", "check-with-pretrained-models")
     review = Path("data/evaluation/minimal_pairs_review.csv")

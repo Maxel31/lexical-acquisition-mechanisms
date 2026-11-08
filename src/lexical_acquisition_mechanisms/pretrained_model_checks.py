@@ -1,7 +1,8 @@
 """公開されている OLMo 2 の3モデルで、評価データを確かめる。
 
 evaluation-data check-with-pretrained-models の処理。
-最小対の手がかりが語義を決めているか: 空欄の前までの文の後に置いた語の対数確率を比べる。donor の
+最小対の手がかりが語義を決めているか: LLM の判定に合格した候補（evaluation-data
+judge-minimal-pairs）で、空欄の前までの文の後に置いた語の対数確率を比べる。donor の
 手がかりの文（X）とターゲット語の手がかりの文（Y）で、donor は X の方が、ターゲット語は Y の方が
 出やすい（全てのモデルで）候補だけを使う。語義の組ごとに、候補の順に
 evaluation.minimal_pairs_per_sense_pair 組まで残し（data/evaluation/checked_minimal_pairs.csv）、
@@ -24,7 +25,12 @@ import numpy as np
 import pyarrow.parquet as parquet
 import torch
 
-from lexical_acquisition_mechanisms import minimal_pairs, task_questions, word_finalization
+from lexical_acquisition_mechanisms import (
+    minimal_pair_judgment,
+    minimal_pairs,
+    task_questions,
+    word_finalization,
+)
 from lexical_acquisition_mechanisms.bootstrap_statistics import SIGNIFICANCE_LEVEL
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import (
@@ -127,7 +133,8 @@ class CheckPaths:
     """この処理が読むファイルと書くファイル。"""
 
     words: Path = word_finalization.OUTPUT_PATH
-    candidates: Path = minimal_pairs.OUTPUT_PATH
+    # LLM の判定（evaluation-data judge-minimal-pairs）に合格した候補
+    candidates: Path = minimal_pair_judgment.JUDGED_PATH
     natural_questions: Path = task_questions.NATURAL_QUESTIONS_PATH
     examples: Path = task_questions.EXAMPLES_PATH
     paraphrases: Path = task_questions.PARAPHRASES_PATH
@@ -144,7 +151,7 @@ def check_with_pretrained_models(settings: Settings, arguments: argparse.Namespa
         COMMAND,
         inputs={
             paths.words: word_finalization.COMMAND,
-            paths.candidates: minimal_pairs.COMMAND,
+            paths.candidates: minimal_pair_judgment.COMMAND,
             paths.natural_questions: task_questions.COMMAND,
             paths.examples: task_questions.COMMAND,
             paths.paraphrases: task_questions.COMMAND,

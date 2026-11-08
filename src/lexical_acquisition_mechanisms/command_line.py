@@ -26,6 +26,7 @@ from lexical_acquisition_mechanisms import (
     head_and_mlp_effects,
     head_map_comparison,
     hidden_state_similarity,
+    minimal_pair_judgment,
     minimal_pairs,
     natural_word_sentences,
     neutral_contexts,
@@ -232,6 +233,13 @@ def all_actions() -> list[Action]:
             "generate-minimal-pairs",
             "最小対（手がかりの1語だけが違い、ターゲット語の語義が変わる2文）を作る",
             minimal_pairs.generate_minimal_pairs,
+        ),
+        Action(
+            "evaluation-data",
+            "judge-minimal-pairs",
+            "最小対の候補の2文それぞれで、手がかりが一方の語にだけ合い、文が自然かを、"
+            "LLM が判定する",
+            minimal_pair_judgment.judge_minimal_pairs,
         ),
         Action(
             "evaluation-data",
