@@ -194,6 +194,25 @@ class SenseAdditionSettings(SettingsSection):
     passages_per_added_sense: int = Field(gt=0)
 
 
+class SecondSenseAdditionSettings(SettingsSection):
+    """2つ目の語義の追加（未知語の獲得で統合まで済んだ未知語に、別の名詞の語義を足す）。"""
+
+    # 2つ目の語義を足す未知語の、1つ目の露出回数の下限
+    minimum_first_exposure: int = Field(gt=0)
+    # 2つ目の露出回数の水準（0 は対照）
+    second_exposure_levels: list[int]
+
+    @field_validator("second_exposure_levels")
+    @classmethod
+    def _increasing_levels(cls, levels: list[int]) -> list[int]:
+        increasing = all(lower < upper for lower, upper in itertools.pairwise(levels))
+        if len(levels) < 2 or not increasing or levels[0] < 0:
+            raise ValueError(
+                f"2つ目の露出回数の水準は、0 以上の数を2つ以上、小さい順に並べてください: {levels}"
+            )
+        return levels
+
+
 class EvaluationSettings(SettingsSection):
     """評価データ。"""
 
@@ -293,6 +312,7 @@ class Settings(SettingsSection):
     passages: PassageSettings
     unknown_word_acquisition: UnknownWordAcquisitionSettings
     sense_addition: SenseAdditionSettings
+    second_sense_addition: SecondSenseAdditionSettings
     evaluation: EvaluationSettings
     training: TrainingSettings
 

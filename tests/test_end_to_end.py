@@ -44,6 +44,10 @@ def write_settings(directory: Path, model: ModelSource) -> None:
     content["models"] = {MODEL: {"repository": model.repository}}
     content["unknown_word_acquisition"]["exposure_levels"] = [0, 1, 2, 3, 4, 5, 6, 8]
     content["sense_addition"]["passages_per_added_sense"] = 2
+    content["second_sense_addition"] = {
+        "minimum_first_exposure": 4,
+        "second_exposure_levels": [0, 1, 2, 3],
+    }
     content["passages"] |= {"tokens_per_passage": 24, "evaluation_passages_per_word": 2}
     content["evaluation"] |= {
         "sentences_per_natural_word": 3,
@@ -163,6 +167,7 @@ def test_all_commands_run_to_the_end(
 
     run("assignments", "build", "--experiment", "unknown-word-acquisition")
     run("assignments", "build", "--experiment", "sense-addition")
+    run("assignments", "build", "--experiment", "second-sense-addition")
     run("training-data", "build", "--experiment", "unknown-word-acquisition")
     run("evaluation-data", "extract-natural-word-sentences")
     run("evaluation-data", "build-probe-and-normalization-words")
