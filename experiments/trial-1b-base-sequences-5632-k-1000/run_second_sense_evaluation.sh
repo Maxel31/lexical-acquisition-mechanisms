@@ -31,7 +31,9 @@ for number in $(seq 1 8); do
 done
 log "8 run の学習が終わりました"
 
-CUDA_VISIBLE_DEVICES=$GPUS setsid nohup uvx --from vllm==0.32.0 vllm serve \
+# この GPU の世代向けの DeepGEMM は CUDA 13 が要る（ここは CUDA 12.9）ので、DeepGEMM を使わない
+CUDA_VISIBLE_DEVICES=$GPUS VLLM_USE_DEEP_GEMM=0 VLLM_MOE_USE_DEEP_GEMM=0 \
+  setsid nohup uvx --from vllm==0.32.0 vllm serve \
   Qwen/Qwen3-Next-80B-A3B-Instruct-FP8 --tensor-parallel-size 2 --data-parallel-size 2 \
   --port 8000 > "$LOGS/vllm.log" 2>&1 < /dev/null &
 SERVER=$!
