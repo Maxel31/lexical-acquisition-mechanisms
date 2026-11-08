@@ -187,8 +187,10 @@ evaluation:
   # 語義の組（ターゲット語の元の語義と、足す語義）ごとの最小対の数（暫定）と、
   # LLM に作らせる候補の数の、最小対の数に対する倍率（学習前のモデルでの確認で落ちる分を見込む）
   minimal_pairs_per_sense_pair: 20
-  # （2 では、sailboat/jet の答えが1組だけで、2つの手がかりが同じ語だったので、3 にした）
-  minimal_pair_candidate_factor: 3
+  # （2 では、sailboat/jet の答えが1組だけで、2つの手がかりが同じ語だったので、3 にした。
+  # LLM の判定（judge-minimal-pairs）でも落ちるので、6 にした。1B の試行では、見本の確認に
+  # 通ったのは 31%）
+  minimal_pair_candidate_factor: 6
   # 中立文脈（語の意味を示さない文の書き出し。直後に語を置く）の候補。前から順に、条件に合うものを使う。
   # 前の20種は設計書の付録Eの候補、後の30種は、足りないときに使う同じ形の文
   neutral_context_candidates:
