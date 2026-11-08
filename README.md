@@ -145,6 +145,10 @@ uv run lexical-acquisition-mechanisms evaluation-data build-probe-and-normalizat
 # 最小対（手がかりの1語だけが違い、ターゲット語の語義が変わる2文）を作る
 uv run lexical-acquisition-mechanisms evaluation-data generate-minimal-pairs         # LLM
 
+# 最小対の候補の2文それぞれで、手がかりが一方の語にだけ合い、文が自然かを LLM が判定し、
+# 両方とも合格した候補だけを残す
+uv run lexical-acquisition-mechanisms evaluation-data judge-minimal-pairs            # LLM
+
 # 課題の問題を作る
 uv run lexical-acquisition-mechanisms evaluation-data build-task-questions           # LLM
 

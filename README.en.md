@@ -153,6 +153,10 @@ uv run lexical-acquisition-mechanisms evaluation-data build-probe-and-normalizat
 # different senses)
 uv run lexical-acquisition-mechanisms evaluation-data generate-minimal-pairs         # LLM
 
+# For each of the two sentences of every candidate, the LLM judges whether the cue fits only one of
+# the two words and the sentence is natural; keep only the candidates where both sentences pass
+uv run lexical-acquisition-mechanisms evaluation-data judge-minimal-pairs            # LLM
+
 # Make the task questions
 uv run lexical-acquisition-mechanisms evaluation-data build-task-questions           # LLM
 
