@@ -238,6 +238,15 @@ for run_settings in outputs/runs/unknown-word-acquisition/"$MODEL"/*.yaml; do
   uv run torchrun --nproc-per-node "$NUMBER_OF_GPUS" -m lexical_acquisition_mechanisms \
     training run --run-settings "$run_settings" || break   # GPU
 done
+
+# Train the 8 second-sense addition runs (each from the final weights of the unknown-word
+# acquisition run with the same name)
+uv run lexical-acquisition-mechanisms training write-run-settings \
+  --experiment second-sense-addition --model "$MODEL"
+for run_settings in outputs/runs/second-sense-addition/"$MODEL"/*.yaml; do
+  uv run torchrun --nproc-per-node "$NUMBER_OF_GPUS" -m lexical_acquisition_mechanisms \
+    training run --run-settings "$run_settings" || break   # GPU
+done
 ```
 
 **Manual step**: after all runs have finished training, check in each run's training log (`metrics.jsonl`) that the perplexity changes by 1% or less from before training. For a run that exceeds it, find the cause and report it.

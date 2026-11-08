@@ -183,6 +183,7 @@ def test_all_commands_run_to_the_end(
     run("evaluation-data", "finalize", "--review-csv", str(review))
 
     train_all("unknown-word-acquisition")
+    train_all("second-sense-addition")
     for action in (
         "train-real-word-probes",
         "measure-indicators",
