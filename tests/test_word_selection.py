@@ -11,7 +11,9 @@ from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import write_rows
 from lexical_acquisition_mechanisms.noun_candidates import NounCandidate
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings, load_settings
+from lexical_acquisition_mechanisms.unknown_word_candidates import UnknownWordCandidate
 from lexical_acquisition_mechanisms.word_selection import CandidateTables, build_selected_words
+from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 # (語, カテゴリ, 先頭スペース付きのトークン数, Pile での出現回数の常用対数)
@@ -45,6 +47,16 @@ ADJECTIVES = [
     ("green", 5.5, 0.95, 3),
     ("delicious", 5.9, 0.95, 6),
     ("cold", 5.3, 0.6, 2),
+]
+# 未知語の候補（語, 綴りの近さ, near の元の語, トークン数, トークン番号, 出現回数）
+UNKNOWN_WORDS = [
+    UnknownWordCandidate("glorpa", "near", "happy", 2, "99001 99002", 0),
+    UnknownWordCandidate("vibbet", "near", "gentle", 2, "99003 99004", 3),
+    UnknownWordCandidate("zubbet", "near", "gentle", 2, "99005 99006", 0),
+    UnknownWordCandidate("zuffle", "far", "", 2, "99005 99007", 0),
+    UnknownWordCandidate("snorf", "far", "", 2, "99008 99009", 0),
+    UnknownWordCandidate("thwomp", "near", "gentle", 3, "99010 99011 99012", 0),
+    UnknownWordCandidate("spleng", "far", "", 3, "99013 99014 99015", 0),
 ]
 
 
@@ -92,8 +104,13 @@ def adjective_candidate(
 def settings(
     tiny_model_source: ModelSource, wordnet_directory: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Settings:
-    """食べ物と動物の2カテゴリで、名詞を各2語、自然な名詞を各3語、自然な形容詞を2語選ぶ。"""
+    """食べ物と動物の2カテゴリで、名詞を各2語、自然な名詞を各3語、自然な形容詞を2語選ぶ。
+
+    未知語は、1トークンを2個、2・3トークンを綴りの近さごとに1個選ぶ。
+    """
     monkeypatch.setattr(word_selection, "NOUNS_PER_CATEGORY", 2)
+    monkeypatch.setattr(word_selection, "ONE_TOKEN_UNKNOWN_WORDS", 2)
+    monkeypatch.setattr(word_selection, "UNKNOWN_WORDS_PER_GROUP", 1)
     monkeypatch.setattr(word_selection, "NATURAL_NOUNS_PER_CATEGORY", 3)
     monkeypatch.setattr(word_selection, "NATURAL_ADJECTIVES", 2)
     monkeypatch.setattr(word_selection, "PART_OF_SPEECH_NOUNS_PER_CATEGORY", 1)
@@ -103,14 +120,20 @@ def settings(
 
 
 def select(
-    tmp_path: Path, settings: Settings, nouns: list[NounCandidate]
+    tmp_path: Path,
+    settings: Settings,
+    nouns: list[NounCandidate],
+    unknown_words: list[UnknownWordCandidate] = UNKNOWN_WORDS,
 ) -> dict[str, dict[str, str]]:
     tables = CandidateTables(
-        nouns=tmp_path / "noun_candidates.csv", adjectives=tmp_path / "adjective_candidates.csv"
+        nouns=tmp_path / "noun_candidates.csv",
+        adjectives=tmp_path / "adjective_candidates.csv",
+        unknown_words=tmp_path / "unknown_word_candidates.csv",
     )
     write_rows(tables.nouns, NounCandidate, nouns)
     adjectives = [adjective_candidate(*adjective) for adjective in ADJECTIVES]
     write_rows(tables.adjectives, AdjectiveCandidate, adjectives)
+    write_rows(tables.unknown_words, UnknownWordCandidate, unknown_words)
     output_path = tmp_path / "selected_words.csv"
     build_selected_words(settings, tables, output_path)
     with output_path.open(encoding="utf-8") as file:
@@ -179,6 +202,38 @@ def test_natural_words_are_the_remaining_words_of_each_token_count(
     # 品詞のプローブには、1トークンの名詞（各カテゴリ1語）と、自然な形容詞を使う
     probe_words = {word for word, row in rows.items() if row["part_of_speech_probe"] == "True"}
     assert probe_words == (natural_nouns & {"pasta", "soup"}) | {"dog", "quiet", "delicious"}
+
+
+def test_unknown_words_have_first_tokens_of_their_own(tmp_path: Path, settings: Settings) -> None:
+    tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
+    bread = tokenizer.word_token_ids("bread")[0]
+    unknown_words = [UnknownWordCandidate("breadu", "near", "x", 2, f"{bread} 99000", 0)]
+    unknown_words += UNKNOWN_WORDS
+
+    rows = select(tmp_path, settings, [noun_candidate(*noun) for noun in NOUNS], unknown_words)
+
+    # breadu は最初のトークンが名詞 bread と、zuffle は zubbet と重なる。glorpa は元の語が
+    # 管理対象の形容詞（happy）、vibbet はコーパスに現れるので選ばない
+    assert words_with_role(rows, "unknown") == {
+        "<new_01>",
+        "<new_02>",
+        "zubbet",
+        "snorf",
+        "thwomp",
+        "spleng",
+    }
+    assert rows["<new_01>"]["token_ids"] == "100278"
+    assert rows["<new_01>"]["spelling_closeness"] == ""
+    assert rows["zubbet"]["spelling_closeness"] == "near"
+    assert rows["zubbet"]["source_word"] == "gentle"
+
+
+def test_missing_unknown_words_stop_with_the_group(tmp_path: Path, settings: Settings) -> None:
+    unknown_words = [word for word in UNKNOWN_WORDS if word.word != "spleng"]
+
+    with pytest.raises(CommandStopped, match="3トークン・far の未知語") as stopped:
+        select(tmp_path, settings, [noun_candidate(*noun) for noun in NOUNS], unknown_words)
+    assert stopped.value.rerun_from == "words generate-unknown-word-candidates"
 
 
 def test_missing_candidates_stop_with_the_category(tmp_path: Path, settings: Settings) -> None:

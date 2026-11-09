@@ -6,6 +6,10 @@
 - ターゲット語18語: 各カテゴリから、先頭スペース付きで1・2・3トークンの語を1語ずつ。最初の
   トークンが、名詞やほかのターゲット語と重ならない。
 - 形容詞72語: 先頭スペース付きで1トークン。どのカテゴリとも結びつきが強くない。
+- 未知語72個: 1トークンの24個は、使われていないトークン番号（表記は <new_01> などの管理用の名前）。
+  2・3トークンの各24個は、一度も現れない候補から、綴りの近さ（near・far）ごとに12個ずつ、候補の
+  無作為な順に選ぶ。最初のトークンが、ほかの未知語や管理対象の語と重ならず、near の元の語が
+  管理対象の語でないものに限る。
 - 自然な語（実験で操作しない実在語。課題の例やプローブの学習に使う）: 各カテゴリ30語の名詞と、
   形容詞60語。名詞は、カテゴリごとに1・2・3トークンの語を順に（なければ、あるトークン数の語を）、
   無作為に選ぶ。品詞のプローブには、形容詞と同じ1トークンの名詞を、各カテゴリ10語使う。
@@ -29,13 +33,18 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
-from lexical_acquisition_mechanisms import adjective_candidates, noun_candidates
+from lexical_acquisition_mechanisms import (
+    adjective_candidates,
+    noun_candidates,
+    unknown_word_candidates,
+)
 from lexical_acquisition_mechanisms.adjective_candidates import AdjectiveCandidate
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.noun_candidates import NounCandidate
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
 from lexical_acquisition_mechanisms.settings import Settings
+from lexical_acquisition_mechanisms.unknown_word_candidates import UnknownWordCandidate
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
 from lexical_acquisition_mechanisms.wordnet_senses import adjective_senses, noun_senses
 
@@ -47,6 +56,9 @@ NATURAL_NOUNS_PER_CATEGORY = 30
 NATURAL_ADJECTIVES = 60
 # 品詞のプローブに使う、カテゴリごとの自然な名詞の数
 PART_OF_SPEECH_NOUNS_PER_CATEGORY = 10
+# 1トークンの未知語の数と、2・3トークンの未知語の、トークン数と綴りの近さの組ごとの数
+ONE_TOKEN_UNKNOWN_WORDS = 24
+UNKNOWN_WORDS_PER_GROUP = 12
 
 
 @dataclass(frozen=True)
@@ -55,12 +67,13 @@ class CandidateTables:
 
     nouns: Path = noun_candidates.OUTPUT_PATH
     adjectives: Path = adjective_candidates.OUTPUT_PATH
+    unknown_words: Path = unknown_word_candidates.OUTPUT_PATH
 
 
 @dataclass
 class SelectedWord:
     word: str
-    # 役割（noun: 名詞72語、target: ターゲット語、adjective: 形容詞72語、
+    # 役割（noun: 名詞72語、target: ターゲット語、adjective: 形容詞72語、unknown: 未知語、
     # natural-noun・natural-adjective: 自然な名詞・形容詞）
     role: str
     category: str = ""
@@ -76,6 +89,9 @@ class SelectedWord:
     usage_share: float = 0.0
     # 品詞のプローブの学習に使う自然な語か
     part_of_speech_probe: bool = False
+    # 未知語の綴りの近さ（near・far。1トークンの未知語は空）と、near の元の実在語
+    spelling_closeness: str = ""
+    source_word: str = ""
 
 
 class ChosenWords:
@@ -108,6 +124,7 @@ def select_words(settings: Settings, arguments: argparse.Namespace) -> None:
     inputs = {
         tables.nouns: noun_candidates.COMMAND,
         tables.adjectives: adjective_candidates.COMMAND,
+        tables.unknown_words: unknown_word_candidates.COMMAND,
     }
     step = Step(COMMAND, inputs=inputs, outputs=[OUTPUT_PATH], settings=record_settings)
     run_unless_unchanged(
@@ -128,6 +145,8 @@ def build_selected_words(settings: Settings, tables: CandidateTables, output_pat
     rows = [_row(noun, "noun", tokenizer) for noun in nouns]
     rows += [_row(target, "target", tokenizer) for target in targets]
     rows += [_row(adjective, "adjective", tokenizer) for adjective in adjectives]
+    listed_unknown_words = read_rows(tables.unknown_words, UnknownWordCandidate)
+    rows += _select_unknown_words(listed_unknown_words, rows, tokenizer)
     rows += _select_natural_words(listed_nouns, listed_adjectives, settings, chosen, tokenizer)
     write_rows(output_path, SelectedWord, rows)
 
@@ -276,6 +295,56 @@ def _select_adjectives(
         chosen.take(adjective.word)
         adjectives.append(adjective)
     return adjectives
+
+
+def _select_unknown_words(
+    candidates: Sequence[UnknownWordCandidate],
+    managed: Sequence[SelectedWord],
+    tokenizer: WordTokenizer,
+) -> list[SelectedWord]:
+    """未知語。最初のトークンが、ほかの未知語や管理対象の語（managed）と重ならないものを選ぶ。"""
+    new_token_ids = tokenizer.unused_token_ids(ONE_TOKEN_UNKNOWN_WORDS)
+    rows = [
+        SelectedWord(f"<new_{number:02d}>", "unknown", token_count=1, token_ids=str(token_id))
+        for number, token_id in enumerate(new_token_ids, start=1)
+    ]
+    taken_first_tokens = {row.token_ids.split()[0] for row in managed}
+    managed_words = {row.word for row in managed}
+    for token_count in (2, 3):
+        for closeness in ("near", "far"):
+            group = []
+            for candidate in candidates:
+                first_token = candidate.token_ids.split()[0]
+                if (
+                    len(group) < UNKNOWN_WORDS_PER_GROUP
+                    and candidate.occurrences == 0
+                    and candidate.token_count == token_count
+                    and candidate.spelling_closeness == closeness
+                    and first_token not in taken_first_tokens
+                    and candidate.source_word not in managed_words
+                ):
+                    taken_first_tokens.add(first_token)
+                    group.append(_unknown_word_row(candidate))
+            if len(group) < UNKNOWN_WORDS_PER_GROUP:
+                raise CommandStopped(
+                    f"{token_count}トークン・{closeness} の未知語で、最初のトークンがほかの語と"
+                    f"重ならない候補が足りません（{len(group)} 個）。settings.yaml の"
+                    " unknown_words.candidates_per_group を増やしてください。",
+                    rerun_from=unknown_word_candidates.COMMAND,
+                )
+            rows += group
+    return rows
+
+
+def _unknown_word_row(candidate: UnknownWordCandidate) -> SelectedWord:
+    return SelectedWord(
+        candidate.word,
+        "unknown",
+        token_count=candidate.token_count,
+        token_ids=candidate.token_ids,
+        spelling_closeness=candidate.spelling_closeness,
+        source_word=candidate.source_word,
+    )
 
 
 def _select_natural_words(
