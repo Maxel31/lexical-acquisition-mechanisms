@@ -14,7 +14,8 @@
     s_Y の語義を選ぶようになったか（switched）
   - 課題2（その run の種類の課題。名詞を足す条件はカテゴリ、形容詞は品詞）: s_Y の正解の対数確率の
     増え方と、答えが s_Y の正解になったか
-出力は outputs/results/sense-addition/<モデル>/attribute_patching.parquet。
+出力は outputs/results/sense-addition/<モデル>/attribute_patching.parquet。続けて、属性を判定する
+head を3つの基準で決めて保存する（attribute_judgments）。
 """
 
 import argparse
@@ -37,6 +38,7 @@ from lexical_acquisition_mechanisms import (
     word_finalization,
 )
 from lexical_acquisition_mechanisms.attribute_directions import attribute_basis, random_basis
+from lexical_acquisition_mechanisms.attribute_judgments import write_attribute_judgments
 from lexical_acquisition_mechanisms.attribute_probes import (
     ATTRIBUTES,
     adopted_heads,
@@ -76,8 +78,14 @@ class PlannedPatch:
     basis: np.ndarray
 
 
-def output_path(model: str) -> Path:
-    return sense_accuracy.RESULTS_DIRECTORY / model / "attribute_patching.parquet"
+def output_paths(model: str) -> tuple[Path, Path, Path, Path]:
+    directory = sense_accuracy.RESULTS_DIRECTORY / model
+    return (
+        directory / "attribute_patching.parquet",
+        directory / "attribute_direction_tests.csv",
+        directory / "attribute_judging_heads.csv",
+        directory / "attribute_judging_heads.npz",
+    )
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -90,37 +98,45 @@ def test_attribute_directions(settings: Settings, arguments: argparse.Namespace)
     checkpoints = sense_accuracy.final_checkpoints(model, command)
     tested = {run: checkpoints[run] for run in TESTED_RUNS}
     classes_path = significant_heads_and_mlps.output_paths(model)[2]
-    probes_path = attribute_probes.output_paths(model)[0]
+    probes_path, probe_accuracy_path, transfer_path = attribute_probes.output_paths(model)
     accuracy_path = sense_accuracy.result_paths(model)[1]
+    probes_command = f"sense-addition train-attribute-probes --model {model}"
     # 入力のファイルと、それを書くコマンド（write_attribute_patching に、この順で渡す）
     inputs = {
         classes_path: f"sense-addition select-significant-heads-and-mlps --model {model}",
-        probes_path: f"sense-addition train-attribute-probes --model {model}",
+        probes_path: probes_command,
         evaluation_finalization.QUESTIONS_PATH: evaluation_finalization.COMMAND,
         accuracy_path: f"sense-addition measure-sense-accuracy --model {model}",
         word_finalization.OUTPUT_PATH: word_finalization.COMMAND,
     }
+    patching_path, *judgment_paths = output_paths(model)
     step = Step(
         command,
-        inputs=inputs,
-        outputs=[output_path(model)],
+        inputs={**inputs, probe_accuracy_path: probes_command, transfer_path: probes_command},
+        outputs=list(output_paths(model)),
         settings={
             "checkpoints": checkpoint_states(list(tested.values())),
             "seed": settings.words.seed,
             "tested_pairs": TESTED_PAIRS,
         },
     )
-    run_unless_unchanged(
-        step,
-        lambda: write_attribute_patching(
+
+    def compute() -> None:
+        rows = write_attribute_patching(
             tested,
             lambda source: LanguageModel.load(source, batch_size=BATCH_SIZE),
             tuple(inputs),
-            output_path(model),
+            patching_path,
             settings.words.seed,
-        ),
-        arguments.recompute,
-    )
+        )
+        write_attribute_judgments(
+            rows,
+            (probe_accuracy_path, transfer_path, probes_path),
+            tuple(judgment_paths),
+            settings.words.seed,
+        )
+
+    run_unless_unchanged(step, compute, arguments.recompute)
 
 
 def write_attribute_patching(
@@ -129,7 +145,8 @@ def write_attribute_patching(
     input_paths: tuple[Path, Path, Path, Path, Path],
     output: Path,
     seed: int,
-) -> None:
+) -> list[dict[str, object]]:
+    """入れ替えの行を書き、返す。"""
     classes_path, probes_path, questions_path, accuracy_path, words_path = input_paths
     adopted = adopted_heads(classes_path)
     rows: list[dict[str, object]] = []
@@ -150,6 +167,7 @@ def write_attribute_patching(
             torch.cuda.empty_cache()
     output.parent.mkdir(parents=True, exist_ok=True)
     parquet.write_table(arrow.Table.from_pylist(rows), output)
+    return rows
 
 
 def planned_patches(

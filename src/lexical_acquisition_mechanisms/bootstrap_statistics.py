@@ -47,6 +47,20 @@ def weighted_means(
         return (weights @ values) / totals
 
 
+def mean_and_error(
+    groups: Sequence[str], values: np.ndarray, random_numbers: np.random.Generator
+) -> tuple[np.ndarray, np.ndarray]:
+    """単位での平均と、2段のブートストラップによる標準誤差（groups は単位ごとの上の単位）。"""
+    weights = bootstrap_weights(groups, BOOTSTRAP_SAMPLES, random_numbers)
+    return values.mean(axis=0), weighted_means(weights, values).std(axis=0)
+
+
+def positive_p_values(estimates: np.ndarray, errors: np.ndarray) -> np.ndarray:
+    """推定値が正という、正規近似の片側の p 値。"""
+    two_sided = normal_p_values(estimates, errors)
+    return np.where(estimates > 0, two_sided / 2, 1 - two_sided / 2)
+
+
 def normal_p_values(means: np.ndarray, standard_errors: np.ndarray) -> np.ndarray:
     """平均が 0 という仮説の、標準誤差による正規近似の両側の p 値。
 

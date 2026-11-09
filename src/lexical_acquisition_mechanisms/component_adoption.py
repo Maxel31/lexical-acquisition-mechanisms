@@ -26,7 +26,9 @@ from lexical_acquisition_mechanisms.bootstrap_statistics import (
     BOOTSTRAP_SAMPLES,
     benjamini_hochberg,
     bootstrap_weights,
+    mean_and_error,
     normal_p_values,
+    positive_p_values,
     weighted_means,
 )
 from lexical_acquisition_mechanisms.sense_addition_assignments import KINDS, NUMBERS_OF_SENSES
@@ -105,12 +107,12 @@ def select_components(
         half_results = []
         for half in (0, 1):
             chosen = [index for index, key in enumerate(keys) if halves[key[0]] == half]
-            effect, errors = _mean_and_error(
+            effect, errors = mean_and_error(
                 [keys[index][0] for index in chosen], values[chosen], random_numbers
             )
             q_values = benjamini_hochberg(normal_p_values(effect, errors))
             found = (effect > 0) & (q_values < FALSE_DISCOVERY_RATE)
-            half_results.append((_positive_p_values(effect, errors), found))
+            half_results.append((positive_p_values(effect, errors), found))
         (first_p, first_found), (second_p, second_found) = half_results
         replicated = (first_found & (second_p < SIGNIFICANCE_LEVEL)) | (
             second_found & (first_p < SIGNIFICANCE_LEVEL)
@@ -193,18 +195,4 @@ def _slopes(
     scale = (centered**2).sum()
     slope = np.tensordot(centered, np.array(means), axes=1) / scale
     sampled = np.tensordot(centered, np.array(samples), axes=(0, 0)) / scale
-    return slope, _positive_p_values(slope, sampled.std(axis=0))
-
-
-def _mean_and_error(
-    targets: Sequence[str], values: np.ndarray, random_numbers: np.random.Generator
-) -> tuple[np.ndarray, np.ndarray]:
-    """最小対での平均と、2段のブートストラップによる標準誤差。"""
-    weights = bootstrap_weights(targets, BOOTSTRAP_SAMPLES, random_numbers)
-    return values.mean(axis=0), weighted_means(weights, values).std(axis=0)
-
-
-def _positive_p_values(estimates: np.ndarray, errors: np.ndarray) -> np.ndarray:
-    """推定値が正という、正規近似の片側の p 値。"""
-    two_sided = normal_p_values(estimates, errors)
-    return np.where(estimates > 0, two_sided / 2, 1 - two_sided / 2)
+    return slope, positive_p_values(slope, sampled.std(axis=0))
