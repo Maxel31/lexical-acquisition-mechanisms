@@ -15,6 +15,7 @@ from lexical_acquisition_mechanisms import (
     acquisition_order,
     adjective_candidates,
     assignments,
+    attribute_direction_patching,
     attribute_probes,
     base_data,
     continued_pretraining,
@@ -302,6 +303,13 @@ def all_actions() -> list[Action]:
             "選んだ head の出力から、名詞のカテゴリと品詞を当てるプローブを学習する",
             attribute_probes.train_attribute_probes,
             attribute_probes.add_arguments,
+        ),
+        Action(
+            "sense-addition",
+            "test-attribute-directions",
+            "head の出力のうち属性を表す方向の成分を入れ替えて、属性を判定する head を確かめる",
+            attribute_direction_patching.test_attribute_directions,
+            attribute_direction_patching.add_arguments,
         ),
     ]
 

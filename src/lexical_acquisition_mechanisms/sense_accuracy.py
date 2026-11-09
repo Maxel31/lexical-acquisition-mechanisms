@@ -158,6 +158,15 @@ def write_sense_accuracy(
     write_rows(accuracy_path, SenseAccuracy, sense_accuracy(questions, answers))
 
 
+def usable_senses(accuracy_path: Path) -> set[tuple[str, int, str, str]]:
+    """手順2・3で使える（条件, N, ターゲット語, 語義）。語義は donor の語か original。"""
+    return {
+        (row.kind, row.number_of_senses, row.target, row.sense)
+        for row in read_rows(accuracy_path, SenseAccuracy)
+        if row.usable
+    }
+
+
 def evaluated_in(run: str, question: dict[str, object]) -> bool:
     """問題を、その run で解かせるか（条件の run と、対応する対照の run）。"""
     condition = f"{question['kind']}-{question['number_of_senses']}"
