@@ -266,6 +266,11 @@ uv run lexical-acquisition-mechanisms unknown-word-acquisition make-report
 # 課題1を解かせ、文脈の効果（Y の手がかりの文と X の手がかりの文での、Y の割合の差）を測る
 uv run lexical-acquisition-mechanisms second-sense-addition measure-context-effects \
   --model "$MODEL"   # GPU
+
+# 同じ重みで、未知語の表現の X・Y の表現への類似度（中立文脈の直後）と、表現での文脈の効果
+# （最小対の文の空欄の位置で、未知語の表現が手がかりに応じて X か Y に寄る量）を、層ごとに測る
+uv run lexical-acquisition-mechanisms second-sense-addition measure-meaning \
+  --model "$MODEL"   # GPU
 ```
 
 **手作業**: `outputs/figures/unknown-word-acquisition/` の意味の指標の図を見て、それ以上差し込んでもほとんど上がらない件数を K（語義の追加で、足す語義1つあたりに差し込む用例の数）とし、`settings.yaml` の `sense_addition.passages_per_added_sense` に書く。
