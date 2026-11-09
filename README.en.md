@@ -276,6 +276,13 @@ uv run lexical-acquisition-mechanisms unknown-word-acquisition analyze-acquisiti
 
 # Make figures and tables in outputs/figures/unknown-word-acquisition/
 uv run lexical-acquisition-mechanisms unknown-word-acquisition make-report
+
+# In every second sense addition run, at the weights before the sense is added and at the
+# middle and final weights of training, solve the sense task with the unknown word in the blank,
+# and measure the context effect (the difference in the share of Y between the sentence with
+# the cue for Y and the sentence with the cue for X)
+uv run lexical-acquisition-mechanisms second-sense-addition measure-context-effects \
+  --model "$MODEL"   # GPU
 ```
 
 **Manual step**: from the figure of the meaning indicator in `outputs/figures/unknown-word-acquisition/`, take as K (the number of passages inserted per added sense in sense addition) the number beyond which more passages barely raise it, and write K to `sense_addition.passages_per_added_sense` in `settings.yaml`.

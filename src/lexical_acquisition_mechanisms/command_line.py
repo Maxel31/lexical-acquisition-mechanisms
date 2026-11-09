@@ -40,6 +40,7 @@ from lexical_acquisition_mechanisms import (
     real_word_probes,
     results_collection,
     run_settings,
+    second_sense_context_effects,
     second_sense_evaluation_data,
     sense_accuracy,
     sense_addition_report,
@@ -72,6 +73,7 @@ STAGE_DESCRIPTIONS = {
     "evaluation-data": "評価データを作る",
     "training": "継続事前学習を行う",
     "unknown-word-acquisition": "未知語の獲得を評価・分析する",
+    "second-sense-addition": "2つ目の語義の追加を評価・分析する",
     "sense-addition": "語義の追加を評価・分析する",
     "dependence-on-category-judging-heads": "カテゴリ判定 head への未知語の依存を分析する",
     "results": "全結果を集計する",
@@ -307,6 +309,14 @@ def all_actions() -> list[Action]:
             "make-report",
             "図と表を outputs/figures/unknown-word-acquisition/ に作る",
             unknown_word_report.make_report,
+        ),
+        Action(
+            "second-sense-addition",
+            "measure-context-effects",
+            "各 run の、語義を足す前・学習の途中・最後の重みで、空欄に未知語を入れた課題1を解かせ、"
+            "文脈の効果を測る",
+            second_sense_context_effects.measure_context_effects,
+            second_sense_context_effects.add_arguments,
         ),
         Action(
             "sense-addition",
