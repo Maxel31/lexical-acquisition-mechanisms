@@ -15,6 +15,7 @@ from lexical_acquisition_mechanisms import (
     adjective_candidates,
     assignments,
     base_data,
+    continued_pretraining,
     hidden_state_similarity,
     neutral_contexts,
     noun_candidates,
@@ -180,6 +181,13 @@ def all_actions() -> list[Action]:
             "run ごとの学習の設定ファイルを outputs/runs/<実験>/<モデル>/ に書き出す",
             run_settings.write_run_settings,
             run_settings.add_arguments,
+        ),
+        Action(
+            "training",
+            "run",
+            "run の設定ファイルのとおりに継続事前学習を行う（torchrun から、GPU ごとに起動する）",
+            continued_pretraining.run_training,
+            continued_pretraining.add_arguments,
         ),
     ]
 
