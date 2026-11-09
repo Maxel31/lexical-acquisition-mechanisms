@@ -8,7 +8,10 @@
    断片ごとには、Pile 全体での用例の見積もりから決めた鍵の上限より小さい出現だけを残す
    （上限は、残す数の KEY_LIMIT_MARGIN 倍の出現が入る値。足りなければ止まる）。
 3. 残した出現の前後の文字列を、data/passages/occurrences.parquet に書く。
-断片ごとの結果は data/passages/collection_shards/ に残し、止まった後に実行し直すと、続きから読む。
+4. 前後の文字列から、語を含む用例の長さの窓を切り出して確かめ（passage_windows）、使える窓を
+   data/passages/candidates.parquet に、語ごとの数を data/passages/collection_summary.csv に書く。
+断片ごとの結果は data/passages/collection_shards/ に残し、止まった後に実行し直すと、続きから読む
+（全てを書き終えたら消す）。
 """
 
 import argparse
@@ -16,7 +19,9 @@ import heapq
 import json
 import math
 import shutil
-from collections.abc import Callable, Iterator, Mapping
+from collections import Counter
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from typing import NamedTuple
@@ -26,8 +31,9 @@ import pyarrow.parquet as parquet
 
 from lexical_acquisition_mechanisms import pile, word_finalization
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
-from lexical_acquisition_mechanisms.csv_tables import read_rows
+from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.output_records import Step, run_unless_unchanged
+from lexical_acquisition_mechanisms.passage_windows import WindowSettings, cut_windows
 from lexical_acquisition_mechanisms.pile import PileDocument
 from lexical_acquisition_mechanisms.pile_word_usages import (
     characters_per_passage,
@@ -40,7 +46,10 @@ from lexical_acquisition_mechanisms.word_selection import SelectedWord
 COMMAND = "passages collect"
 OUTPUT_DIRECTORY = Path("data/passages")
 OCCURRENCES_PATH = OUTPUT_DIRECTORY / "occurrences.parquet"
+CANDIDATES_PATH = OUTPUT_DIRECTORY / "candidates.parquet"
+SUMMARY_PATH = OUTPUT_DIRECTORY / "collection_summary.csv"
 SHARD_DIRECTORY = OUTPUT_DIRECTORY / "collection_shards"
+MANAGED_ROLES = ("noun", "adjective", "target")
 # 出現の前後に残す文字数の、用例のトークン数に対する倍率（1トークンが7文字までなら、
 # 出現がどこにあっても、前後に用例1つ分のトークンが入る）
 CONTEXT_CHARACTERS_PER_TOKEN = 7
@@ -59,6 +68,32 @@ SHARD_SCHEMA = arrow.schema(
         ("context", arrow.string()),
     ]
 )
+
+
+CANDIDATE_SCHEMA = arrow.schema(
+    [
+        ("word", arrow.string()),
+        ("role", arrow.string()),
+        ("shard", arrow.int32()),
+        ("row", arrow.int32()),
+        ("start", arrow.int64()),
+        ("key", arrow.float64()),
+        ("token_ids", arrow.list_(arrow.int32())),
+        ("occurrence_positions", arrow.list_(arrow.int16())),
+    ]
+)
+
+
+@dataclass
+class CollectionSummary:
+    word: str
+    role: str
+    # 判定に合格する必要がある数と、残した出現・使える窓の数
+    needed: int
+    occurrences: int
+    candidates: int
+    # 窓を使わなかった理由と、その数
+    rejected: str
 
 
 class Occurrence(NamedTuple):
@@ -90,21 +125,22 @@ def collect_passages(settings: Settings, arguments: argparse.Namespace) -> None:
         ),
         "evaluation": settings.evaluation.model_dump(include={"sentences_per_natural_word"}),
         "seed": settings.words.seed,
+        "tokenizer": next(iter(settings.models.values())).model_dump(),
     }
     step = Step(
         COMMAND,
         inputs={word_finalization.OUTPUT_PATH: word_finalization.COMMAND},
-        outputs=[OCCURRENCES_PATH],
+        outputs=[OCCURRENCES_PATH, CANDIDATES_PATH, SUMMARY_PATH],
         settings=record_settings,
     )
     run_unless_unchanged(
         step,
-        lambda: build_occurrences(settings, word_finalization.OUTPUT_PATH, OUTPUT_DIRECTORY),
+        lambda: build_passage_candidates(settings, word_finalization.OUTPUT_PATH, OUTPUT_DIRECTORY),
         arguments.recompute,
     )
 
 
-def build_occurrences(
+def build_passage_candidates(
     settings: Settings,
     words_path: Path,
     output_directory: Path,
@@ -113,6 +149,70 @@ def build_occurrences(
     download: Callable[[str, Path], Path] = pile.download_shard,
 ) -> None:
     words = [word for word in read_rows(words_path, SelectedWord) if word.role != "unknown"]
+    build_occurrences(
+        settings, words, output_directory, number_of_processes, download_directory, download
+    )
+    occurrences = parquet.read_table(output_directory / OCCURRENCES_PATH.name).to_pylist()
+    window_settings = WindowSettings(
+        tokens_per_passage=settings.passages.tokens_per_passage,
+        context_characters=settings.passages.tokens_per_passage * CONTEXT_CHARACTERS_PER_TOKEN,
+        seed=settings.words.seed,
+        managed_words=frozenset(word.word for word in words if word.role in MANAGED_ROLES),
+    )
+    source = next(iter(settings.models.values()))
+    windows = cut_windows(occurrences, source, window_settings, number_of_processes)
+    _write_candidates(settings, words, occurrences, windows, output_directory)
+    shutil.rmtree(output_directory / SHARD_DIRECTORY.name)
+
+
+def _write_candidates(
+    settings: Settings,
+    words: Sequence[SelectedWord],
+    occurrences: Sequence[dict],
+    windows: Sequence,
+    output_directory: Path,
+) -> None:
+    rows = []
+    rejected: dict[str, Counter[str]] = {word.word: Counter() for word in words}
+    for occurrence, window in zip(occurrences, windows, strict=True):
+        if isinstance(window, str):
+            rejected[occurrence["word"]][window] += 1
+            continue
+        rows.append(
+            {
+                **{name: occurrence[name] for name in ("word", "role", "shard", "row", "start")},
+                "key": occurrence["key"],
+                "token_ids": window.token_ids,
+                "occurrence_positions": window.occurrence_positions,
+            }
+        )
+    table = arrow.Table.from_pylist(rows, schema=CANDIDATE_SCHEMA)
+    parquet.write_table(table, output_directory / CANDIDATES_PATH.name)
+    found = Counter(occurrence["word"] for occurrence in occurrences)
+    kept = Counter(row["word"] for row in rows)
+    summary = [
+        CollectionSummary(
+            word.word,
+            word.role,
+            needed_passages(word, settings),
+            found[word.word],
+            kept[word.word],
+            ", ".join(f"{reason}: {number}" for reason, number in rejected[word.word].items()),
+        )
+        for word in words
+    ]
+    write_rows(output_directory / SUMMARY_PATH.name, CollectionSummary, summary)
+
+
+def build_occurrences(
+    settings: Settings,
+    words: Sequence[SelectedWord],
+    output_directory: Path,
+    number_of_processes: int,
+    download_directory: Path,
+    download: Callable[[str, Path], Path],
+) -> None:
+    """語ごとに、鍵の小さい出現を残し、前後の文字列を書く。"""
     factor = settings.passages.collection_factor
     kept_numbers = {
         word.word: math.ceil(needed_passages(word, settings) * factor) for word in words
@@ -166,7 +266,6 @@ def build_occurrences(
         for _, occurrence in sorted(heap, key=lambda pair: -pair[0])
     ]
     parquet.write_table(arrow.Table.from_pylist(rows), output_directory / OCCURRENCES_PATH.name)
-    shutil.rmtree(shard_directory)
 
 
 def scan_documents_for_passages(
