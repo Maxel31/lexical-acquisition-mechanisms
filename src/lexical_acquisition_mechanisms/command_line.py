@@ -33,6 +33,7 @@ from lexical_acquisition_mechanisms import (
     real_word_probes,
     run_settings,
     sense_accuracy,
+    significant_heads_and_mlps,
     similarity_ratings,
     task_questions,
     training_data,
@@ -286,6 +287,13 @@ def all_actions() -> list[Action]:
             "測る",
             head_and_mlp_effects.measure_head_and_mlp_effects,
             head_and_mlp_effects.add_arguments,
+        ),
+        Action(
+            "sense-addition",
+            "select-significant-heads-and-mlps",
+            "効果の信頼区間を出し、有意な head と MLP を選ぶ",
+            significant_heads_and_mlps.select_significant_heads_and_mlps,
+            significant_heads_and_mlps.add_arguments,
         ),
     ]
 
