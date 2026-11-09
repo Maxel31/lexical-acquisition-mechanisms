@@ -6,8 +6,8 @@
   射影の前の値を使う。
 - MLP の出力: MLP の出力を正規化（post_feedforward_layernorm）した値（残差ストリームに足す値）。
 指標 m は、入力の最後のトークン（"Answer:"）の次に来る2つの選択肢の語の、ロジットの差
-（対数確率の差と同じ）。入れ替えの効果は e = m − m_c（m_c は、構成要素 c の出力を入れ替えた
-ときの m）。
+（対数確率の差と同じ）。もう一方の選択肢を None にすると、1つの選択肢の対数確率になる。
+入れ替えの効果は e = m − m_c（m_c は、構成要素 c の出力を入れ替えたときの m）。
 - 勾配による近似（attribution patching）: e ≈ −g·(入れ替える値 − 元の値)。g は、元の出力に対する
   m の勾配。和は、入れ替える位置と次元でとる。1回の順伝播と逆伝播で、全ての構成要素の分を出せる。
 - 実際の入れ替え: 指定した構成要素の、指定した位置の出力を置き換えて、m を測る。
@@ -84,12 +84,12 @@ def outputs_and_gradients(
     model: LanguageModel,
     inputs: Sequence[Sequence[int]],
     positions: Sequence[int],
-    choices: Sequence[tuple[int, int]],
+    choices: Sequence[tuple[int, int | None]],
 ) -> tuple[np.ndarray, list[ComponentOutputs], list[ComponentOutputs]]:
     """各入力の指標 m と、positions での構成要素の出力と、その出力に対する m の勾配。
 
     choices は、入力ごとの（m で好む選択肢, もう一方の選択肢）のトークン番号。
-    m = logit(好む選択肢) − logit(もう一方)。
+    m = logit(好む選択肢) − logit(もう一方)。もう一方が全て None なら、m = log p(好む選択肢)。
     """
     token_ids = _token_tensor(model, inputs)
     columns = _columns(model, inputs, positions)
@@ -253,13 +253,15 @@ def _hooks(
 
 
 def _metrics(
-    model: LanguageModel, token_ids: torch.Tensor, choices: Sequence[tuple[int, int]]
+    model: LanguageModel, token_ids: torch.Tensor, choices: Sequence[tuple[int, int | None]]
 ) -> torch.Tensor:
-    """各行の、最後の位置の次に来る2つの選択肢のロジットの差。"""
+    """各行の、最後の位置の次に来る2つの選択肢のロジットの差（もう一方が None なら対数確率）。"""
     hidden = model.model.model(input_ids=token_ids, use_cache=False).last_hidden_state
     logits = model.model.lm_head(hidden[:, -1]).float()
     rows = torch.arange(len(choices), device=logits.device)
     preferred = torch.tensor([choice[0] for choice in choices], device=logits.device)
+    if all(choice[1] is None for choice in choices):
+        return torch.log_softmax(logits, dim=-1)[rows, preferred]
     other = torch.tensor([choice[1] for choice in choices], device=logits.device)
     return logits[rows, preferred] - logits[rows, other]
 

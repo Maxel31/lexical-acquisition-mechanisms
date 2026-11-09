@@ -81,9 +81,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model", required=True, help="settings.yaml の models の名前")
 
 
-def measure_dependence(settings: Settings, arguments: argparse.Namespace) -> None:
-    model = arguments.model
-    command = f"{EXPERIMENT} measure-dependence --model {model}"
+def unknown_word_checkpoints(model: str, command: str) -> dict[str, Path]:
+    """未知語の獲得の8つの run の、最後の重み（学習を終えていない run があれば止まる）。"""
     directory = run_settings.CHECKPOINTS_DIRECTORY / unknown_word_assignments.EXPERIMENT / model
     checkpoints = {
         run: directory / run / FINAL_DIRECTORY for run in unknown_word_assignments.run_names()
@@ -94,6 +93,13 @@ def measure_dependence(settings: Settings, arguments: argparse.Namespace) -> Non
             f"学習を終えていない run があります（{missing}）。先に学習してください。",
             rerun_from=command,
         )
+    return checkpoints
+
+
+def measure_dependence(settings: Settings, arguments: argparse.Namespace) -> None:
+    model = arguments.model
+    command = f"{EXPERIMENT} measure-dependence --model {model}"
+    checkpoints = unknown_word_checkpoints(model, command)
     _, _, judging_path, directions_path = attribute_direction_patching.output_paths(model)
     tested_by = f"sense-addition test-attribute-directions --model {model}"
     inputs = {
