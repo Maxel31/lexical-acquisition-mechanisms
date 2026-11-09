@@ -34,6 +34,8 @@ def run_settings(tmp_path: Path, model: ModelSource, sequences: int = 5) -> RunS
     tokens = np.random.default_rng(0).integers(1, 1000, sequences * SEQUENCE_LENGTH)
     np.save(tmp_path / "tokens.npy", tokens.astype(np.uint32))
     np.save(tmp_path / "starts.npy", np.array([3, 20], dtype=np.int64))
+    validation = np.random.default_rng(1).integers(1, 1000, (3, SEQUENCE_LENGTH))
+    np.save(tmp_path / "validation.npy", validation.astype(np.uint32))
     settings = load_settings(REPOSITORY_ROOT / "settings.yaml")
     training = settings.training.model_copy(
         update={
@@ -52,6 +54,7 @@ def run_settings(tmp_path: Path, model: ModelSource, sequences: int = 5) -> RunS
         training_tokens=str(tmp_path / "tokens.npy"),
         passage_starts=str(tmp_path / "starts.npy"),
         passage_length=4,
+        validation_sequences=str(tmp_path / "validation.npy"),
         output_directory=str(tmp_path / "output"),
         checkpoint_fractions=[0.5],
     )
@@ -84,10 +87,16 @@ def test_training_writes_metrics_for_every_step(
     train(run)
 
     lines = (tmp_path / "output" / "metrics.jsonl").read_text(encoding="utf-8").splitlines()
-    metrics = [json.loads(line) for line in lines]
+    records = [json.loads(line) for line in lines]
+    metrics = [record for record in records if "loss" in record]
     assert [record["step"] for record in metrics] == [1, 2, 3]
     assert all(np.isfinite(record["loss"]) and record["loss"] > 0 for record in metrics)
     assert metrics[1]["inserted_loss"] > 0
+    # 検証データでのパープレキシティは、学習前（step 0）と、重みを保存した step 2・3 に記録する
+    validation = [record for record in records if "validation_perplexity" in record]
+    assert [record["step"] for record in validation] == [0, 2, 3]
+    assert validation[0]["validation_change"] == 0
+    assert all(record["validation_perplexity"] > 1 for record in validation)
 
 
 def test_two_processes_give_the_same_losses(
@@ -114,12 +123,20 @@ def test_two_processes_give_the_same_losses(
     ]
 
     subprocess.run(command, cwd=tmp_path, env=environment, check=True, capture_output=True)
-    together = [json.loads(line) for line in (run.output_directory / "metrics.jsonl").open()]
+    together = [
+        record
+        for record in map(json.loads, (run.output_directory / "metrics.jsonl").open())
+        if "loss" in record
+    ]
     shutil.rmtree(run.output_directory)
     monkeypatch.setenv("MASTER_PORT", str(free_port()))
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     train(run)
-    alone = [json.loads(line) for line in (run.output_directory / "metrics.jsonl").open()]
+    alone = [
+        record
+        for record in map(json.loads, (run.output_directory / "metrics.jsonl").open())
+        if "loss" in record
+    ]
 
     # 計算は bf16 なので、少しずれてよい
     for one, two in zip(alone, together, strict=True):
@@ -146,7 +163,7 @@ def test_weights_are_saved_and_finished_runs_are_skipped(
         assert (run.output_directory / name / "tokenizer.json").exists()
     assert (run.output_directory / "completed.json").exists()
     assert not (run.output_directory / "state").exists()
-    assert [record["step"] for record in metrics_of(run)] == [1, 2, 3]
+    assert [record["step"] for record in metrics_of(run) if "loss" in record] == [1, 2, 3]
 
 
 def test_stopped_training_continues_from_the_saved_state(
@@ -173,5 +190,8 @@ def test_stopped_training_continues_from_the_saved_state(
     train(stopped)
 
     # 2 step 目の後の状態から、3 step 目を学習し直す（止めずに学習したときと同じ損失）
-    assert [record["step"] for record in metrics_of(stopped)] == [1, 2, 3]
-    assert metrics_of(stopped)[2]["loss"] == pytest.approx(metrics_of(whole)[2]["loss"], rel=1e-3)
+    def losses(run: RunSettings) -> list[dict]:
+        return [record for record in metrics_of(run) if "loss" in record]
+
+    assert [record["step"] for record in losses(stopped)] == [1, 2, 3]
+    assert losses(stopped)[2]["loss"] == pytest.approx(losses(whole)[2]["loss"], rel=1e-3)
