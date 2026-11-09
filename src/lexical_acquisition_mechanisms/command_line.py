@@ -15,6 +15,7 @@ from lexical_acquisition_mechanisms import (
     adjective_candidates,
     base_data,
     noun_candidates,
+    similarity_ratings,
     unknown_word_candidates,
     word_selection,
 )
@@ -85,6 +86,12 @@ def all_actions() -> list[Action]:
             "select",
             "候補から、名詞72語・ターゲット語18語・形容詞72語・未知語72個と、自然な語を選ぶ",
             word_selection.select_words,
+        ),
+        Action(
+            "words",
+            "rate-similarity-with-llm",
+            "ターゲット語と名詞の組ごとに、意味の近さを LLM が評定する",
+            similarity_ratings.rate_similarity_with_llm,
         ),
     ]
 
