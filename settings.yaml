@@ -57,6 +57,7 @@ words:
     - very common, everyday
     - less common but well-known
   nouns_per_listing: 200
+  adjectives_per_listing: 400
   # 頻度と使われ方を見積もるときに読む、Pile の先頭の断片の数（全1,650個のうち約3%）
   pile_sample_shards: 50
   # 使われ方を LLM が判定する、語ごとの見本の数
