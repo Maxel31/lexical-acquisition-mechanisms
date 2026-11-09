@@ -153,3 +153,38 @@ evaluation:
   # 中立文脈の条件: 自然な名詞の対数確率のカテゴリごとの平均（全カテゴリの平均との差）が、
   # 全候補での平均から、どのカテゴリでもこれ（自然対数）より離れない
   maximum_neutral_context_deviation: 0.5
+
+# 継続事前学習（全ての run で共通）
+training:
+  # モデルごとの学習率（暫定: 事前学習のステージ1の最後の学習率。ピークの学習率と、余弦で下げる
+  # 学習率の式から求めた値）
+  learning_rate_by_model:
+    OLMo-2-0425-1B: 7.4e-5
+    OLMo-2-1124-7B: 6.2e-5
+    OLMo-2-1124-13B: 3.0e-5
+  # 1 step で学習するトークン数（4,096トークンの系列 × 256。暫定）
+  batch_size_in_tokens: 1048576
+  sequence_length: 4096
+  # 学習率を0から上げる step の、全ての step に対する割合（暫定）
+  warmup_fraction: 0.01
+  # モデルごとの、1つの GPU で1回に計算する系列の数（GPU のメモリに合わせる）
+  sequences_per_device_by_model:
+    OLMo-2-0425-1B: 8
+    OLMo-2-1124-7B: 2
+    OLMo-2-1124-13B: 1
+  # 最適化器 AdamW の設定（事前学習と同じ）
+  optimizer_betas: [0.9, 0.95]
+  optimizer_epsilon: 1.0e-8
+  weight_decay: 0.1
+  # 勾配のノルムの上限（事前学習と同じ）
+  gradient_clipping: 1.0
+  # z-loss（出力の対数の分配関数が大きくなりすぎないようにする損失）の重み（事前学習と同じ）
+  z_loss_weight: 1.0e-5
+  # 途中の重みを保存する、学習の進み具合（最後の重みは必ず保存する。暫定）
+  checkpoint_fractions: [0.25, 0.5, 0.75]
+  # 1トークンの未知語の埋め込みの初期値: 既存の埋め込みの平均 + 乱数（暫定）
+  new_token_embedding_initialization:
+    # 乱数の標準偏差の、既存の埋め込みの次元ごとの標準偏差に対する倍率
+    noise_scale: 0.1
+  # 学習の記録を送る W&B のプロジェクト
+  weights_and_biases_project: lexical-acquisition-mechanisms
