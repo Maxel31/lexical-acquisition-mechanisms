@@ -13,6 +13,8 @@ from collections.abc import Sequence
 
 from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizerBase
 
+from lexical_acquisition_mechanisms.settings import ModelSource
+
 
 class WordTokenizer:
     def __init__(self, tokenizer: PreTrainedTokenizerBase, number_of_embedding_rows: int) -> None:
@@ -25,11 +27,11 @@ class WordTokenizer:
         self.number_of_embedding_rows = number_of_embedding_rows
 
     @classmethod
-    def from_model(cls, repository: str) -> "WordTokenizer":
-        """モデルのリポジトリから、トークナイザと埋め込みの行数（設定の vocab_size）を読む。"""
-        tokenizer = AutoTokenizer.from_pretrained(repository)
-        number_of_embedding_rows = AutoConfig.from_pretrained(repository).vocab_size
-        return cls(tokenizer, number_of_embedding_rows)
+    def from_model(cls, source: ModelSource) -> "WordTokenizer":
+        """モデルの取得元から、トークナイザと埋め込みの行数（設定の vocab_size）を読む。"""
+        tokenizer = AutoTokenizer.from_pretrained(source.repository, revision=source.revision)
+        configuration = AutoConfig.from_pretrained(source.repository, revision=source.revision)
+        return cls(tokenizer, configuration.vocab_size)
 
     @property
     def end_of_text_id(self) -> int:
@@ -80,7 +82,7 @@ class WordTokenizer:
                 part_ids = list(encoding["input_ids"])
             else:
                 part_ids = list(part)
-                self._check_token_ids(part_ids)
+                self.check_token_ids(part_ids)
             spans.append(range(len(token_ids), len(token_ids) + len(part_ids)))
             token_ids.extend(part_ids)
         return token_ids, spans
@@ -91,7 +93,7 @@ class WordTokenizer:
         トークナイザが使っていない番号（1トークンの未知語）は、" <新しいトークン 100278>" と書く
         （先頭スペース付きの語の代わりなので、前に空白を付ける）。
         """
-        self._check_token_ids(token_ids)
+        self.check_token_ids(token_ids)
         pieces: list[str] = []
         known_ids: list[int] = []
         for token_id in token_ids:
@@ -115,7 +117,7 @@ class WordTokenizer:
             )
         return list(unused[:count])
 
-    def _check_token_ids(self, token_ids: Sequence[int]) -> None:
+    def check_token_ids(self, token_ids: Sequence[int]) -> None:
         for token_id in token_ids:
             if not 0 <= token_id < self.number_of_embedding_rows:
                 raise ValueError(
