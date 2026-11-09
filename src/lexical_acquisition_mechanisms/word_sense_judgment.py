@@ -65,16 +65,16 @@ class JudgmentSummary:
 
 
 def needed_passing_passages(role: str, split: str, settings: Settings) -> int:
-    """語の役割と分け方ごとの、合格する必要がある用例の数。"""
+    """語の役割と分け方ごとの、合格する必要がある用例の数（ターゲット語と自然な語は評価用だけ）。"""
+    if split == "training":
+        if role == "noun":
+            return max(settings.unknown_word_acquisition.exposure_levels)
+        if role == "adjective":
+            return settings.sense_addition.passages_per_added_sense
+        return 0
     if role.startswith("natural-"):
         return settings.evaluation.sentences_per_natural_word
-    if split == "evaluation":
-        return settings.passages.evaluation_passages_per_word
-    if role == "noun":
-        return max(settings.unknown_word_acquisition.exposure_levels)
-    if role == "adjective":
-        return settings.sense_addition.passages_per_added_sense
-    return 0
+    return settings.passages.evaluation_passages_per_word
 
 
 def judge_word_sense(settings: Settings, arguments: argparse.Namespace) -> None:
