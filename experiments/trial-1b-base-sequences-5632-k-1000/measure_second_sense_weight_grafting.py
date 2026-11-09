@@ -31,12 +31,11 @@ from transformers import AutoModelForCausalLM
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from save_sense_choice_probabilities import choice_log_probabilities  # noqa: E402
-from second_sense_experiment import RESULTS, weights  # noqa: E402
+from second_sense_experiment import RESULTS, first_phase, weights  # noqa: E402
 
 from lexical_acquisition_mechanisms import second_sense_assignments, word_finalization  # noqa: E402
 from lexical_acquisition_mechanisms.csv_tables import read_rows  # noqa: E402
 from lexical_acquisition_mechanisms.language_model import LanguageModel  # noqa: E402
-from lexical_acquisition_mechanisms.run_settings import first_phase_weights  # noqa: E402
 from lexical_acquisition_mechanisms.second_sense_assignments import (  # noqa: E402
     SecondSenseAssignment,
 )
@@ -96,9 +95,9 @@ def measure(phase: str, run: str) -> None:
     ids = [[int(token) for token in words[row.unknown_word].token_ids.split()] for row, _ in chosen]
     if phase == "first":
         before = load_settings(Path("settings.yaml")).models[MODEL]
-        after = first_phase_weights(MODEL, run)
+        after = first_phase(run)
     else:
-        before = ModelSource(repository=str(first_phase_weights(MODEL, run)))
+        before = ModelSource(repository=str(first_phase(run)))
         after = weights(run, "final")
     network = AutoModelForCausalLM.from_pretrained(
         before.repository, revision=before.revision, dtype=torch.float32

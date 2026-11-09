@@ -5,13 +5,15 @@
 # 2. run ごとの解析: 課題1の文脈の効果（27|）、表現（38|）、損失（25|）、重みを部品ごとに移す
 #    分析（40|）、head を 1 つずつ止める走査（41|）
 # 3. head の組をまとめて止める測定（41|）と、表の書き出し
-# 結果は outputs/partial-results/second-sense-evaluation/second-sense-addition-replication/ に書く。
+# 結果は outputs/partial-results/second-sense-evaluation/<実験の名前>/ に書く。実験の名前は環境変数
+# SECOND_SENSE_EXPERIMENT（既定は second-sense-addition-replication）。1 の重みを変えるときは、
+# 環境変数 FIRST_PHASE_EXPERIMENT も渡す（second_sense_experiment.py）。
 # 使い方（リポジトリの最上位のディレクトリで）:
 #   setsid nohup bash experiments/trial-1b-base-sequences-5632-k-1000/run_second_sense_replication.sh \
 #     [先に終わるのを待つプロセスの番号] &
 set -u
 WAIT_FOR=${1:-}
-EXPERIMENT=second-sense-addition-replication
+EXPERIMENT=${SECOND_SENSE_EXPERIMENT:-second-sense-addition-replication}
 MODEL=OLMo-2-0425-1B
 L=outputs/trial-1b-base-sequences-5632-k-1000/logs/$EXPERIMENT
 E=experiments/trial-1b-base-sequences-5632-k-1000
