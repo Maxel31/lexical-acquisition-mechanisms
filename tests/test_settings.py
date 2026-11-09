@@ -128,3 +128,11 @@ def test_fields_cannot_be_reassigned_after_loading() -> None:
 
     with pytest.raises(ValueError):
         settings.models = {}
+
+
+def test_exposure_levels_must_be_eight_increasing_numbers() -> None:
+    content = load_settings(REPOSITORY_ROOT / "settings.yaml").model_dump()
+    content["unknown_word_acquisition"]["exposure_levels"] = [0, 10, 1]
+
+    with pytest.raises(ValueError, match="0 以上の数を8つ、小さい順に"):
+        Settings.model_validate(content)

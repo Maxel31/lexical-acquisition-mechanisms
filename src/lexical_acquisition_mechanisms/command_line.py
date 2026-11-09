@@ -16,6 +16,7 @@ from lexical_acquisition_mechanisms import (
     base_data,
     noun_candidates,
     unknown_word_candidates,
+    word_selection,
 )
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.settings import Settings, SettingsError, load_settings
@@ -78,6 +79,12 @@ def all_actions() -> list[Action]:
             "未知語の候補（実在語の母音を替えた文字列と、ARC 非語データベースの非語）のうち、"
             "OLMo 2 の事前学習データと Pile に一度も現れないものを集める",
             unknown_word_candidates.generate_unknown_word_candidates,
+        ),
+        Action(
+            "words",
+            "select",
+            "候補から、名詞72語を選ぶ",
+            word_selection.select_words,
         ),
     ]
 

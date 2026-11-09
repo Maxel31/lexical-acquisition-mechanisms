@@ -40,7 +40,9 @@ def sample(tmp_path: Path, words: list[str], examples: int, processes: int = 1):
         2,
         examples,
         seed=0,
-        passages=PassageSettings(tokens_per_passage=256, maximum_passages_per_document=3),
+        passages=PassageSettings(
+            tokens_per_passage=256, maximum_passages_per_document=3, evaluation_passages_per_word=1
+        ),
         number_of_processes=processes,
         download_directory=tmp_path,
         download=write_local_shard,

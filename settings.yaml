@@ -76,9 +76,26 @@ unknown_words:
   # （使うのは各12個。最初のトークンが重ならないように選ぶための余裕を持たせる）
   candidates_per_group: 40
 
+# 候補から語を選ぶときの条件（words select）
+word_selection:
+  # Pile の見本で、意図した語義（形容詞は、形容詞として）で使われていた割合の下限
+  minimum_usage_share: 0.9
+  # その割合を当てにできるように、LLM が判定できた見本の数の下限
+  minimum_judged_usages: 20
+  # Pile で取れる用例の見積もりに、意図した使われ方の割合を掛けた数が、必要な数の何倍以上か
+  # （ほぼ同じ用例の除去と、ほかの管理対象の語を含む用例の除外で減る分を見込む）
+  passage_margin: 2.0
+
 # 用例（管理対象の語を含む、Pile から切り出した文章）
 passages:
   # 用例の長さ（トークン数）
   tokens_per_passage: 256
   # 1つの文書から取る用例の数の上限
   maximum_passages_per_document: 3
+  # 語ごとの評価用の用例の数
+  evaluation_passages_per_word: 500
+
+# 未知語の獲得
+unknown_word_acquisition:
+  # 露出回数（1 run の学習データに差し込む、1つの未知語の用例の数）の8つの水準
+  exposure_levels: [0, 1, 10, 100, 1000, 3000, 5000, 10000]
