@@ -52,8 +52,8 @@ words:
     - name: building
       description: buildings
       wordnet_roots: [building.n.01]
-  # LLM に名詞を挙げさせるときの、挙げる語の種類（種類ごとに1回ずつ）と、1回に挙げさせる数
-  noun_listing_kinds:
+  # LLM に語を挙げさせるときの、挙げる語の種類（種類ごとに1回）と、1回に挙げさせる数
+  listing_kinds:
     - very common, everyday
     - less common but well-known
   nouns_per_listing: 200
