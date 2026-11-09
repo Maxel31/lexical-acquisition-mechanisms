@@ -11,6 +11,7 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+from lexical_acquisition_mechanisms import base_data
 from lexical_acquisition_mechanisms.command_stopped import CommandStopped
 from lexical_acquisition_mechanisms.settings import Settings, SettingsError, load_settings
 
@@ -45,7 +46,15 @@ class Action:
 
 def all_actions() -> list[Action]:
     """README の全コマンド。"""
-    return []
+    return [
+        Action(
+            "base-data",
+            "download",
+            "基データ（OLMo 2 の事前学習データの、学習順で先頭の約3億トークン）と、"
+            "その直後の検証データをダウンロードする",
+            base_data.download,
+        ),
+    ]
 
 
 def build_parser(actions: Sequence[Action]) -> argparse.ArgumentParser:

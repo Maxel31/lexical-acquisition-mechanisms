@@ -20,6 +20,15 @@ llm:
   model: Qwen/Qwen3-Next-80B-A3B-Instruct-FP8
   maximum_concurrent_requests: 128
 
+# 基データ（OLMo 2 の事前学習データの、学習順で先頭の部分）と検証データ
+base_data:
+  # OLMo 2 7B のステージ1の学習設定（版を固定した URL）。3モデルとも、学習データの一覧と seed は同じ
+  pretraining_configuration_url: https://raw.githubusercontent.com/allenai/OLMo/090253dac6688f2532509daa7aa2eb5fae50e956/configs/official-1124/OLMo2-7B-stage1.yaml
+  # 学習順の先頭から取る系列（4,096トークン）の数。7B の事前学習の最初の72 step 分（約3億トークン）
+  number_of_base_sequences: 73728
+  # その直後から取る、検証データの系列の数（約1,000万トークン）
+  number_of_validation_sequences: 2442
+
 # 語の選定
 words:
   # 名詞のカテゴリ。name は課題2の選択肢の語にもなる（先頭スペース付きで1トークンの語）。
