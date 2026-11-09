@@ -122,6 +122,8 @@ evaluation:
   probe_words_per_token_count: 100
   # 未知語の指標の正規化の基準にする、トークン数（2・3）ごとの既知の名詞の数
   normalization_nouns_per_token_count: 30
+  # 課題の問題の前に見せる例の数（暫定。自然な語での正解率を見て決める）
+  number_of_task_examples: 3
   # 語義の組（ターゲット語の元の語義と、足す語義）ごとの最小対の数（暫定）と、
   # LLM に作らせる候補の数（学習前のモデルでの確認で落ちる分を見込む）
   minimal_pairs_per_sense_pair: 20

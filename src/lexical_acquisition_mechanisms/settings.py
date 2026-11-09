@@ -182,6 +182,8 @@ class EvaluationSettings(SettingsSection):
     probe_words_per_token_count: int = Field(gt=0)
     # 正規化の基準にする、トークン数（2・3）ごとの既知の名詞の数
     normalization_nouns_per_token_count: int = Field(gt=0)
+    # 課題の問題の前に見せる例の数
+    number_of_task_examples: int = Field(ge=0)
     # 語義の組（ターゲット語の元の語義と、足す語義）ごとの最小対の数と、LLM に作らせる候補の数
     minimal_pairs_per_sense_pair: int = Field(gt=0)
     minimal_pair_candidates_per_sense_pair: int = Field(gt=0)
