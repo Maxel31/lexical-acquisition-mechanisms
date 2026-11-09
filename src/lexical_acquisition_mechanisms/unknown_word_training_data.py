@@ -107,7 +107,7 @@ def write_unknown_word_training_data(
     tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
     words = {word.word: word for word in read_rows(words_path, SelectedWord)}
     assignments = read_rows(assignments_path, UnknownWordAssignment)
-    passages = _training_passages(passages_path)
+    passages = training_passages(passages_path, "noun")
     base = np.asarray(np.load(base_path, mmap_mode="r")).reshape(-1)
     replacer = PassageReplacer(tokenizer, settings.passages.tokens_per_passage)
     runs = unknown_word_assignments.run_names()
@@ -150,7 +150,7 @@ def write_unknown_word_training_data(
         for check in run_checks:
             check.total_tokens = len(tokens)
         checks += run_checks
-        _write_run(output_directory / run, tokens, layout.output_starts, rows)
+        write_run_files(output_directory / run, tokens, layout.output_starts, _record_table(rows))
         chosen = random.Random(settings.words.seed).sample(
             range(len(rows)), min(DECODED_PASSAGES_PER_RUN, len(rows))
         )
@@ -160,7 +160,9 @@ def write_unknown_word_training_data(
             row = rows[index]
             decoded.append(f"## {run}: {row['noun']} → {row['unknown_word']}\n{text}\n")
     control = base[: len(base) // SEQUENCE_LENGTH * SEQUENCE_LENGTH]
-    _write_run(output_directory / CONTROL_RUN, control, np.zeros(0, dtype=np.int64), [])
+    write_run_files(
+        output_directory / CONTROL_RUN, control, np.zeros(0, dtype=np.int64), _record_table([])
+    )
     totals = {check.total_tokens for check in checks}
     if len(totals) != 1:
         raise RuntimeError(f"run の総トークン数がそろっていません: {sorted(totals)}")
@@ -168,13 +170,13 @@ def write_unknown_word_training_data(
     (output_directory / "decoded_passages.txt").write_text("\n".join(decoded), encoding="utf-8")
 
 
-def _training_passages(passages_path: Path) -> dict[str, dict[str, object]]:
-    """名詞ごとの、学習用の用例（鍵の小さい順のトークン列と出現の位置）。"""
+def training_passages(passages_path: Path, role: str) -> dict[str, dict[str, object]]:
+    """役割（noun・adjective）の語ごとの、学習用の用例（鍵の小さい順のトークン列と出現の位置）。"""
     table = parquet.read_table(passages_path)
     table = table.filter(
         compute.and_(
             compute.equal(table.column("split"), "training"),
-            compute.equal(table.column("role"), "noun"),
+            compute.equal(table.column("role"), role),
         )
     )
     table = table.sort_by([("word", "ascending"), ("key", "ascending")])
@@ -244,10 +246,17 @@ def _replaced_passages(
     return inserted, skipped
 
 
-def _write_run(directory: Path, tokens: np.ndarray, starts: np.ndarray, rows: list) -> None:
+def write_run_files(
+    directory: Path, tokens: np.ndarray, starts: np.ndarray, records: arrow.Table
+) -> None:
+    """run の学習データ（トークン列・差し込んだ用例の始まり・差し込んだ用例の記録）を書く。"""
     directory.mkdir(parents=True, exist_ok=True)
     np.save(directory / "tokens.npy", tokens.astype(np.uint32))
     np.save(directory / "passage_starts.npy", np.asarray(starts, dtype=np.int64))
+    parquet.write_table(records, directory / "inserted.parquet")
+
+
+def _record_table(rows: list) -> arrow.Table:
     schema = arrow.schema(
         [
             ("unknown_word", arrow.string()),
@@ -259,5 +268,4 @@ def _write_run(directory: Path, tokens: np.ndarray, starts: np.ndarray, rows: li
             ("records", arrow.list_(arrow.string())),
         ]
     )
-    table = arrow.Table.from_pylist(rows, schema=schema)
-    parquet.write_table(table, directory / "inserted.parquet")
+    return arrow.Table.from_pylist(rows, schema=schema)

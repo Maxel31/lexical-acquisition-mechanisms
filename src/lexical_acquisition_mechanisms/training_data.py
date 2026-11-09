@@ -2,12 +2,18 @@
 
 import argparse
 
-from lexical_acquisition_mechanisms import unknown_word_training_data
+from lexical_acquisition_mechanisms import (
+    sense_addition_training_data,
+    unknown_word_training_data,
+)
 from lexical_acquisition_mechanisms.settings import Settings
 
 BUILDERS = {
     unknown_word_training_data.EXPERIMENT: (
         unknown_word_training_data.build_unknown_word_training_data
+    ),
+    sense_addition_training_data.EXPERIMENT: (
+        sense_addition_training_data.build_sense_addition_training_data
     ),
 }
 
