@@ -35,6 +35,7 @@ from lexical_acquisition_mechanisms import (
     passage_finalization,
     passage_review,
     passage_split,
+    phase_weight_grafting,
     pretrained_model_checks,
     probe_and_normalization_words,
     real_word_probes,
@@ -333,6 +334,13 @@ def all_actions() -> list[Action]:
             "同じ重みで、学習に使っていない X と Y の用例で、未知語の損失（驚き度）を測る",
             second_sense_losses.measure_losses,
             second_sense_losses.add_arguments,
+        ),
+        Action(
+            "second-sense-addition",
+            "graft-weights",
+            "フェーズの学習で変わった重みを部品ごとに移し、課題1の値がどれだけ戻るかを測る",
+            phase_weight_grafting.graft_weights,
+            phase_weight_grafting.add_arguments,
         ),
         Action(
             "sense-addition",

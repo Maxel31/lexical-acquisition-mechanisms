@@ -192,6 +192,8 @@ def test_all_commands_run_to_the_end(
     # 作った世界では、名詞ごとの評価用の用例が数件しかないので、1 件ずつ読む
     monkeypatch.setattr(second_sense_losses, "PASSAGES_PER_NOUN", 1)
     run("second-sense-addition", "measure-losses", "--model", MODEL)
+    for phase in ("unknown-word-acquisition", "second-sense-addition"):
+        run("second-sense-addition", "graft-weights", "--model", MODEL, "--phase", phase)
     for action in (
         "train-real-word-probes",
         "measure-indicators",
