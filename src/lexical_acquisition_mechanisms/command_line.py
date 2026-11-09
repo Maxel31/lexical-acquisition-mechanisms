@@ -17,6 +17,7 @@ from lexical_acquisition_mechanisms import (
     base_data,
     continued_pretraining,
     hidden_state_similarity,
+    natural_word_sentences,
     neutral_contexts,
     noun_candidates,
     passage_collection,
@@ -188,6 +189,13 @@ def all_actions() -> list[Action]:
             "run の設定ファイルのとおりに継続事前学習を行う（torchrun から、GPU ごとに起動する）",
             continued_pretraining.run_training,
             continued_pretraining.add_arguments,
+        ),
+        Action(
+            "evaluation-data",
+            "extract-natural-word-sentences",
+            "自然な語の用例から、課題の例と、プローブ（内部表現から語の性質を当てる分類器）の"
+            "学習に使う文を取り出す",
+            natural_word_sentences.extract_natural_word_sentences,
         ),
     ]
 

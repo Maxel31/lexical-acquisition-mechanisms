@@ -76,7 +76,7 @@ def finalize_passages(settings: Settings, arguments: argparse.Namespace) -> None
             "sense_addition": settings.sense_addition.model_dump(
                 include={"passages_per_added_sense"}
             ),
-            "evaluation": settings.evaluation.model_dump(include={"sentences_per_natural_word"}),
+            "evaluation": settings.evaluation.model_dump(include={"passages_per_natural_word"}),
         },
     )
     run_unless_unchanged(
