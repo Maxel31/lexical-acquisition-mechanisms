@@ -8,10 +8,12 @@ from lexical_acquisition_mechanisms.component_patching import (
     MLP,
     Component,
     ComponentOutputs,
+    SubspacePatch,
     components,
     estimated_effects,
     outputs_and_gradients,
     patched_metrics,
+    subspace_patched_log_probabilities,
 )
 from lexical_acquisition_mechanisms.language_model import LanguageModel
 from lexical_acquisition_mechanisms.settings import ModelSource
@@ -110,3 +112,31 @@ def test_inputs_of_different_lengths_are_rejected(model: LanguageModel) -> None:
 
     with pytest.raises(ValueError, match="長さがそろっていません"):
         outputs_and_gradients(model, [first, first[:-1]], [0], [choice, choice])
+
+
+def test_subspace_patches_replace_only_the_subspace(model: LanguageModel) -> None:
+    first, second, choice = pair(model)
+    positions = [3]
+    original, replacement = (
+        model.head_outputs([ids], positions, [(0, 2)])[0] for ids in (first, second)
+    )
+    full, empty = np.eye(8), np.zeros((8, 0))
+    patches = [
+        None,
+        SubspacePatch(0, 2, full, replacement),
+        SubspacePatch(0, 2, full, original),
+        SubspacePatch(0, 2, empty, replacement),
+    ]
+
+    values = subspace_patched_log_probabilities(model, first, positions, patches, list(choice))
+
+    clean = model.next_token_log_probabilities([first], [len(first) - 1], list(choice))[0]
+    # 入れ替えない・元の値で入れ替える・0次元の部分空間では、変わらない
+    for row in (0, 2, 3):
+        np.testing.assert_allclose(values[row], clean, atol=1e-5)
+    # 全ての次元で入れ替えると、head の出力をまるごと入れ替えたのと同じ
+    _, outputs, _ = outputs_and_gradients(model, [first, second], positions, [choice, choice])
+    whole = patched_metrics(
+        model, first, positions, choice, [(Component(0, 2), outputs[1].of(Component(0, 2)))]
+    )
+    assert values[1, 0] - values[1, 1] == pytest.approx(whole[0], abs=1e-5)
