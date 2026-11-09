@@ -24,6 +24,7 @@ from lexical_acquisition_mechanisms import (
     passage_finalization,
     passage_review,
     passage_split,
+    probe_and_normalization_words,
     run_settings,
     similarity_ratings,
     training_data,
@@ -196,6 +197,13 @@ def all_actions() -> list[Action]:
             "自然な語の用例から、課題の例と、プローブ（内部表現から語の性質を当てる分類器）の"
             "学習に使う文を取り出す",
             natural_word_sentences.extract_natural_word_sentences,
+        ),
+        Action(
+            "evaluation-data",
+            "build-probe-and-normalization-words",
+            "プローブの学習に使う実在語と非語（実在しない文字列）と、未知語の指標を正規化する"
+            "（既知の語の値を 1 にそろえる）ときの基準にする既知の語を作る",
+            probe_and_normalization_words.build_probe_and_normalization_words,
         ),
     ]
 
