@@ -21,6 +21,7 @@ from lexical_acquisition_mechanisms import (
     category_dependence,
     continued_pretraining,
     dependence_regression,
+    dependence_report,
     evaluation_finalization,
     head_and_mlp_effects,
     head_map_comparison,
@@ -343,6 +344,12 @@ def all_actions() -> list[Action]:
             "比べる",
             head_map_comparison.compare_head_maps,
             head_map_comparison.add_arguments,
+        ),
+        Action(
+            "dependence-on-category-judging-heads",
+            "make-report",
+            "図と表を outputs/figures/dependence-on-category-judging-heads/ に作る",
+            dependence_report.make_report,
         ),
     ]
 
