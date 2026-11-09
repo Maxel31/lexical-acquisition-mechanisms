@@ -19,3 +19,27 @@ llm:
   server_url: http://localhost:8000/v1
   model: Qwen/Qwen3-Next-80B-A3B-Instruct-FP8
   maximum_concurrent_requests: 128
+
+# 語の選定
+words:
+  # 名詞のカテゴリ。name は課題2の選択肢の語にもなる（先頭スペース付きで1トークンの語）。
+  # wordnet_roots の synset の下にある語義を、そのカテゴリの語義とする
+  categories:
+    - name: food
+      description: foods and dishes that people eat
+      wordnet_roots: [food.n.01, food.n.02]
+    - name: animal
+      description: animals
+      wordnet_roots: [animal.n.01]
+    - name: vehicle
+      description: vehicles that carry people or goods
+      wordnet_roots: [vehicle.n.01]
+    - name: clothing
+      description: clothing and footwear worn on the body
+      wordnet_roots: [clothing.n.01, footwear.n.02]
+    - name: furniture
+      description: furniture and home furnishings
+      wordnet_roots: [furnishing.n.02]
+    - name: building
+      description: buildings
+      wordnet_roots: [building.n.01]

@@ -23,7 +23,6 @@ Besides the unknown words' indicators, the evaluation uses tasks that ask the mo
 
 ```bash
 uv sync
-uv run python -m nltk.downloader wordnet
 uv run wandb login   # only to send training logs to W&B (a web service that keeps experiment logs)
 ```
 
