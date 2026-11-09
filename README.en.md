@@ -188,6 +188,14 @@ uv run lexical-acquisition-mechanisms evaluation-data check-with-pretrained-mode
 # used for evaluation
 uv run lexical-acquisition-mechanisms evaluation-data finalize \
   --review-csv data/evaluation/minimal_pairs_review.csv
+
+# For each pair of the first and second sense nouns of the second sense addition, make minimal
+# pair candidates and keep those that pass the LLM's judgment
+uv run lexical-acquisition-mechanisms evaluation-data generate-second-sense-minimal-pairs   # LLM
+
+# Keep the minimal pairs whose cues fix the two senses in the published OLMo 2 models, and make
+# the sense task questions (the unknown word goes in the blank; the choices are the two nouns)
+uv run lexical-acquisition-mechanisms evaluation-data build-second-sense-questions          # GPU
 ```
 
 ### 2. Pilot (7B)

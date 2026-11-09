@@ -178,6 +178,13 @@ uv run lexical-acquisition-mechanisms evaluation-data check-with-pretrained-mode
 # approved が 0 の最小対を除き、評価に使う最小対と課題の問題を書き出す
 uv run lexical-acquisition-mechanisms evaluation-data finalize \
   --review-csv data/evaluation/minimal_pairs_review.csv
+
+# 2つ目の語義の追加の、1つ目と2つ目の語義の名詞の組ごとに、最小対の候補を作り、LLM の判定で絞る
+uv run lexical-acquisition-mechanisms evaluation-data generate-second-sense-minimal-pairs   # LLM
+
+# 公開されている OLMo 2 で、手がかりが2つの語義を決めている最小対を残し、課題1の問題
+# （空欄に未知語を入れ、2つの語義の名詞から選ぶ）を作る
+uv run lexical-acquisition-mechanisms evaluation-data build-second-sense-questions          # GPU
 ```
 
 ### 2. パイロット（7B）

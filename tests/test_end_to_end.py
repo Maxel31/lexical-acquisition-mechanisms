@@ -24,6 +24,7 @@ from lexical_acquisition_mechanisms import (
     component_adoption,
     dependence_regression,
     pretrained_model_checks,
+    second_sense_evaluation_data,
     significant_heads_and_mlps,
     task_questions,
 )
@@ -156,11 +157,10 @@ def test_all_commands_run_to_the_end(
     monkeypatch.setattr(task_questions, "sense_words", lambda synset: set())
     # 無作為な重みでは、最小対の手がかりが効かず、課題の正解率も偶然の水準を超えないので、
     # 全ての候補を通し、全ての課題を使う
-    monkeypatch.setattr(
-        pretrained_model_checks,
-        "cue_effects",
-        lambda model, candidates, words: np.ones((len(candidates), 2)),
-    )
+    for module in (pretrained_model_checks, second_sense_evaluation_data):
+        monkeypatch.setattr(
+            module, "cue_effects", lambda model, candidates, words: np.ones((len(candidates), 2))
+        )
     monkeypatch.setattr(
         pretrained_model_checks,
         "usable_tasks",
@@ -181,6 +181,8 @@ def test_all_commands_run_to_the_end(
     review = Path("data/evaluation/minimal_pairs_review.csv")
     approve_all(review)
     run("evaluation-data", "finalize", "--review-csv", str(review))
+    run("evaluation-data", "generate-second-sense-minimal-pairs")
+    run("evaluation-data", "build-second-sense-questions")
 
     train_all("unknown-word-acquisition")
     train_all("second-sense-addition")
