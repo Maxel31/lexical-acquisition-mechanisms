@@ -106,6 +106,17 @@ class WordsSettings(SettingsSection):
         return categories
 
 
+class UnknownWordSettings(SettingsSection):
+    """未知語（モデルが見たことのない文字列）の候補の作り方。"""
+
+    # 一度も現れないことを確かめる、infini-gram の索引
+    corpus_indexes: list[str] = Field(min_length=1)
+    # ARC 非語データベースの、同音の実在語がない非語の TSV の URL
+    arc_nonwords_url: str
+    # トークン数（2・3）と綴りの近さ（near・far）の組ごとに集める、一度も現れない候補の数
+    candidates_per_group: int = Field(gt=0)
+
+
 class Settings(SettingsSection):
     """settings.yaml の全体。"""
 
@@ -114,6 +125,7 @@ class Settings(SettingsSection):
     llm: LlmSettings
     base_data: BaseDataSettings
     words: WordsSettings
+    unknown_words: UnknownWordSettings
 
 
 def load_settings(path: Path = Path(SETTINGS_FILE_NAME)) -> Settings:

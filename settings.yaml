@@ -63,3 +63,15 @@ words:
   # 使われ方を LLM が判定する、語ごとの見本の数
   usage_examples_per_word: 50
   seed: 0
+
+# 未知語（モデルが見たことのない文字列）の候補
+unknown_words:
+  # 一度も現れないことを確かめる infini-gram の索引（OLMo 2 13B の中間学習・事後学習までの学習データと、Pile）
+  corpus_indexes:
+    - v4_olmo-2-1124-13b-instruct_llama
+    - v4_piletrain_llama
+  # ARC 非語データベースの、同音の実在語がない非語（Rastle et al., 2002。figshare で公開）
+  arc_nonwords_url: https://ndownloader.figshare.com/files/13877978
+  # トークン数（2・3）と綴りの近さ（near・far）の組ごとに集める、一度も現れない候補の数
+  # （使うのは各12個。最初のトークンが重ならないように選ぶための余裕を持たせる）
+  candidates_per_group: 40
