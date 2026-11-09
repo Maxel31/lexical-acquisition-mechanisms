@@ -5,11 +5,14 @@
 
 import argparse
 
-from lexical_acquisition_mechanisms import unknown_word_assignments
+from lexical_acquisition_mechanisms import sense_addition_assignments, unknown_word_assignments
 from lexical_acquisition_mechanisms.settings import Settings
 
 BUILDERS = {
     unknown_word_assignments.EXPERIMENT: unknown_word_assignments.build_unknown_word_assignments,
+    sense_addition_assignments.EXPERIMENT: (
+        sense_addition_assignments.build_sense_addition_assignments
+    ),
 }
 
 
