@@ -9,6 +9,8 @@
    - 課題2: 名詞を足す条件はカテゴリ（6択）、形容詞を足す条件は品詞（noun / adjective）
    を作る。正解は、donor の手がかりの文では donor（の属性）、ターゲット語の手がかりの文では元の語義
    （の属性）。対照の run は、対応する条件の問題で測る。
+   最小対の2文の問題は、例と選択肢の順番を同じにし、手がかりの語だけが違うようにする（head と MLP の
+   出力を、位置ごとにもう一方の文での出力に入れ替えるため）。
 """
 
 import argparse
@@ -155,7 +157,8 @@ def sense_addition_questions(
         run_pairs = [pair for pair in pairs if pair.target == target and pair.donor in run_donors]
         for pair_number, pair in enumerate(run_pairs):
             for cue, sentence in (("donor", pair.donor_sentence), ("target", pair.target_sentence)):
-                random_numbers = random.Random(f"{seed}:{run}:{target}:{pair_number}:{cue}")
+                # 2文で同じ乱数を使い、例と選択肢の順番をそろえる
+                random_numbers = random.Random(f"{seed}:{run}:{target}:{pair_number}")
                 template = sentence.replace(BLANK, WORD)
                 sense_choices = list(senses)
                 random_numbers.shuffle(sense_choices)
