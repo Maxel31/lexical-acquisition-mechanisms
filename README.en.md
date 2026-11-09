@@ -296,6 +296,14 @@ uv run lexical-acquisition-mechanisms second-sense-addition measure-meaning \
 # forgotten, and whether the second sense also works in natural text)
 uv run lexical-acquisition-mechanisms second-sense-addition measure-losses \
   --model "$MODEL"   # GPU
+
+# Move the weight changes of each phase's training part by part (embeddings, the attention and
+# MLP of each layer, and so on), and measure how much of the sense task value comes back (whether
+# the change of that part is sufficient or necessary)
+for phase in unknown-word-acquisition second-sense-addition; do
+  uv run lexical-acquisition-mechanisms second-sense-addition graft-weights \
+    --model "$MODEL" --phase "$phase"   # GPU
+done
 ```
 
 **Manual step**: from the figure of the meaning indicator in `outputs/figures/unknown-word-acquisition/`, take as K (the number of passages inserted per added sense in sense addition) the number beyond which more passages barely raise it, and write K to `sense_addition.passages_per_added_sense` in `settings.yaml`.

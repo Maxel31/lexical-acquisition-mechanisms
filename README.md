@@ -276,6 +276,13 @@ uv run lexical-acquisition-mechanisms second-sense-addition measure-meaning \
 # （驚き度）を測る（1つ目の語義を忘れたか、2つ目の語義が自然な文章でも入ったか）
 uv run lexical-acquisition-mechanisms second-sense-addition measure-losses \
   --model "$MODEL"   # GPU
+
+# 各フェーズの学習で変わった重みを部品（埋め込み・各層の attention と MLP など）ごとに移し、
+# 課題1の値がどれだけ戻るか（その部品の変化で足りるか、要るか）を測る
+for phase in unknown-word-acquisition second-sense-addition; do
+  uv run lexical-acquisition-mechanisms second-sense-addition graft-weights \
+    --model "$MODEL" --phase "$phase"   # GPU
+done
 ```
 
 **手作業**: `outputs/figures/unknown-word-acquisition/` の意味の指標の図を見て、それ以上差し込んでもほとんど上がらない件数を K（語義の追加で、足す語義1つあたりに差し込む用例の数）とし、`settings.yaml` の `sense_addition.passages_per_added_sense` に書く。
