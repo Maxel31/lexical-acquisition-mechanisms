@@ -85,8 +85,10 @@ class NounCandidate:
 def generate_noun_candidates(settings: Settings, arguments: argparse.Namespace) -> None:
     prompts = [PromptTemplate.load(LISTING_PROMPT), PromptTemplate.load(USAGE_PROMPT)]
     record_settings = {
-        "words": settings.words.model_dump(),
-        "passages": settings.passages.model_dump(),
+        "words": settings.words.model_dump(exclude={"adjectives_per_listing"}),
+        "passages": settings.passages.model_dump(
+            include={"tokens_per_passage", "maximum_passages_per_document"}
+        ),
         "tokenizer": next(iter(settings.models.values())).model_dump(),
         **prompt_record_settings(settings.llm, prompts),
     }

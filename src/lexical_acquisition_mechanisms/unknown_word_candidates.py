@@ -55,7 +55,7 @@ class UnknownWordCandidate:
 def generate_unknown_word_candidates(settings: Settings, arguments: argparse.Namespace) -> None:
     record_settings = {
         "unknown_words": settings.unknown_words.model_dump(),
-        "words": settings.words.model_dump(),
+        "words": settings.words.model_dump(include={"categories", "seed"}),
         "tokenizer": next(iter(settings.models.values())).model_dump(),
     }
     step = Step(COMMAND, inputs={}, outputs=[OUTPUT_PATH], settings=record_settings)
