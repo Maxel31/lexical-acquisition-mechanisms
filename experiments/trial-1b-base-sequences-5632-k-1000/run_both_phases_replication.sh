@@ -2,7 +2,7 @@
 # 1 を seed を変えて学習し直した後の作業を、まとめて流す（43| の続き。GPU 0〜4）。
 # 1. 2 の学習の設定を作り（build_both_phases_replication.py）、2 の学習と解析をやり直す
 #    （run_second_sense_replication.sh。GPU 0〜4）
-# 2. 1 と同時に、1 の解析をやり直す（GPU 3・4 を 2 の学習と分け合う）:
+# 2. 1 と同時に、1 の解析をやり直す（GPU 3・4。その GPU から 2 の学習が抜けるのを待つ）:
 #    3 つの指標と獲得の順番（16|・17|）、1 で変わった重みを部品ごとに移す分析（33|・34|）
 # 先に run_unknown_word_replication.sh で 1 を学習し直しておく。
 # 使い方（リポジトリの最上位のディレクトリで）:
@@ -23,10 +23,19 @@ if [ -n "$WAIT_FOR" ]; then
 fi
 note() { echo "=== $(date '+%F %T') $*" >> "$L/after_training.log"; }
 
+# 学習は 1 枚の GPU で約 75 GB 使うので、解析は、学習が抜ける（使用中のメモリが 50 GB 未満になる）
+# のを待ってから始める（解析どうしは、GPU を分け合ってよい）
+wait_for_gpu() {
+  while [ "$(nvidia-smi -i "$1" --query-gpu=memory.used --format=csv,noheader,nounits)" -ge 50000 ]; do
+    sleep 60
+  done
+}
+
 # 引数: GPU の番号、ログの名前、コマンド
 job() {
   local gpu=$1 name=$2
   shift 2
+  wait_for_gpu "$gpu"
   if CUDA_VISIBLE_DEVICES=$gpu uv run python "$@" >> "$L/$name.log" 2>&1; then
     note "終了: $name"
   else
