@@ -15,6 +15,7 @@ from lexical_acquisition_mechanisms import (
     acquisition_order,
     adjective_candidates,
     assignments,
+    attribute_probes,
     base_data,
     continued_pretraining,
     evaluation_finalization,
@@ -294,6 +295,13 @@ def all_actions() -> list[Action]:
             "効果の信頼区間を出し、有意な head と MLP を選ぶ",
             significant_heads_and_mlps.select_significant_heads_and_mlps,
             significant_heads_and_mlps.add_arguments,
+        ),
+        Action(
+            "sense-addition",
+            "train-attribute-probes",
+            "選んだ head の出力から、名詞のカテゴリと品詞を当てるプローブを学習する",
+            attribute_probes.train_attribute_probes,
+            attribute_probes.add_arguments,
         ),
     ]
 
