@@ -13,6 +13,7 @@ import pytest
 import torch
 import yaml
 
+from lexical_acquisition_mechanisms import continued_pretraining
 from lexical_acquisition_mechanisms.continued_pretraining import Process, SequenceBatches, train
 from lexical_acquisition_mechanisms.run_settings import RunSettings, build_run_settings
 from lexical_acquisition_mechanisms.settings import ModelSource, load_settings
@@ -29,6 +30,7 @@ def free_port() -> int:
 
 def run_settings(tmp_path: Path, model: ModelSource, sequences: int = 5) -> RunSettings:
     """5つの系列（長さ 8）。1 step は2つの系列、用例は位置 3 と 20 から長さ 4。"""
+    tmp_path.mkdir(parents=True, exist_ok=True)
     tokens = np.random.default_rng(0).integers(1, 1000, sequences * SEQUENCE_LENGTH)
     np.save(tmp_path / "tokens.npy", tokens.astype(np.uint32))
     np.save(tmp_path / "starts.npy", np.array([3, 20], dtype=np.int64))
@@ -51,6 +53,7 @@ def run_settings(tmp_path: Path, model: ModelSource, sequences: int = 5) -> RunS
         passage_starts=str(tmp_path / "starts.npy"),
         passage_length=4,
         output_directory=str(tmp_path / "output"),
+        checkpoint_fractions=[0.5],
     )
     path.write_text(yaml.safe_dump(content), encoding="utf-8")
     return RunSettings.model_validate(content)
@@ -121,3 +124,54 @@ def test_two_processes_give_the_same_losses(
     # 計算は bf16 なので、少しずれてよい
     for one, two in zip(alone, together, strict=True):
         assert one["loss"] == pytest.approx(two["loss"], rel=2e-2)
+
+
+def metrics_of(run: RunSettings) -> list[dict]:
+    with (run.output_directory / "metrics.jsonl").open(encoding="utf-8") as file:
+        return [json.loads(line) for line in file]
+
+
+def test_weights_are_saved_and_finished_runs_are_skipped(
+    tmp_path: Path, tiny_model_source, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MASTER_PORT", str(free_port()))
+    run = run_settings(tmp_path, tiny_model_source)
+
+    train(run)
+    train(run)
+
+    # 3 step のうち、半分（2 step）と最後に保存する。終わった run は学習し直さない
+    for name in ("checkpoint-50", "final"):
+        assert (run.output_directory / name / "config.json").exists()
+        assert (run.output_directory / name / "tokenizer.json").exists()
+    assert (run.output_directory / "completed.json").exists()
+    assert not (run.output_directory / "state").exists()
+    assert [record["step"] for record in metrics_of(run)] == [1, 2, 3]
+
+
+def test_stopped_training_continues_from_the_saved_state(
+    tmp_path: Path, tiny_model_source, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(continued_pretraining, "STATE_INTERVAL_STEPS", 1)
+    monkeypatch.setenv("MASTER_PORT", str(free_port()))
+    whole = run_settings(tmp_path / "whole", tiny_model_source)
+    train(whole)
+    stopped = run_settings(tmp_path / "stopped", tiny_model_source)
+    original_step = continued_pretraining._train_step
+
+    def stop_at_the_third_step(model, batches, step, run, process):
+        if step == 2:
+            raise RuntimeError("学習を止めた")
+        return original_step(model, batches, step, run, process)
+
+    monkeypatch.setattr(continued_pretraining, "_train_step", stop_at_the_third_step)
+    monkeypatch.setenv("MASTER_PORT", str(free_port()))
+    with pytest.raises(RuntimeError, match="学習を止めた"):
+        train(stopped)
+    monkeypatch.setattr(continued_pretraining, "_train_step", original_step)
+    monkeypatch.setenv("MASTER_PORT", str(free_port()))
+    train(stopped)
+
+    # 2 step 目の後の状態から、3 step 目を学習し直す（止めずに学習したときと同じ損失）
+    assert [record["step"] for record in metrics_of(stopped)] == [1, 2, 3]
+    assert metrics_of(stopped)[2]["loss"] == pytest.approx(metrics_of(whole)[2]["loss"], rel=1e-3)

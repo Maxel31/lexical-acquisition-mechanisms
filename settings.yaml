@@ -182,6 +182,8 @@ training:
   z_loss_weight: 1.0e-5
   # 途中の重みを保存する、学習の進み具合（最後の重みは必ず保存する。暫定）
   checkpoint_fractions: [0.25, 0.5, 0.75]
+  # 保存する重みの数値の型（bfloat16 は float32 の半分の大きさ。60 run × 4回で約3.6TB）
+  checkpoint_dtype: bfloat16
   # 1トークンの未知語の埋め込みの初期値: 既存の埋め込みの平均 + 乱数（暫定）
   new_token_embedding_initialization:
     # 乱数の標準偏差の、既存の埋め込みの次元ごとの標準偏差に対する倍率
