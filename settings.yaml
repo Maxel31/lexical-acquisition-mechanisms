@@ -52,3 +52,13 @@ words:
     - name: building
       description: buildings
       wordnet_roots: [building.n.01]
+  # LLM に名詞を挙げさせるときの、挙げる語の種類（種類ごとに1回ずつ）と、1回に挙げさせる数
+  noun_listing_kinds:
+    - very common, everyday
+    - less common but well-known
+  nouns_per_listing: 200
+  # 頻度と使われ方を見積もるときに読む、Pile の先頭の断片の数（全1,650個のうち約3%）
+  pile_sample_shards: 50
+  # 使われ方を LLM が判定する、語ごとの見本の数
+  usage_examples_per_word: 50
+  seed: 0
