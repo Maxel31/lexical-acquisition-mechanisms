@@ -25,6 +25,7 @@ from lexical_acquisition_mechanisms import (
     dependence_regression,
     pretrained_model_checks,
     second_sense_evaluation_data,
+    second_sense_losses,
     significant_heads_and_mlps,
     task_questions,
 )
@@ -188,6 +189,9 @@ def test_all_commands_run_to_the_end(
     train_all("second-sense-addition")
     run("second-sense-addition", "measure-context-effects", "--model", MODEL)
     run("second-sense-addition", "measure-meaning", "--model", MODEL)
+    # 作った世界では、名詞ごとの評価用の用例が数件しかないので、1 件ずつ読む
+    monkeypatch.setattr(second_sense_losses, "PASSAGES_PER_NOUN", 1)
+    run("second-sense-addition", "measure-losses", "--model", MODEL)
     for action in (
         "train-real-word-probes",
         "measure-indicators",

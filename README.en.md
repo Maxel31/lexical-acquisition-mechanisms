@@ -290,6 +290,12 @@ uv run lexical-acquisition-mechanisms second-sense-addition measure-context-effe
 # the minimal pair sentences)
 uv run lexical-acquisition-mechanisms second-sense-addition measure-meaning \
   --model "$MODEL"   # GPU
+
+# At the same weights, replace the noun in passages of X and Y not used in training with the
+# unknown word, and measure the loss (surprisal) of the unknown word (whether the first sense is
+# forgotten, and whether the second sense also works in natural text)
+uv run lexical-acquisition-mechanisms second-sense-addition measure-losses \
+  --model "$MODEL"   # GPU
 ```
 
 **Manual step**: from the figure of the meaning indicator in `outputs/figures/unknown-word-acquisition/`, take as K (the number of passages inserted per added sense in sense addition) the number beyond which more passages barely raise it, and write K to `sense_addition.passages_per_added_sense` in `settings.yaml`.

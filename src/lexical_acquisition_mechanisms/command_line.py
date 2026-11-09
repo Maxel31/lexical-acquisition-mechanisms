@@ -42,6 +42,7 @@ from lexical_acquisition_mechanisms import (
     run_settings,
     second_sense_context_effects,
     second_sense_evaluation_data,
+    second_sense_losses,
     second_sense_meaning,
     sense_accuracy,
     sense_addition_report,
@@ -325,6 +326,13 @@ def all_actions() -> list[Action]:
             "同じ重みで、未知語の表現の X・Y への類似度と、表現での文脈の効果を層ごとに測る",
             second_sense_meaning.measure_meaning,
             second_sense_meaning.add_arguments,
+        ),
+        Action(
+            "second-sense-addition",
+            "measure-losses",
+            "同じ重みで、学習に使っていない X と Y の用例で、未知語の損失（驚き度）を測る",
+            second_sense_losses.measure_losses,
+            second_sense_losses.add_arguments,
         ),
         Action(
             "sense-addition",
