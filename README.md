@@ -271,6 +271,11 @@ uv run lexical-acquisition-mechanisms second-sense-addition measure-context-effe
 # （最小対の文の空欄の位置で、未知語の表現が手がかりに応じて X か Y に寄る量）を、層ごとに測る
 uv run lexical-acquisition-mechanisms second-sense-addition measure-meaning \
   --model "$MODEL"   # GPU
+
+# 同じ重みで、学習に使っていない X と Y の用例の名詞を未知語に置き換えて読ませ、未知語の損失
+# （驚き度）を測る（1つ目の語義を忘れたか、2つ目の語義が自然な文章でも入ったか）
+uv run lexical-acquisition-mechanisms second-sense-addition measure-losses \
+  --model "$MODEL"   # GPU
 ```
 
 **手作業**: `outputs/figures/unknown-word-acquisition/` の意味の指標の図を見て、それ以上差し込んでもほとんど上がらない件数を K（語義の追加で、足す語義1つあたりに差し込む用例の数）とし、`settings.yaml` の `sense_addition.passages_per_added_sense` に書く。
