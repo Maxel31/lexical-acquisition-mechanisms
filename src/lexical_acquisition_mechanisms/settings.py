@@ -40,11 +40,23 @@ class ModelSource(SettingsSection):
     revision: str | None = None
 
 
+class LlmSettings(SettingsSection):
+    """語の候補の生成や用例の判定に使う LLM（vLLM のサーバ）。"""
+
+    # OpenAI 互換の API の URL
+    server_url: str
+    # サーバで動かすモデルの名前
+    model: str
+    # 同時に送る問い合わせの数の上限
+    maximum_concurrent_requests: int = Field(gt=0)
+
+
 class Settings(SettingsSection):
     """settings.yaml の全体。"""
 
     # --model で指定する名前と、モデルの取得元
     models: dict[ModelName, ModelSource] = Field(min_length=1)
+    llm: LlmSettings
 
 
 def load_settings(path: Path = Path(SETTINGS_FILE_NAME)) -> Settings:
@@ -90,7 +102,8 @@ _LoaderRejectingDuplicateKeys.add_constructor(
 )
 
 
-# pydantic の英語の説明を、何を直せばよいかが分かる日本語にする（ない種類は英語のまま出す）
+# pydantic の英語の説明を、何を直せばよいかが分かる日本語にする（ない種類は英語のまま出す）。
+# {gt} などには、pydantic が示す境界の値が入る
 _PROBLEM_DESCRIPTIONS = {
     "missing": "必要な項目がありません",
     "extra_forbidden": "知らない項目です（書き間違いでないか確かめてください）",
@@ -98,6 +111,10 @@ _PROBLEM_DESCRIPTIONS = {
     "model_type": "「項目名: 値」の組を並べてください",
     "string_type": "文字列にしてください",
     "too_short": "1つ以上書いてください",
+    "int_parsing": "整数にしてください",
+    "greater_than": "{gt} より大きい数にしてください",
+    "greater_than_equal": "{ge} 以上の数にしてください",
+    "less_than_equal": "{le} 以下の数にしてください",
     "string_pattern_mismatch": f"使えない文字があります（{MODEL_NAME_RULE}）",
 }
 
@@ -105,7 +122,11 @@ _PROBLEM_DESCRIPTIONS = {
 def _describe_problems(path: Path, error: ValidationError) -> str:
     lines = [f"設定ファイル {path} の内容が正しくありません:"]
     for problem in error.errors():
-        description = _PROBLEM_DESCRIPTIONS.get(problem["type"], problem["msg"])
+        description = _PROBLEM_DESCRIPTIONS.get(problem["type"])
+        if description is None:
+            description = problem["msg"]
+        else:
+            description = description.format(**problem.get("ctx", {}))
         lines.append(f"- {_describe_location(problem['loc'])}: {description}")
     return "\n".join(lines)
 

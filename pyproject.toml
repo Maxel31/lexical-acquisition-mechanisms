@@ -5,6 +5,7 @@ description = "言語モデルにおける語彙獲得と語義追加の機構�
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "httpx>=0.28",
     "numpy>=2.5",
     "pydantic>=2",
     "pyyaml>=6",

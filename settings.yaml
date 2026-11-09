@@ -13,3 +13,9 @@ models:
   OLMo-2-1124-13B:
     repository: allenai/OLMo-2-1124-13B
     revision: 08d2aca2e28ab67ad859793f76ef5c923e94ac11  # stage1-step596057-tokens5001B
+
+# 語の候補の生成や用例の判定に使う LLM（README のとおりに起動した vLLM のサーバ）
+llm:
+  server_url: http://localhost:8000/v1
+  model: Qwen/Qwen3-Next-80B-A3B-Instruct-FP8
+  maximum_concurrent_requests: 128
