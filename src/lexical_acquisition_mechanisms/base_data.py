@@ -12,6 +12,7 @@
 import argparse
 import asyncio
 import csv
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -118,6 +119,30 @@ async def _build_base_data(
     np.save(paths["validation"], sequences[end_of_base:][kept[end_of_base:]])
     _write_sources(paths["sources"], data, starts, sequence_numbers, removed, end_of_base)
     print(f"繰り返しの多い系列 {sum(removed)} 個を除きました。")
+
+
+def count_word_occurrences(
+    sequences: np.ndarray, words: Mapping[str, Sequence[int]], continues_word: np.ndarray
+) -> dict[str, int]:
+    """語ごとに、トークン列が系列（行）の中に現れる回数。
+
+    直後のトークンが語の続き（continues_word[トークン番号] が真）のものは数えない
+    （例: " cat" の後に "fish" が続く " catfish"）。系列の最後で終わるものは数える。
+    """
+    flat = sequences.reshape(-1)
+    length = sequences.shape[1]
+    counts = {}
+    for word, token_ids in words.items():
+        starts = np.flatnonzero(flat == token_ids[0])
+        starts = starts[starts % length + len(token_ids) <= length]
+        for offset, token_id in enumerate(token_ids[1:], start=1):
+            starts = starts[flat[starts + offset] == token_id]
+        ends = starts + len(token_ids)
+        inside = ends % length != 0
+        complete = np.ones(len(starts), dtype=bool)
+        complete[inside] = ~continues_word[flat[ends[inside]]]
+        counts[word] = int(complete.sum())
+    return counts
 
 
 def read_pretraining_data(configuration_text: str) -> PretrainingData:

@@ -110,3 +110,13 @@ def test_spans_give_the_position_of_each_part(word_tokenizer: WordTokenizer) -> 
     # 語の最後のトークン（resonunt なら unt）の位置
     assert token_ids[spans[2][-1]] == word_ids[-1]
     assert spans[3].stop == len(token_ids)
+
+
+def test_tokens_that_continue_a_word_start_with_a_letter(word_tokenizer: WordTokenizer) -> None:
+    flags = word_tokenizer.word_continuation_flags()
+    cat, fish = word_tokenizer.word_token_ids("catfish")
+
+    assert flags[fish]
+    assert not flags[cat]
+    assert not flags[word_tokenizer.encode(["."])[0]]
+    assert not flags[word_tokenizer.unused_token_ids(1)[0]]

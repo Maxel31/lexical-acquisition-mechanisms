@@ -11,6 +11,7 @@
 
 from collections.abc import Sequence
 
+import numpy as np
 from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizerBase
 
 from lexical_acquisition_mechanisms.settings import ModelSource
@@ -107,6 +108,18 @@ class WordTokenizer:
         if known_ids:
             pieces.append(self._tokenizer.decode(known_ids))
         return "".join(pieces)
+
+    def word_continuation_flags(self) -> np.ndarray:
+        """トークン番号ごとに、そのトークンが英字で始まる（直前の語の続きになる）か。
+
+        例: "fish" は True（" cat" の後なら " catfish" になる）、" fish" や "." は False。
+        使われていないトークン番号は False にする。
+        """
+        flags = np.zeros(self.number_of_embedding_rows, dtype=bool)
+        for token_id in range(len(self._tokenizer)):
+            text = self._tokenizer.decode([token_id])
+            flags[token_id] = bool(text) and text[0].isascii() and text[0].isalpha()
+        return flags
 
     def unused_token_ids(self, count: int) -> list[int]:
         """埋め込みにはあるが、トークナイザが使っていないトークン番号を、小さい順に返す。"""
