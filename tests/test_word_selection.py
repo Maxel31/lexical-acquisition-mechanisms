@@ -13,7 +13,11 @@ from lexical_acquisition_mechanisms.csv_tables import write_rows
 from lexical_acquisition_mechanisms.noun_candidates import NounCandidate
 from lexical_acquisition_mechanisms.settings import ModelSource, Settings, load_settings
 from lexical_acquisition_mechanisms.unknown_word_candidates import UnknownWordCandidate
-from lexical_acquisition_mechanisms.word_selection import SelectionInputs, build_selected_words
+from lexical_acquisition_mechanisms.word_selection import (
+    ExcludedWord,
+    SelectionInputs,
+    build_selected_words,
+)
 from lexical_acquisition_mechanisms.word_tokenizer import WordTokenizer
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -131,6 +135,7 @@ def select(
         adjectives=tmp_path / "adjective_candidates.csv",
         unknown_words=tmp_path / "unknown_word_candidates.csv",
         base_sequences=tmp_path / "base_sequences.npy",
+        excluded_words=tmp_path / "excluded_words.csv",
     )
     tokenizer = WordTokenizer.from_model(next(iter(settings.models.values())))
     tokens = tokenizer.encode(["We ate bread, cheese and bread with breadsticks."])
@@ -168,6 +173,17 @@ def test_nouns_match_in_frequency_across_categories_without_synonyms(
     # 基データ（の代わりの1文）での出現回数。" breadsticks" の一部は数えない
     assert rows["bread"]["base_data_count"] == "2"
     assert rows["cheese"]["base_data_count"] == "1"
+
+
+def test_excluded_words_are_replaced(tmp_path: Path, settings: Settings) -> None:
+    excluded = [ExcludedWord("bread", "noun", "確認で approved を 0 にした")]
+    write_rows(tmp_path / "excluded_words.csv", ExcludedWord, excluded)
+
+    rows = select(tmp_path, settings, [noun_candidate(*noun) for noun in NOUNS])
+
+    # bread の代わりに、目標の値（10^5.34・10^5.51）に次に近い cheese と pasta を選ぶ
+    assert words_with_role(rows, "noun") == {"cheese", "pasta", "hog", "cat"}
+    assert "bread" not in rows
 
 
 def test_target_words_match_the_multi_token_frequencies(tmp_path: Path, settings: Settings) -> None:
