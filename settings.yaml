@@ -111,3 +111,41 @@ sense_addition:
 evaluation:
   # 自然な語（実験で操作しない実在語）ごとの、課題の例やプローブの学習に使う文の数
   sentences_per_natural_word: 20
+  # 中立文脈（語の意味を示さない文の書き出し。直後に語を置く）の候補。前から順に、条件に合うものを使う。
+  # 前の20種は設計書の付録Eの候補、後の10種は、足りないときに使う同じ形の文
+  neutral_context_candidates:
+    - Do you know about the
+    - I heard something about the
+    - Let me tell you about the
+    - She asked me about the
+    - We talked about the
+    - He wrote a short note about the
+    - They were thinking about the
+    - I read an article about the
+    - Have you ever heard of the
+    - Nobody mentioned the
+    - Here is some information about the
+    - I want to learn more about the
+    - There was a question about the
+    - My friend told me about the
+    - Can you explain the
+    - I forgot about the
+    - Someone asked about the
+    - This is a story about the
+    - Everyone was curious about the
+    - I have never thought about the
+    - I was reading about the
+    - We were discussing the
+    - He asked a question about the
+    - They told us about the
+    - I just learned about the
+    - She was talking about the
+    - Did you hear about the
+    - There is a lot to say about the
+    - I wanted to ask about the
+    - We need to talk about the
+  # 使う中立文脈の数（文脈なしを除く）
+  number_of_neutral_contexts: 20
+  # 中立文脈の条件: 自然な名詞の対数確率のカテゴリごとの平均（全カテゴリの平均との差）が、
+  # 全候補での平均から、どのカテゴリでもこれ（自然対数）より離れない
+  maximum_neutral_context_deviation: 0.5
