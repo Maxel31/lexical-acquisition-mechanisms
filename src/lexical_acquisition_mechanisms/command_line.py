@@ -42,6 +42,7 @@ from lexical_acquisition_mechanisms import (
     run_settings,
     second_sense_context_effects,
     second_sense_evaluation_data,
+    second_sense_meaning,
     sense_accuracy,
     sense_addition_report,
     significant_heads_and_mlps,
@@ -317,6 +318,13 @@ def all_actions() -> list[Action]:
             "文脈の効果を測る",
             second_sense_context_effects.measure_context_effects,
             second_sense_context_effects.add_arguments,
+        ),
+        Action(
+            "second-sense-addition",
+            "measure-meaning",
+            "同じ重みで、未知語の表現の X・Y への類似度と、表現での文脈の効果を層ごとに測る",
+            second_sense_meaning.measure_meaning,
+            second_sense_meaning.add_arguments,
         ),
         Action(
             "sense-addition",

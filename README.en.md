@@ -283,6 +283,13 @@ uv run lexical-acquisition-mechanisms unknown-word-acquisition make-report
 # the cue for Y and the sentence with the cue for X)
 uv run lexical-acquisition-mechanisms second-sense-addition measure-context-effects \
   --model "$MODEL"   # GPU
+
+# At the same weights, measure per layer the similarity of the unknown word's representation to
+# those of X and Y (right after neutral contexts), and the context effect in the representation
+# (how much the unknown word's representation moves toward X or Y with the cue, at the blank of
+# the minimal pair sentences)
+uv run lexical-acquisition-mechanisms second-sense-addition measure-meaning \
+  --model "$MODEL"   # GPU
 ```
 
 **Manual step**: from the figure of the meaning indicator in `outputs/figures/unknown-word-acquisition/`, take as K (the number of passages inserted per added sense in sense addition) the number beyond which more passages barely raise it, and write K to `sense_addition.passages_per_added_sense` in `settings.yaml`.

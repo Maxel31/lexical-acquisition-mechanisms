@@ -187,6 +187,7 @@ def test_all_commands_run_to_the_end(
     train_all("unknown-word-acquisition")
     train_all("second-sense-addition")
     run("second-sense-addition", "measure-context-effects", "--model", MODEL)
+    run("second-sense-addition", "measure-meaning", "--model", MODEL)
     for action in (
         "train-real-word-probes",
         "measure-indicators",
