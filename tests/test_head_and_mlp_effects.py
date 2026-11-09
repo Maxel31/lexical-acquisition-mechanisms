@@ -7,9 +7,10 @@ import pyarrow as arrow
 import pyarrow.parquet as parquet
 import pytest
 
-from lexical_acquisition_mechanisms.csv_tables import write_rows
+from lexical_acquisition_mechanisms.csv_tables import read_rows, write_rows
 from lexical_acquisition_mechanisms.head_and_mlp_effects import write_effects
 from lexical_acquisition_mechanisms.language_model import LanguageModel
+from lexical_acquisition_mechanisms.patching_checks import PatchingCheck, PatchingCheckSummary
 from lexical_acquisition_mechanisms.sense_accuracy import SenseAccuracy
 from lexical_acquisition_mechanisms.settings import ModelSource
 from lexical_acquisition_mechanisms.task_prompts import TaskItem, prompt_template
@@ -65,7 +66,13 @@ def test_effects_are_measured_for_both_directions(
         checkpoints,
         lambda source: LanguageModel.load(source, device="cpu"),
         (tmp_path / "words.csv", tmp_path / "questions.parquet", tmp_path / "accuracy.csv"),
-        (tmp_path / "pairs.parquet", tmp_path / "effects.npz"),
+        (
+            tmp_path / "pairs.parquet",
+            tmp_path / "effects.npz",
+            tmp_path / "checks.csv",
+            tmp_path / "summary.csv",
+        ),
+        seed=0,
     )
 
     assert "1 組除きました" in capsys.readouterr().out
@@ -89,3 +96,11 @@ def test_effects_are_measured_for_both_directions(
     assert np.any(effects["after_target_positions"][:, final_layer] != 0)
     # 同じ重みなので、run によらない
     np.testing.assert_allclose(effects["target_position"][:2], effects["target_position"][2:])
+    # 実際の入れ替えで確かめるのは対照でない run だけ。構成要素は10個なので、全てが上位に入る
+    checks = read_rows(tmp_path / "checks.csv", PatchingCheck)
+    assert {(check.run, check.chosen) for check in checks} == {("other-category-1", "largest")}
+    assert len(checks) == 2 * 10
+    final = [check for check in checks if check.layer == 1]
+    assert all(check.estimated == 0 and abs(check.actual) < 1e-5 for check in final)
+    summary = read_rows(tmp_path / "summary.csv", PatchingCheckSummary)
+    assert [(row.components, row.pairs) for row in summary] == [(10, 2)]
